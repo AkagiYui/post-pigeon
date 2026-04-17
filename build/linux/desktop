@@ -1,0 +1,13 @@
+[Desktop Entry]
+Version=1.0
+Name=Post Pigeon
+Comment=A post-pigeon application
+# The Exec line includes %u to pass the URL to the application
+Exec=/usr/local/bin/post-pigeon %u
+Terminal=false
+Type=Application
+Icon=post-pigeon
+Categories=Utility;
+StartupWMClass=post-pigeon
+
+ 
