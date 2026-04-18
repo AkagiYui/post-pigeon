@@ -3,7 +3,7 @@ import { createFileRoute } from '@tanstack/solid-router'
 import { ArrowRight, Cpu, PlugZap, Send, TimerReset } from 'lucide-solid'
 import { Events } from '@wailsio/runtime'
 
-import { GreetService } from '../../bindings/post-pigeon'
+import { GreetService } from '@/../bindings/post-pigeon'
 
 export const Route = createFileRoute('/')({ component: HomePage })
 
