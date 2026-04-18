@@ -12,19 +12,17 @@
   },
   "dependencies": {
     "@tailwindcss/vite": "^4.1.18",
-    "@tanstack/react-router": "latest",
+    "@tanstack/solid-router": "^1.132.0",
     "@tanstack/router-plugin": "^1.132.0",
     "@wailsio/runtime": "latest",
-    "lucide-react": "^0.545.0",
-    "react": "^19.2.0",
-    "react-dom": "^19.2.0",
+    "lucide-solid": "^0.545.0",
+    "solid-js": "^1.9.12",
     "tailwindcss": "^4.1.18"
   },
   "devDependencies": {
-    "@types/react": "^19.2.0",
-    "@types/react-dom": "^19.2.0",
-    "@vitejs/plugin-react": "^5.1.4",
+    "@types/node": "^24.12.2",
     "typescript": "^5.7.2",
-    "vite": "^8"
+    "vite": "^8",
+    "vite-plugin-solid": "^2.11.12"
   }
 }

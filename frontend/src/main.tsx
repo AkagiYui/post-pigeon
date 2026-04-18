@@ -1,5 +1,6 @@
-import ReactDOM from 'react-dom/client'
-import { RouterProvider } from '@tanstack/react-router'
+/* @refresh reload */
+import { render } from 'solid-js/web'
+import { RouterProvider } from '@tanstack/solid-router'
 
 import { getRouter } from './router'
 
@@ -10,7 +11,4 @@ if (!rootElement) {
   throw new Error('App root element not found')
 }
 
-if (!rootElement.innerHTML) {
-  const root = ReactDOM.createRoot(rootElement)
-  root.render(<RouterProvider router={router} />)
-}
+render(() => <RouterProvider router={router} />, rootElement)
