@@ -3,6 +3,9 @@ import { render } from 'solid-js/web'
 import { RouterProvider } from '@tanstack/solid-router'
 
 import { getRouter } from '@/router'
+import { attachDevtoolsOverlay } from '@solid-devtools/overlay'
+
+attachDevtoolsOverlay({ noPadding: true })
 
 const router = getRouter()
 const rootElement = document.getElementById('app')
