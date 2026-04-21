@@ -43,6 +43,7 @@ export function AppearanceSettings() {
                     options={modeOptions}
                     value={themeMode()}
                     onChange={(v) => changeThemeMode(v as ThemeMode)}
+                    class="w-32"
                 />
             </SettingItem>
 
@@ -73,6 +74,7 @@ export function AppearanceSettings() {
                     options={scaleOptions}
                     value={uiScale().toString()}
                     onChange={(v) => changeUIScale(parseFloat(v))}
+                    class="w-32"
                 />
             </SettingItem>
         </div>
