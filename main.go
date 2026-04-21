@@ -5,6 +5,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"time"
 
 	"post-pigeon/internal/config"
 	"post-pigeon/internal/database"
@@ -132,7 +133,7 @@ func main() {
 	app.Menu.Set(appMenu)
 
 	// 创建主窗口
-	app.Window.NewWithOptions(application.WebviewWindowOptions{
+	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
 		Title: config.AppName,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
@@ -148,6 +149,15 @@ func main() {
 		Width:  1280,
 		Height: 720,
 	})
+
+	// 开发模式下自动打开开发者工具
+	if config.BuildHash == "dev" {
+		go func() {
+			// 等待窗口加载完成
+			time.Sleep(500 * time.Millisecond)
+			mainWindow.OpenDevTools()
+		}()
+	}
 
 	// 运行应用
 	err = app.Run()
