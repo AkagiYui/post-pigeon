@@ -1,10 +1,10 @@
 // 顶栏布局组件
 // 包含红绿灯区域、导航标签、全局操作按钮
-import { type JSX, For, Show } from 'solid-js'
-import { Link, useRouter } from '@tanstack/solid-router'
+import { type JSX, For, Show, createEffect } from 'solid-js'
+import { Link, useRouter, useLocation } from '@tanstack/solid-router'
 import { Settings, X, FolderOpen } from 'lucide-solid'
 import { t } from '@/hooks/useI18n'
-import { openProjectIds, activeProjectId, closeProject, settingsOpen, setSettingsOpen } from '@/stores/app'
+import { openProjectIds, activeProjectId, closeProject, openProject, setActiveProjectId, settingsOpen, setSettingsOpen } from '@/stores/app'
 import { Tooltip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 
@@ -19,6 +19,29 @@ export interface TitleBarProps {
  */
 export function TitleBar(props: TitleBarProps) {
     const router = useRouter()
+    const location = useLocation()
+
+    // 监听路由变化，自动同步 activeProjectId
+    createEffect(() => {
+        const loc = location()
+        const path = loc?.pathname
+        if (path === '/') {
+            // 在项目列表页面，清除激活项目
+            setActiveProjectId(null)
+        } else if (path?.startsWith('/project/')) {
+            // 在项目详情页面，提取项目 ID 并设置激活项目
+            const match = path.match(/^\/project\/([^/]+)/)
+            if (match && match[1]) {
+                const projectId = match[1]
+                // 确保项目在打开列表中
+                if (!openProjectIds().includes(projectId)) {
+                    openProject(projectId)
+                } else {
+                    setActiveProjectId(projectId)
+                }
+            }
+        }
+    })
     return (
         <div class="flex items-center h-[var(--titlebar-height)] border-b border-border bg-surface shrink-0 select-none">
             {/* 左侧：红绿灯占位区域 */}
@@ -39,6 +62,8 @@ export function TitleBar(props: TitleBarProps) {
                             projectId={id}
                             active={activeProjectId() === id}
                             onClick={() => {
+                                // 点击项目标签时，打开项目并导航
+                                openProject(id)
                                 router.navigate({ to: '/project/$id', params: { id }, from: '/' })
                             }}
                             onClose={() => closeProject(id)}
