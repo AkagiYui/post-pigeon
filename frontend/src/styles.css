@@ -1,25 +1,93 @@
-@import url("https://fonts.googleapis.com/css2?family=Space+Grotesk:wght@400;500;700&family=Noto+Sans+SC:wght@400;500;700;800&display=swap");
 @import "tailwindcss";
 
+/* ============================================
+   Post Pigeon 全局主题样式
+   ============================================ */
+
+/* Tailwind v4 主题配置 */
 @theme {
-  --font-sans: "Noto Sans SC", "Space Grotesk", ui-sans-serif, system-ui, sans-serif;
+  --font-sans: "Inter", "Noto Sans SC", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
 }
 
+/* ============================================
+   CSS 自定义属性（主题变量）
+   ============================================ */
+
 :root {
-  --ink: #122027;
-  --ink-soft: #4b5f68;
+  /* 主题色（由 JS 动态覆盖） */
   --accent: #0ea5a4;
-  --accent-deep: #0b7f7f;
-  --accent-fade: rgba(14, 165, 164, 0.14);
-  --line: rgba(18, 32, 39, 0.1);
-  --surface: rgba(255, 255, 255, 0.8);
-  --surface-strong: rgba(255, 255, 255, 0.92);
-  --hero: #effcf9;
-  --hero-strong: #d7f7f1;
-  --bg: #f6fbfc;
-  --success: #1f8a58;
-  --warning: #d97706;
+  --accent-hover: #0b7f7f;
+  --accent-muted: rgba(14, 165, 164, 0.14);
+
+  /* 布局 */
+  --titlebar-height: 38px;
+
+  /* 动画 */
+  --transition-fast: 120ms;
+  --transition-normal: 200ms;
 }
+
+/* 浅色模式颜色 */
+:root.light {
+  --color-background: #f6fbfc;
+  --color-foreground: #122027;
+  --color-surface: #ffffff;
+  --color-surface-alt: #f8fafb;
+  --color-muted: #f1f5f9;
+  --color-muted-foreground: #64748b;
+  --color-border: #e2e8f0;
+  --color-input: #ffffff;
+  --color-popover: #ffffff;
+  --color-popover-foreground: #122027;
+  --color-secondary: #f1f5f9;
+  --color-secondary-foreground: #1e293b;
+  --color-ring: rgba(14, 165, 164, 0.4);
+}
+
+/* 深色模式颜色 */
+:root.dark {
+  --color-background: #0f1419;
+  --color-foreground: #e2e8f0;
+  --color-surface: #1a1f2e;
+  --color-surface-alt: #151a27;
+  --color-muted: #1e2433;
+  --color-muted-foreground: #94a3b8;
+  --color-border: #2d3548;
+  --color-input: #1e2433;
+  --color-popover: #1e2433;
+  --color-popover-foreground: #e2e8f0;
+  --color-secondary: #1e2433;
+  --color-secondary-foreground: #e2e8f0;
+  --color-ring: rgba(14, 165, 164, 0.5);
+}
+
+/* ============================================
+   Tailwind 颜色映射
+   ============================================ */
+
+@theme {
+  --color-background: var(--color-background);
+  --color-foreground: var(--color-foreground);
+  --color-surface: var(--color-surface);
+  --color-surface-alt: var(--color-surface-alt);
+  --color-muted: var(--color-muted);
+  --color-muted-foreground: var(--color-muted-foreground);
+  --color-border: var(--color-border);
+  --color-input: var(--color-input);
+  --color-popover: var(--color-popover);
+  --color-popover-foreground: var(--color-popover-foreground);
+  --color-secondary: var(--color-secondary);
+  --color-secondary-foreground: var(--color-secondary-foreground);
+  --color-accent: var(--accent);
+  --color-accent-hover: var(--accent-hover);
+  --color-accent-muted: var(--accent-muted);
+  --color-ring: var(--color-ring);
+}
+
+/* ============================================
+   基础样式重置
+   ============================================ */
 
 * {
   box-sizing: border-box;
@@ -28,82 +96,141 @@
 html,
 body,
 #app {
-  min-height: 100%;
+  height: 100%;
+  margin: 0;
+  padding: 0;
 }
 
 body {
-  margin: 0;
-  color: var(--ink);
+  color: var(--color-foreground);
   font-family: var(--font-sans);
-  background:
-    radial-gradient(960px 500px at 0% 0%, rgba(14, 165, 164, 0.16), transparent 58%),
-    radial-gradient(720px 420px at 100% 0%, rgba(34, 197, 94, 0.1), transparent 52%),
-    linear-gradient(180deg, var(--hero) 0%, var(--bg) 42%, #ffffff 100%);
+  background: var(--color-background);
   -webkit-font-smoothing: antialiased;
   -moz-osx-font-smoothing: grayscale;
+  /* 禁止文本选择，使应用更像桌面应用 */
+  user-select: none;
+  -webkit-user-select: none;
 }
 
-body::before {
-  content: "";
-  position: fixed;
-  inset: 0;
-  pointer-events: none;
-  z-index: -1;
-  opacity: 0.4;
-  background-image:
-    linear-gradient(rgba(255, 255, 255, 0.7) 1px, transparent 1px),
-    linear-gradient(90deg, rgba(255, 255, 255, 0.6) 1px, transparent 1px);
-  background-size: 26px 26px;
-  mask-image: radial-gradient(circle at 50% 20%, black, transparent 72%);
+/* 输入框和文本域允许文本选择 */
+input,
+textarea,
+[contenteditable="true"] {
+  user-select: text;
+  -webkit-user-select: text;
+}
+
+/* 禁止拖拽选择 */
+::selection {
+  background: var(--accent-muted);
+  color: var(--color-foreground);
 }
 
 a {
   color: inherit;
+  text-decoration: none;
 }
 
 button,
-input {
+input,
+select,
+textarea {
   font: inherit;
 }
 
-.page-shell {
-  width: min(1120px, calc(100% - 1.5rem));
-  margin: 0 auto;
+/* ============================================
+   滚动条样式
+   ============================================ */
+
+::-webkit-scrollbar {
+  width: 6px;
+  height: 6px;
 }
 
-.glass-panel {
-  border: 1px solid var(--line);
-  background: linear-gradient(180deg, var(--surface-strong), var(--surface));
-  box-shadow:
-    0 1px 0 rgba(255, 255, 255, 0.9) inset,
-    0 24px 48px rgba(18, 32, 39, 0.08),
-    0 8px 18px rgba(14, 165, 164, 0.06);
-  backdrop-filter: blur(8px);
+::-webkit-scrollbar-track {
+  background: transparent;
 }
 
-.section-kicker {
-  font-size: 0.72rem;
-  font-weight: 800;
-  letter-spacing: 0.18em;
-  text-transform: uppercase;
-  color: var(--accent-deep);
+::-webkit-scrollbar-thumb {
+  background: var(--color-border);
+  border-radius: 3px;
 }
 
-.headline-font {
-  font-family: "Space Grotesk", "Noto Sans SC", sans-serif;
+::-webkit-scrollbar-thumb:hover {
+  background: var(--color-muted-foreground);
 }
 
-.rise-in {
-  animation: rise-in 620ms cubic-bezier(0.22, 1, 0.36, 1) both;
+/* 隐藏横向滚动条但保持滚动功能 */
+.no-scrollbar::-webkit-scrollbar {
+  display: none;
 }
 
-@keyframes rise-in {
+.no-scrollbar {
+  -ms-overflow-style: none;
+  scrollbar-width: none;
+}
+
+/* ============================================
+   通用工具类
+   ============================================ */
+
+/* 拖拽区域（用于分割条拖拽时防止文本选择） */
+.dragging * {
+  pointer-events: none !important;
+}
+
+/* 焦点环 */
+.focus-ring:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 2px var(--color-ring);
+}
+
+/* 透明按钮 */
+.btn-ghost {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  padding: 0.25rem;
+  border-radius: 0.25rem;
+  color: var(--color-muted-foreground);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+.btn-ghost:hover {
+  background: var(--color-muted);
+  color: var(--color-foreground);
+}
+
+/* 动画 */
+@keyframes fadeIn {
   from {
     opacity: 0;
-    transform: translateY(14px);
   }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes slideIn {
+  from {
+    opacity: 0;
+    transform: translateY(-4px);
+  }
+
   to {
     opacity: 1;
     transform: translateY(0);
   }
+}
+
+.animate-fade-in {
+  animation: fadeIn 150ms ease-out;
+}
+
+.animate-slide-in {
+  animation: slideIn 200ms ease-out;
 }

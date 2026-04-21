@@ -1,0 +1,82 @@
+# Post Pigeon 构建工作流
+# 手动触发，构建 macOS 和 Windows 平台的桌面应用
+name: Build
+
+on:
+  workflow_dispatch:
+    inputs:
+      version:
+        description: '构建版本号（可选）'
+        required: false
+        default: ''
+
+jobs:
+  build-macos:
+    name: 构建 macOS
+    runs-on: macos-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 安装 Wails CLI
+        run: go install github.com/AkagiYui/wails/v3/cmd/wails3@latest
+
+      - name: 构建应用
+        run: wails3 build
+
+      - name: 上传 macOS 构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-pigeon-macos
+          path: bin/post-pigeon.dev.app/
+          retention-days: 30
+
+  build-windows:
+    name: 构建 Windows
+    runs-on: windows-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v4
+
+      - name: 安装 Go
+        uses: actions/setup-go@v5
+        with:
+          go-version: '1.26'
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v4
+        with:
+          node-version: '22'
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v4
+        with:
+          version: 10
+
+      - name: 安装 Wails CLI
+        run: go install github.com/AkagiYui/wails/v3/cmd/wails3@latest
+
+      - name: 构建应用
+        run: wails3 build
+
+      - name: 上传 Windows 构建产物
+        uses: actions/upload-artifact@v4
+        with:
+          name: post-pigeon-windows
+          path: bin/post-pigeon.exe
+          retention-days: 30

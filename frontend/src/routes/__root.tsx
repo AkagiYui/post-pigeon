@@ -1,15 +1,15 @@
 import { Outlet, createRootRoute } from '@tanstack/solid-router'
-
 import '@/styles.css'
-import { Devtools } from '@/components/Devtools'
+import { AppLayout } from '@/components/layout/AppLayout'
 
 export const Route = createRootRoute({
   component: RootComponent,
 })
 
 function RootComponent() {
-  return <>
-    <Outlet />
-    <Devtools />
-  </>
+  return (
+    <AppLayout>
+      <Outlet />
+    </AppLayout>
+  )
 }
