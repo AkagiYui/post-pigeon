@@ -1,4 +1,4 @@
-package com.wails.app;
+package com.akagiyui.postpigeon;
 
 import android.net.Uri;
 import android.util.Log;

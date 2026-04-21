@@ -1,4 +1,4 @@
-package com.wails.app;
+package com.akagiyui.postpigeon;
 
 import android.annotation.SuppressLint;
 import android.os.Bundle;
@@ -12,7 +12,7 @@ import android.webkit.WebViewClient;
 import androidx.annotation.Nullable;
 import androidx.appcompat.app.AppCompatActivity;
 import androidx.webkit.WebViewAssetLoader;
-import com.wails.app.BuildConfig;
+import com.akagiyui.postpigeon.BuildConfig;
 
 /**
  * MainActivity hosts the WebView and manages the Wails application lifecycle.

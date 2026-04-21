@@ -5,7 +5,7 @@
     <key>CFBundleExecutable</key>
     <string>post-pigeon</string>
     <key>CFBundleIdentifier</key>
-    <string>com.akagiyui.post-pigeon</string>
+    <string>com.akagiyui.postpigeon</string>
     <key>CFBundleName</key>
     <string>Post Pigeon</string>
     <key>CFBundleDisplayName</key>

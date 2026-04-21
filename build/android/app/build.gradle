@@ -3,7 +3,7 @@ plugins {
 }
 
 android {
-    namespace 'com.akagiyui.post_pigeon'
+    namespace 'com.akagiyui.postpigeon'
     compileSdk 34
 
     buildFeatures {
@@ -11,7 +11,7 @@ android {
     }
 
     defaultConfig {
-        applicationId "com.akagiyui.post_pigeon"
+        applicationId "com.akagiyui.postpigeon"
         minSdk 21
         targetSdk 34
         versionCode 1

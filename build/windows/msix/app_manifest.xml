@@ -8,7 +8,7 @@
   IgnorableNamespaces="uap3">
   
   <Identity 
-    Name="com.akagiyui.post-pigeon"
+    Name="com.akagiyui.postpigeon"
     Publisher="CN=AkagiYui"
     Version="0.1.0.0" 
     ProcessorArchitecture="x64" />

@@ -7,7 +7,7 @@ version: '3'
 info:
   companyName: "AkagiYui" # 公司名称
   productName: "Post Pigeon" # 应用名称
-  productIdentifier: "com.akagiyui.post-pigeon" # 唯一产品标识符
+  productIdentifier: "com.akagiyui.postpigeon" # 唯一产品标识符
   description: "Post Pigeon Application" # 应用描述
   copyright: "(c) 2026, AkagiYui" # 版权信息
   comments: "Post Pigeon Application" # 注释

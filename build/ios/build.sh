@@ -3,7 +3,7 @@ set -e
 
 # Build configuration
 APP_NAME="post-pigeon"
-BUNDLE_ID="com.akagiyui.post-pigeon"
+BUNDLE_ID="com.akagiyui.postpigeon"
 VERSION="0.1.0"
 BUILD_NUMBER="0.1.0"
 BUILD_DIR="build/ios"

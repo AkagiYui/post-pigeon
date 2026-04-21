@@ -1,9 +1,9 @@
-package com.wails.app;
+package com.akagiyui.postpigeon;
 
 import android.util.Log;
 import android.webkit.JavascriptInterface;
 import android.webkit.WebView;
-import com.wails.app.BuildConfig;
+import com.akagiyui.postpigeon.BuildConfig;
 
 /**
  * WailsJSBridge provides the JavaScript interface that allows the web frontend
