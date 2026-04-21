@@ -32,11 +32,18 @@ func (s *ProjectService) ListProjects() ([]models.Project, error) {
 
 // GetProject 根据 ID 获取项目详情
 func (s *ProjectService) GetProject(id string) (*models.Project, error) {
+	slog.Debug("GetProject 被调用", "id", id)
 	var project models.Project
 	err := s.db.Where("id = ?", id).First(&project).Error
 	if err != nil {
+		// 项目不存在时不返回错误，而是返回 nil
+		if err == gorm.ErrRecordNotFound {
+			slog.Warn("项目不存在", "id", id)
+			return nil, nil
+		}
 		return nil, fmt.Errorf("获取项目失败: %w", err)
 	}
+	slog.Debug("项目查询成功", "id", id, "name", project.Name)
 	return &project, nil
 }
 

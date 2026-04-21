@@ -18,7 +18,10 @@ export function ProjectWorkspace() {
     onMount(async () => {
         try {
             setLoading(true)
-            const proj = await ProjectService.GetProject(params.id)
+            // 在 SolidJS 中，params 是一个访问器函数，需要调用它
+            const currentParams = params()
+            console.log('路由参数:', currentParams)
+            const proj = await ProjectService.GetProject(currentParams.id)
             if (!proj) {
                 // 项目不存在，直接返回
                 setLoading(false)
@@ -27,8 +30,8 @@ export function ProjectWorkspace() {
             setProject(proj)
 
             const [modList, envList] = await Promise.all([
-                ModuleService.ListModules(params.id),
-                EnvironmentService.ListEnvironments(params.id),
+                ModuleService.ListModules(currentParams.id),
+                EnvironmentService.ListEnvironments(currentParams.id),
             ])
             setModules(modList || [])
             setEnvironments(envList || [])
@@ -62,7 +65,7 @@ export function ProjectWorkspace() {
                 }
             >
                 <ApiManagement
-                    projectId={params.id}
+                    projectId={params().id}
                     modules={modules()}
                     environments={environments()}
                     currentEnvId={currentEnvId()}
