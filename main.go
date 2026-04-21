@@ -79,6 +79,11 @@ func main() {
 	// 配置 macOS 系统菜单
 	appMenu := app.NewMenu()
 
+	// 打开开发者工具的快捷键回调
+	openDevToolsKeyBinding := func(window application.Window) {
+		window.(*application.WebviewWindow).OpenDevTools()
+	}
+
 	// 应用菜单（第一个菜单项，显示应用名称）
 	appSubMenu := appMenu.AddSubmenu(config.AppName)
 	appSubMenu.Add("关于 " + config.AppName).SetAccelerator("Cmd+Shift+A").OnClick(func(_ *application.Context) {
@@ -97,6 +102,10 @@ func main() {
 			},
 			BackgroundColour: application.NewRGB(27, 38, 54),
 			URL:              "/",
+			DevToolsEnabled:  true,
+			KeyBindings: map[string]func(window application.Window){
+				"F12": openDevToolsKeyBinding,
+			},
 		})
 	})
 	appSubMenu.AddSeparator()
@@ -111,6 +120,14 @@ func main() {
 	editMenu := appMenu.AddSubmenu("编辑")
 	editMenu.AddRole(application.EditMenu)
 
+	// 视图菜单
+	viewMenu := appMenu.AddSubmenu("视图")
+	viewMenu.Add("开发者工具").SetAccelerator("Cmd+Option+I").OnClick(func(_ *application.Context) {
+		if currentWindow := app.Window.Current(); currentWindow != nil {
+			currentWindow.(*application.WebviewWindow).OpenDevTools()
+		}
+	})
+
 	// 设置应用菜单
 	app.Menu.Set(appMenu)
 
@@ -124,6 +141,10 @@ func main() {
 		},
 		BackgroundColour: application.NewRGB(27, 38, 54),
 		URL:              "/",
+		DevToolsEnabled:  true,
+		KeyBindings: map[string]func(window application.Window){
+			"F12": openDevToolsKeyBinding,
+		},
 	})
 
 	// 运行应用
