@@ -145,6 +145,8 @@ func main() {
 		KeyBindings: map[string]func(window application.Window){
 			"F12": openDevToolsKeyBinding,
 		},
+		Width:  1280,
+		Height: 720,
 	})
 
 	// 运行应用
