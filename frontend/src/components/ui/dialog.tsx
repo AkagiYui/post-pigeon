@@ -33,7 +33,7 @@ export function Dialog(props: DialogProps) {
                 {/* 对话框内容 */}
                 <div
                     class={cn(
-                        'bg-surface rounded-lg shadow-xl border border-border max-h-[85vh] overflow-hidden flex flex-col',
+                        'bg-surface rounded-lg shadow-xl border border-border h-[85vh] overflow-hidden flex flex-col',
                         local.class
                     )}
                     style={{ width: local.width || '480px' }}

@@ -93,6 +93,37 @@
   box-sizing: border-box;
 }
 
+/* 全局指针样式 */
+html {
+  cursor: default; /* 默认指针，避免文本I字指针 */
+}
+
+/* 按钮和可点击元素使用手指指针 */
+button,
+[role="button"],
+input[type="button"],
+input[type="submit"],
+input[type="reset"],
+a,
+[tabindex]:not([tabindex="-1"]),
+.selectable,
+.clickable {
+  cursor: pointer;
+}
+
+/* 文本输入元素保持文本指针 */
+input[type="text"],
+input[type="email"],
+input[type="password"],
+input[type="search"],
+input[type="url"],
+input[type="tel"],
+input[type="number"],
+textarea,
+[contenteditable="true"] {
+  cursor: text;
+}
+
 html,
 body,
 #app {
