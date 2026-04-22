@@ -74,14 +74,14 @@ export function SplitPane(props: SplitPaneProps) {
                 {/* 分割条 */}
                 <div
                     class={cn(
-                        'w-1 shrink-0 cursor-col-resize bg-border hover:bg-accent/30 transition-colors relative group',
+                        'w-0.5 shrink-0 cursor-col-resize bg-border hover:bg-accent/30 transition-colors relative group',
                         dragging() && 'bg-accent/50'
                     )}
                     onMouseDown={handleMouseDown}
                 >
                     {/* 拖拽提示线 */}
                     <Show when={dragging()}>
-                        <div class="absolute inset-y-0 -left-2 -right-2 bg-accent/10 z-10" />
+                        <div class="absolute inset-y-0 -left-0.5 -right-0.5 bg-accent/10 z-10" />
                     </Show>
                 </div>
             </Show>
