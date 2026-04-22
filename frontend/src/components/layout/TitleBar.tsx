@@ -50,10 +50,10 @@ export function TitleBar(props: TitleBarProps) {
         }
     })
     return (
-        <div class="flex items-center h-[var(--titlebar-height)] border-b border-border bg-surface shrink-0 select-none">
+        <div class="flex items-center h-(--titlebar-height) border-b border-border bg-surface shrink-0 select-none">
             {/* 左侧：红绿灯占位区域（仅 macOS） */}
             <Show when={isMac()}>
-                <div class="w-[76px] shrink-0 flex items-center pl-3" />
+                <div class="w-19 shrink-0 flex items-center pl-3" />
             </Show>
 
             {/* 导航标签区域 */}
