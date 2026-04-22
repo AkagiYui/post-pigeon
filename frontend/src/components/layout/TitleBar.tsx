@@ -53,11 +53,11 @@ export function TitleBar(props: TitleBarProps) {
         <div class="flex items-center h-(--titlebar-height) border-b border-border bg-surface shrink-0 select-none">
             {/* 左侧：红绿灯占位区域（仅 macOS） */}
             <Show when={isMac()}>
-                <div class="w-19 shrink-0 flex items-center pl-3" />
+                <div class="w-18 shrink-0 flex items-center pl-3" />
             </Show>
 
             {/* 导航标签区域 */}
-            <div class="flex items-center gap-0.5 flex-1 overflow-x-auto no-scrollbar">
+            <div class="ml-1 flex items-center gap-0.5 flex-1 overflow-x-auto no-scrollbar">
                 {/* 项目列表标签 */}
                 <NavLink href="/" active={activeProjectId() === null}>
                     <FolderOpen class="h-3.5 w-3.5" />
