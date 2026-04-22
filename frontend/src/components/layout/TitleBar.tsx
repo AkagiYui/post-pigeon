@@ -185,16 +185,18 @@ function ProjectTab(props: { projectId: string; active: boolean; onClick: () => 
     return (
         <div
             class={cn(
-                'flex items-center gap-1.5 px-3 py-1 text-sm rounded-md cursor-pointer transition-colors group',
+                'relative flex items-center px-3 py-1 text-sm rounded-md cursor-pointer transition-colors group',
                 props.active
                     ? 'bg-accent-muted text-accent font-medium'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             )}
             onClick={props.onClick}
         >
+            {/* 标题文字 */}
             <span>{project() || props.projectId.slice(0, 8)}</span>
+            {/* 关闭按钮，绝对定位覆盖在标题右侧 */}
             <button
-                class="opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted transition-all"
+                class="absolute right-1.5 opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted transition-all bg-inherit"
                 onClick={(e) => {
                     e.stopPropagation()
                     // TODO: 确认关闭弹窗
