@@ -104,7 +104,7 @@ export function TitleBar(props: TitleBarProps) {
 function NavLink(props: { href: string; active: boolean; children: JSX.Element }) {
     return (
         <Link
-            href={props.href}
+            to={props.href}
             class={cn(
                 'flex items-center gap-1.5 px-3 py-1 text-sm rounded-md transition-colors',
                 props.active

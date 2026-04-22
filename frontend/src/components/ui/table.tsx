@@ -31,7 +31,7 @@ export interface TableProps<T> {
 /**
  * Table 表格组件
  */
-export function Table<T extends Record<string, unknown>>(props: TableProps<T>) {
+export function Table<T extends object>(props: TableProps<T>) {
     const [local] = splitProps(props, ['columns', 'data', 'onRowClick', 'emptyText', 'class', 'compact'])
 
     return (

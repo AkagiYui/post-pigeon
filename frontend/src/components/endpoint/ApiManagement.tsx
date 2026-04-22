@@ -17,7 +17,8 @@ import {
     FolderService,
     HTTPService,
 } from '@/../bindings/post-pigeon/internal/services'
-import type { ModuleTree, FolderTree, EndpointDetail as EndpointDetailType, SendRequestData, HTTPResponseData } from '@/../bindings/post-pigeon/internal/services'
+import type { ModuleTree, FolderTree, EndpointDetail as EndpointDetailType, HTTPResponseData } from '@/../bindings/post-pigeon/internal/services'
+import { SendRequestData } from '@/../bindings/post-pigeon/internal/services'
 import { getCurrentEnvironmentId, setCurrentEnvironment } from '@/stores/app'
 import { type HTTPMethod, type BodyType, METHOD_COLORS } from '@/lib/types'
 
@@ -112,14 +113,16 @@ export function ApiManagement(props: ApiManagementProps) {
 
                 // 加载响应数据
                 if (detail.response) {
+                    // 解析 timing JSON 字符串
+                    const timingInfo = detail.response.timing ? JSON.parse(detail.response.timing) : { total: 0, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0, ttfb: 0 }
                     setResponseData({
                         statusCode: detail.response.statusCode,
                         timing: {
-                            total: detail.response.timing?.total || 0,
-                            dnsLookup: detail.response.timing?.dnsLookup || 0,
-                            tlsHandshake: detail.response.timing?.tlsHandshake || 0,
-                            tcpConnect: detail.response.timing?.tcpConnect || 0,
-                            ttfb: detail.response.timing?.ttfb || 0,
+                            total: timingInfo.total || 0,
+                            dnsLookup: timingInfo.dnsLookup || 0,
+                            tlsHandshake: timingInfo.tlsHandshake || 0,
+                            tcpConnect: timingInfo.tcpConnect || 0,
+                            ttfb: timingInfo.ttfb || 0,
                         },
                         size: detail.response.size,
                         body: detail.response.body,

@@ -1,5 +1,5 @@
 // SplitPane 分割面板组件，支持拖拽调整大小
-import { type JSX, splitProps, createSignal, onCleanup } from 'solid-js'
+import { type JSX, splitProps, createSignal, onCleanup, Show } from 'solid-js'
 import { cn } from '@/lib/utils'
 
 export interface SplitPaneProps {

@@ -14,7 +14,10 @@ const resources: Record<Language, Record<string, string>> = {
 /** 当前语言 */
 const [language, setLanguage] = createSignal<Language>('zh-CN')
 
-export { language, setLanguage }
+/** 用户选择的语言设置（可能为 'system'） */
+const [userLanguageChoice, setUserLanguageChoice] = createSignal<Language | 'system'>('system')
+
+export { language, setLanguage, userLanguageChoice, setUserLanguageChoice }
 
 /** 获取翻译文本 */
 export function t(key: string, params?: Record<string, string | number>): string {
@@ -45,11 +48,14 @@ export async function initI18n() {
 
         if (lang && lang !== 'system' && lang in resources) {
             setLanguage(lang as Language)
+            setUserLanguageChoice(lang as Language)
         } else {
             setLanguage(detectSystemLanguage())
+            setUserLanguageChoice('system')
         }
     } catch {
         setLanguage(detectSystemLanguage())
+        setUserLanguageChoice('system')
     }
 }
 
@@ -57,6 +63,7 @@ export async function initI18n() {
 export async function changeLanguage(lang: Language | 'system') {
     const actualLang = lang === 'system' ? detectSystemLanguage() : lang
     setLanguage(actualLang)
+    setUserLanguageChoice(lang)
     try {
         await SettingsService.SetSetting('language', lang === 'system' ? '' : lang)
     } catch (e) {

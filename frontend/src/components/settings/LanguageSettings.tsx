@@ -1,5 +1,5 @@
 // 语言设置组件
-import { t, language, changeLanguage } from '@/hooks/useI18n'
+import { t, userLanguageChoice, changeLanguage } from '@/hooks/useI18n'
 import { Select } from '@/components/ui/select'
 
 /** 语言选项 */
@@ -19,7 +19,7 @@ export function LanguageSettings() {
                 <label class="text-sm text-foreground">{t('settings.language')}</label>
                 <Select
                     options={languageOptions}
-                    value={language() === 'system' ? 'system' : language()}
+                    value={userLanguageChoice()}
                     onChange={(v) => changeLanguage(v as 'zh-CN' | 'en' | 'system')}
                     class="w-32"
                 />
