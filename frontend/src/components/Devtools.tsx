@@ -1,5 +1,6 @@
 import { lazy, Suspense } from 'solid-js'
 import { Show } from 'solid-js/web'
+import { attachDevtoolsOverlay } from '@solid-devtools/overlay'
 
 // 仅在开发模式加载路由调试工具，避免影响生产构建体积。
 const TanStackRouterDevtools = lazy(async () => {
@@ -7,7 +8,10 @@ const TanStackRouterDevtools = lazy(async () => {
   return { default: mod.TanStackRouterDevtools }
 })
 
-
+// solid devtools 会自动仅在 DEV 环境加载
+attachDevtoolsOverlay({
+  noPadding: true
+})
 
 export function Devtools() {
   return (
