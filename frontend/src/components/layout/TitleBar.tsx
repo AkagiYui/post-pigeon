@@ -1,8 +1,9 @@
 // 顶栏布局组件
 // 包含红绿灯区域、导航标签、全局操作按钮
-import { type JSX, For, Show, createEffect } from 'solid-js'
+import { type JSX, For, Show, createEffect, createSignal, onMount } from 'solid-js'
 import { Link, useRouter, useLocation } from '@tanstack/solid-router'
 import { Settings, X, FolderOpen } from 'lucide-solid'
+import { System } from '@wailsio/runtime'
 import { t } from '@/hooks/useI18n'
 import { openProjectIds, activeProjectId, closeProject, openProject, setActiveProjectId, settingsOpen, setSettingsOpen } from '@/stores/app'
 import { Tooltip } from '@/components/ui/tooltip'
@@ -20,6 +21,12 @@ export interface TitleBarProps {
 export function TitleBar(props: TitleBarProps) {
     const router = useRouter()
     const location = useLocation()
+    const [isMac, setIsMac] = createSignal(false)
+
+    // 检测平台
+    onMount(() => {
+        setIsMac(System.IsMac())
+    })
 
     // 监听路由变化，自动同步 activeProjectId
     createEffect(() => {
@@ -44,8 +51,10 @@ export function TitleBar(props: TitleBarProps) {
     })
     return (
         <div class="flex items-center h-[var(--titlebar-height)] border-b border-border bg-surface shrink-0 select-none">
-            {/* 左侧：红绿灯占位区域 */}
-            <div class="w-[76px] shrink-0 flex items-center pl-3" />
+            {/* 左侧：红绿灯占位区域（仅 macOS） */}
+            <Show when={isMac()}>
+                <div class="w-[76px] shrink-0 flex items-center pl-3" />
+            </Show>
 
             {/* 导航标签区域 */}
             <div class="flex items-center gap-0.5 flex-1 overflow-x-auto no-scrollbar">
