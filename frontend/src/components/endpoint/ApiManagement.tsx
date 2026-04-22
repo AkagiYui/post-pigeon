@@ -6,9 +6,6 @@ import { SplitPane } from '@/components/ui/split-pane'
 import { EndpointTree, type TreeNode } from '@/components/endpoint/EndpointTree'
 import { EndpointDetail, type EndpointData, type ResponseData } from '@/components/endpoint/EndpointDetail'
 import { Tabs } from '@/components/ui/tabs'
-import { Select } from '@/components/ui/select'
-import { Button } from '@/components/ui/button'
-import { Settings } from 'lucide-solid'
 import {
     ProjectService,
     ModuleService,
@@ -19,15 +16,12 @@ import {
 } from '@/../bindings/post-pigeon/internal/services'
 import type { ModuleTree, FolderTree, EndpointDetail as EndpointDetailType, HTTPResponseData } from '@/../bindings/post-pigeon/internal/services'
 import { SendRequestData } from '@/../bindings/post-pigeon/internal/services'
-import { getCurrentEnvironmentId, setCurrentEnvironment } from '@/stores/app'
+import { getCurrentEnvironmentId } from '@/stores/app'
 import { type HTTPMethod, type BodyType, METHOD_COLORS } from '@/lib/types'
 
 export interface ApiManagementProps {
     projectId: string
     modules: any[]
-    environments: any[]
-    currentEnvId: string
-    onEnvironmentChange: (envId: string) => void
 }
 
 /**
@@ -190,12 +184,6 @@ export function ApiManagement(props: ApiManagementProps) {
         }
     }
 
-    // 环境选项
-    const envOptions = () => [
-        { value: '', label: 'Default' },
-        ...props.environments.map((e: any) => ({ value: e.id, label: e.name })),
-    ]
-
     // 关闭标签页
     const closeTab = (id: string) => {
         setOpenTabs(prev => prev.filter(t => t.id !== id))
@@ -223,19 +211,6 @@ export function ApiManagement(props: ApiManagementProps) {
             onCollapsedChange={setSidebarCollapsed}
             left={
                 <div class="flex flex-col h-full border-r border-border">
-                    {/* 环境选择 */}
-                    <div class="flex items-center gap-1 p-2 border-b border-border shrink-0">
-                        <Select
-                            options={envOptions()}
-                            value={props.currentEnvId}
-                            onChange={(v) => props.onEnvironmentChange(v)}
-                            size="sm"
-                            class="flex-1"
-                        />
-                        <Button variant="ghost" size="icon-sm">
-                            <Settings class="h-3.5 w-3.5" />
-                        </Button>
-                    </div>
                     {/* 接口树 */}
                     <EndpointTree
                         data={treeData()}

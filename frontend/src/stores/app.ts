@@ -11,6 +11,8 @@ const [settingsOpen, setSettingsOpen] = createSignal(false)
 const [currentEnvironmentIds, setCurrentEnvironmentIds] = createSignal<Record<string, string>>({})
 /** 项目名称映射（projectId -> projectName） */
 const [projectNames, setProjectNames] = createSignal<Record<string, string>>({})
+/** 项目环境列表映射（projectId -> environments[]） */
+const [projectEnvironments, setProjectEnvironments] = createSignal<Record<string, any[]>>({})
 
 export {
     openProjectIds, setOpenProjectIds,
@@ -18,6 +20,7 @@ export {
     settingsOpen, setSettingsOpen,
     currentEnvironmentIds, setCurrentEnvironmentIds,
     projectNames, setProjectNames,
+    projectEnvironments, setProjectEnvironments,
 }
 
 /** 打开项目 */
@@ -45,4 +48,14 @@ export function getCurrentEnvironmentId(projectId: string): string {
 /** 设置当前项目的环境 */
 export function setCurrentEnvironment(projectId: string, envId: string) {
     setCurrentEnvironmentIds(prev => ({ ...prev, [projectId]: envId }))
+}
+
+/** 获取当前项目的环境列表 */
+export function getProjectEnvironments(projectId: string): any[] {
+    return projectEnvironments()[projectId] || []
+}
+
+/** 设置当前项目的环境列表 */
+export function setProjectEnvironmentsList(projectId: string, envs: any[]) {
+    setProjectEnvironments(prev => ({ ...prev, [projectId]: envs }))
 }

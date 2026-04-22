@@ -6,13 +6,13 @@ import { t } from '@/hooks/useI18n'
 import { ProjectService, ModuleService, EnvironmentService } from '@/../bindings/post-pigeon/internal/services'
 import { ApiManagement } from '@/components/endpoint/ApiManagement'
 import { cn } from '@/lib/utils'
+import { setProjectEnvironmentsList, setCurrentEnvironment } from '@/stores/app'
 
 export function ProjectWorkspace() {
     const params = useParams({ from: '/project/$id' })
     const [project, setProject] = createSignal<any>(null)
     const [modules, setModules] = createSignal<any[]>([])
     const [environments, setEnvironments] = createSignal<any[]>([])
-    const [currentEnvId, setCurrentEnvId] = createSignal('')
     const [loading, setLoading] = createSignal(true)
 
     onMount(async () => {
@@ -36,9 +36,12 @@ export function ProjectWorkspace() {
             setModules(modList || [])
             setEnvironments(envList || [])
 
+            // 将环境列表存储到全局 store
+            setProjectEnvironmentsList(currentParams.id, envList || [])
+
             // 设置默认环境
             if (envList && envList.length > 0) {
-                setCurrentEnvId(envList[0].id)
+                setCurrentEnvironment(currentParams.id, envList[0].id)
             }
         } catch (e) {
             console.error('加载项目失败', e)
@@ -67,9 +70,6 @@ export function ProjectWorkspace() {
                 <ApiManagement
                     projectId={params().id}
                     modules={modules()}
-                    environments={environments()}
-                    currentEnvId={currentEnvId()}
-                    onEnvironmentChange={setCurrentEnvId}
                 />
             </Show>
         </Show>

@@ -3,14 +3,15 @@
 // Windows 端额外包含窗口控制按钮（最小化、最大化、关闭）
 import { type JSX, For, Show, createEffect, createSignal, onMount, createResource } from 'solid-js'
 import { Link, useRouter, useLocation } from '@tanstack/solid-router'
-import { Settings, X, FolderOpen, Minus, Square, XSquare } from 'lucide-solid'
+import { Settings, X, FolderOpen, Minus, Square, XSquare, ChevronDown } from 'lucide-solid'
 import { System, Window } from '@wailsio/runtime'
 import { t } from '@/hooks/useI18n'
-import { openProjectIds, activeProjectId, closeProject, openProject, setActiveProjectId, settingsOpen, setSettingsOpen, projectNames, setProjectNames } from '@/stores/app'
+import { openProjectIds, activeProjectId, closeProject, openProject, setActiveProjectId, settingsOpen, setSettingsOpen, projectNames, setProjectNames, projectEnvironments, getCurrentEnvironmentId, setCurrentEnvironment } from '@/stores/app'
 import { Tooltip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
 import { ProjectService } from '@/../bindings/post-pigeon/internal/services'
 import { useFullscreen } from '@/hooks/useFullscreen'
+import { Select } from '@/components/ui/select'
 
 export interface TitleBarProps {
     /** 项目标签点击回调 */
@@ -99,6 +100,8 @@ export function TitleBar(props: TitleBarProps) {
             {/* 右侧：全局操作按钮 */}
             <div class="flex items-center gap-1 shrink-0 pr-2" style="--wails-draggable:no-drag">
                 <Show when={activeProjectId()}>
+                    {/* 环境选择下拉框 */}
+                    <EnvironmentSelect />
                     <Tooltip content={t('nav.projectSettings')}>
                         <button class="btn-ghost">
                             <Settings class="h-4 w-4" />
@@ -208,5 +211,44 @@ function ProjectTab(props: { projectId: string; active: boolean; onClick: () => 
                 <X class="h-3 w-3" />
             </button>
         </div>
+    )
+}
+
+/** 环境选择下拉框组件 */
+function EnvironmentSelect() {
+    const projectId = activeProjectId
+    // 环境选项
+    const envOptions = () => {
+        const id = projectId()
+        if (!id) return [{ value: '', label: 'Default' }]
+        const envs = projectEnvironments()[id] || []
+        return [
+            { value: '', label: 'Default' },
+            ...envs.map((e: any) => ({ value: e.id, label: e.name })),
+        ]
+    }
+
+    // 当前选中的环境
+    const currentEnv = () => {
+        const id = projectId()
+        return id ? getCurrentEnvironmentId(id) : ''
+    }
+
+    // 切换环境
+    const handleEnvChange = (envId: string) => {
+        const id = projectId()
+        if (id) {
+            setCurrentEnvironment(id, envId)
+        }
+    }
+
+    return (
+        <Select
+            options={envOptions()}
+            value={currentEnv()}
+            onChange={handleEnvChange}
+            size="sm"
+            class="min-w-24"
+        />
     )
 }
