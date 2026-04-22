@@ -190,9 +190,9 @@ function ProjectTab(props: { projectId: string; active: boolean; onClick: () => 
     return (
         <div
             class={cn(
-                'relative flex items-center px-3 py-1 text-sm rounded-md cursor-pointer transition-colors group',
+                'relative flex items-center px-3 py-1 text-sm rounded-md cursor-pointer transition-colors group font-medium',
                 props.active
-                    ? 'bg-accent-muted text-accent font-medium'
+                    ? 'bg-accent-muted text-accent'
                     : 'text-muted-foreground hover:text-foreground hover:bg-muted'
             )}
             onClick={props.onClick}
