@@ -117,7 +117,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                         <Input
                             size="sm"
                             value={ep().baseUrl}
-                            class="max-w-[200px] rounded-r-none border-r-0 bg-muted/50"
+                            class="max-w-50 rounded-r-none border-r-0 bg-muted/50"
                             readOnly
                         />
                     </Show>
@@ -167,7 +167,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
             </div>
 
             {/* 下部：响应信息 */}
-            <div class="flex-1 overflow-hidden min-h-[200px]">
+            <div class="flex-1 overflow-hidden min-h-50">
                 <Show
                     when={props.response}
                     fallback={
