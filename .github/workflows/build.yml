@@ -15,10 +15,10 @@ jobs:
         include:
           - os: macos-latest
             artifact: post-pigeon-macos
-            path: bin/post-pigeon.app/
           - os: windows-latest
             artifact: post-pigeon-windows
-            path: bin/post-pigeon.exe
+          - os: ubuntu-latest
+            artifact: post-pigeon-linux
     
     name: 构建 ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
