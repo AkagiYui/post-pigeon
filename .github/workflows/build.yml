@@ -36,6 +36,7 @@ jobs:
       - name: 安装 pnpm
         uses: pnpm/action-setup@v6
         with:
+          package_json_file: 'frontend/package.json'
           cache: true
 
       - name: 安装 Node.js
