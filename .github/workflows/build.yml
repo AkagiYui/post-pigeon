@@ -47,16 +47,16 @@ jobs:
           cache: 'pnpm'
           cache-dependency-path: 'frontend/pnpm-lock.yaml'
 
-      - name: 安装 Wails CLI
-        run: |
-          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
-          wails3 doctor
-
       - name: 安装 NSIS (Windows)
         if: runner.os == 'Windows'
         uses: repolevedavaj/install-nsis@v1.1.0
         with:
           nsis-version: '3.12'
+
+      - name: 安装 Wails CLI
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          wails3 doctor
 
       - name: 构建应用
         run: wails3 package
