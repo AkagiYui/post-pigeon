@@ -1,14 +1,15 @@
 // 顶栏布局组件
 // 包含红绿灯区域、导航标签、全局操作按钮
 // Windows 端额外包含窗口控制按钮（最小化、最大化、关闭）
-import { type JSX, For, Show, createEffect, createSignal, onMount } from 'solid-js'
+import { type JSX, For, Show, createEffect, createSignal, onMount, createResource } from 'solid-js'
 import { Link, useRouter, useLocation } from '@tanstack/solid-router'
 import { Settings, X, FolderOpen, Minus, Square, XSquare } from 'lucide-solid'
 import { System, Window } from '@wailsio/runtime'
 import { t } from '@/hooks/useI18n'
-import { openProjectIds, activeProjectId, closeProject, openProject, setActiveProjectId, settingsOpen, setSettingsOpen } from '@/stores/app'
+import { openProjectIds, activeProjectId, closeProject, openProject, setActiveProjectId, settingsOpen, setSettingsOpen, projectNames, setProjectNames } from '@/stores/app'
 import { Tooltip } from '@/components/ui/tooltip'
 import { cn } from '@/lib/utils'
+import { ProjectService } from '@/../bindings/post-pigeon/internal/services'
 
 export interface TitleBarProps {
     /** 项目标签点击回调 */
@@ -164,8 +165,22 @@ function NavLink(props: { href: string; active: boolean; children: JSX.Element }
 
 /** 项目标签（带关闭按钮） */
 function ProjectTab(props: { projectId: string; active: boolean; onClick: () => void; onClose: () => void }) {
-    // TODO: 从后端获取项目名称
-    const projectName = () => props.projectId.slice(0, 8)
+    // 从缓存中获取项目名称
+    const [project] = createResource(() => props.projectId, async (id) => {
+        // 先检查缓存
+        const cachedName = projectNames()[id]
+        if (cachedName) {
+            return cachedName
+        }
+        // 从后端加载
+        const project = await ProjectService.GetProject(id)
+        if (project?.name) {
+            // 缓存项目名称
+            setProjectNames(prev => ({ ...prev, [id]: project.name }))
+            return project.name
+        }
+        return id.slice(0, 8)
+    })
 
     return (
         <div
@@ -177,7 +192,7 @@ function ProjectTab(props: { projectId: string; active: boolean; onClick: () => 
             )}
             onClick={props.onClick}
         >
-            <span>{projectName()}</span>
+            <span>{project() || props.projectId.slice(0, 8)}</span>
             <button
                 class="opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted transition-all"
                 onClick={(e) => {

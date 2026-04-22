@@ -9,12 +9,15 @@ const [activeProjectId, setActiveProjectId] = createSignal<string | null>(null)
 const [settingsOpen, setSettingsOpen] = createSignal(false)
 /** 当前环境 ID（每个项目独立） */
 const [currentEnvironmentIds, setCurrentEnvironmentIds] = createSignal<Record<string, string>>({})
+/** 项目名称映射（projectId -> projectName） */
+const [projectNames, setProjectNames] = createSignal<Record<string, string>>({})
 
 export {
     openProjectIds, setOpenProjectIds,
     activeProjectId, setActiveProjectId,
     settingsOpen, setSettingsOpen,
     currentEnvironmentIds, setCurrentEnvironmentIds,
+    projectNames, setProjectNames,
 }
 
 /** 打开项目 */
