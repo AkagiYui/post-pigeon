@@ -38,6 +38,7 @@ jobs:
         with:
           package_json_file: 'frontend/package.json'
           cache: true
+          cache_dependency_path: 'frontend/pnpm-lock.yaml'
 
       - name: 安装 Node.js
         uses: actions/setup-node@v6
