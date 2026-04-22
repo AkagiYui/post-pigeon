@@ -1,6 +1,6 @@
-import { createRouter as createTanStackRouter, createHashHistory } from '@tanstack/solid-router'
+import { createHashHistory, createRouter as createTanStackRouter } from "@tanstack/solid-router"
 
-import { routeTree } from '@/routeTree.gen'
+import { routeTree } from "@/routeTree.gen"
 
 // 在客户端webview中，使用 hash 模式路由
 const hashHistory = createHashHistory()
@@ -10,12 +10,12 @@ export function getRouter() {
     routeTree,
     history: hashHistory,
     scrollRestoration: true,
-    defaultPreload: 'intent',
+    defaultPreload: "intent",
     defaultPreloadStaleTime: 0,
   })
 }
 
-declare module '@tanstack/solid-router' {
+declare module "@tanstack/solid-router" {
   interface Register {
     router: ReturnType<typeof getRouter>
   }

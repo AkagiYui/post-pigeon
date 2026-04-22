@@ -8,7 +8,8 @@
     "dev": "vite",
     "build:dev": "vite build --minify false --mode development",
     "build": "vite build --mode production",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "lint": "eslint --fix --ext ."
   },
   "dependencies": {
     "@codemirror/autocomplete": "^6.20.1",
