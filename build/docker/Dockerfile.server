@@ -9,6 +9,10 @@ WORKDIR /app
 # Install build dependencies
 RUN apk add --no-cache git
 
+# 构建参数，用于注入构建信息
+ARG BUILD_HASH
+ARG APP_VERSION=0.0.1
+
 # Copy source code
 COPY . .
 
@@ -19,7 +23,8 @@ RUN sed -i '/^replace/d' go.mod || true
 RUN go mod tidy
 
 # Build the server binary
-RUN go build -tags server -ldflags="-s -w" -o server .
+RUN BUILD_HASH_FINAL=${BUILD_HASH:-$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")} && \
+    go build -tags server -ldflags="-s -w -X post-pigeon/internal/config.BuildHash=$BUILD_HASH_FINAL -X post-pigeon/internal/config.Version=$APP_VERSION" -o server .
 
 # Runtime stage - minimal image
 FROM gcr.io/distroless/static-debian12

@@ -2,11 +2,6 @@ name: Build
 
 on:
   workflow_dispatch:
-    inputs:
-      version:
-        description: '构建版本号（可选）'
-        required: false
-        default: ''
 
 jobs:
   build:

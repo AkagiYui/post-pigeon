@@ -137,7 +137,7 @@ tasks:
     cmds:
       - go build -tags server {{.BUILD_FLAGS}} -o {{.BIN_DIR}}/{{.APP_NAME}}-server{{exeExt}}
     vars:
-      BUILD_FLAGS: "{{.BUILD_FLAGS}}"
+      BUILD_FLAGS: "{{.BUILD_FLAGS}} -ldflags=\"-s -w -X post-pigeon/internal/config.BuildHash={{.BUILD_HASH}} -X post-pigeon/internal/config.Version={{.APP_VERSION | default \"0.0.1\"}}\""
 
   run:server:
     summary: Builds and runs the application in server mode
