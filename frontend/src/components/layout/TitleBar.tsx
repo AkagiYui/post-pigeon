@@ -92,15 +92,20 @@ export function TitleBar(props: TitleBarProps) {
                 router.navigate({ to: "/project/$id", params: { id }, from: "/" })
               }}
               onClose={() => {
-                // 计算剩余项目
-                const remaining = openProjectIds().filter(p => p !== id)
-                // 先关闭项目（从 openProjectIds 移除）
+                // 判断关闭的是否是当前激活的项目
+                const isActiveProject = activeProjectId() === id
+                // 关闭项目
                 closeProject(id)
-                // 然后导航到正确的页面
-                if (remaining.length > 0) {
-                  router.navigate({ to: "/project/$id", params: { id: remaining[remaining.length - 1] } })
-                } else {
-                  router.navigate({ to: "/" })
+                // 只有关闭的是当前激活的项目时，才需要切换路由
+                if (isActiveProject) {
+                  const remaining = openProjectIds()
+                  if (remaining.length > 0) {
+                    // 导航到最后一个剩余项目
+                    router.navigate({ to: "/project/$id", params: { id: remaining[remaining.length - 1] } })
+                  } else {
+                    // 没有剩余项目，导航到项目列表
+                    router.navigate({ to: "/" })
+                  }
                 }
               }}
             />
