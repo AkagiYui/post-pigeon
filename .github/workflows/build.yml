@@ -48,7 +48,7 @@ jobs:
 
       - name: 安装 NSIS (Windows)
         if: runner.os == 'Windows'
-        uses: repolevedavaj/install-nsis@v1.1.0
+        uses: AkagiYui/install-nsis@v1.1.1
         with:
           nsis-version: '3.12'
 
