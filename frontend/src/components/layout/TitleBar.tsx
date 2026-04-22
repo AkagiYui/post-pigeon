@@ -1,9 +1,10 @@
 // 顶栏布局组件
 // 包含红绿灯区域、导航标签、全局操作按钮
+// Windows 端额外包含窗口控制按钮（最小化、最大化、关闭）
 import { type JSX, For, Show, createEffect, createSignal, onMount } from 'solid-js'
 import { Link, useRouter, useLocation } from '@tanstack/solid-router'
-import { Settings, X, FolderOpen } from 'lucide-solid'
-import { System } from '@wailsio/runtime'
+import { Settings, X, FolderOpen, Minus, Square, XSquare } from 'lucide-solid'
+import { System, Window } from '@wailsio/runtime'
 import { t } from '@/hooks/useI18n'
 import { openProjectIds, activeProjectId, closeProject, openProject, setActiveProjectId, settingsOpen, setSettingsOpen } from '@/stores/app'
 import { Tooltip } from '@/components/ui/tooltip'
@@ -28,6 +29,17 @@ export function TitleBar(props: TitleBarProps) {
         setIsMac(System.IsMac())
     })
 
+    // Windows 端窗口控制方法
+    // Window 从 @wailsio/runtime 导出时已是当前窗口实例
+    const [isMaximised, setIsMaximised] = createSignal(false)
+
+    // 监听窗口状态变化（最大化/还原）
+    onMount(() => {
+        if (!System.IsMac()) {
+            Window.IsMaximised().then(setIsMaximised)
+        }
+    })
+
     // 监听路由变化，自动同步 activeProjectId
     createEffect(() => {
         const loc = location()
@@ -50,14 +62,14 @@ export function TitleBar(props: TitleBarProps) {
         }
     })
     return (
-        <div class="flex items-center h-(--titlebar-height) border-b border-border bg-surface shrink-0 select-none">
+        <div class="flex items-center h-(--titlebar-height) border-b border-border bg-surface shrink-0 select-none" style="--wails-draggable:drag">
             {/* 左侧：红绿灯占位区域（仅 macOS） */}
             <Show when={isMac()}>
                 <div class="w-18 shrink-0 flex items-center pl-3" />
             </Show>
 
             {/* 导航标签区域 */}
-            <div class="ml-1 flex items-center gap-0.5 flex-1 overflow-x-auto no-scrollbar">
+            <div class="ml-1 flex items-center gap-0.5 flex-1 overflow-x-auto no-scrollbar" style="--wails-draggable:no-drag">
                 {/* 项目列表标签 */}
                 <NavLink href="/" active={activeProjectId() === null}>
                     <FolderOpen class="h-3.5 w-3.5" />
@@ -82,7 +94,7 @@ export function TitleBar(props: TitleBarProps) {
             </div>
 
             {/* 右侧：全局操作按钮 */}
-            <div class="flex items-center gap-1 pr-3 shrink-0">
+            <div class="flex items-center gap-1 shrink-0 pr-2" style="--wails-draggable:no-drag">
                 <Show when={activeProjectId()}>
                     <Tooltip content={t('nav.projectSettings')}>
                         <button class="btn-ghost">
@@ -96,6 +108,39 @@ export function TitleBar(props: TitleBarProps) {
                     </button>
                 </Tooltip>
             </div>
+
+            {/* Windows 端：窗口控制按钮（最小化、最大化/还原、关闭） */}
+            <Show when={!isMac()}>
+                <div class="flex items-center shrink-0 ml-1" style="--wails-draggable:no-drag">
+                    <button
+                        class="winctrl-btn"
+                        onClick={() => Window.Minimise()}
+                        title="最小化"
+                    >
+                        <Minus class="h-4 w-4" />
+                    </button>
+                    <button
+                        class="winctrl-btn"
+                        onClick={() => {
+                            Window.ToggleMaximise()
+                            // 切换后更新最大化状态
+                            Window.IsMaximised().then(setIsMaximised)
+                        }}
+                        title={isMaximised() ? '还原' : '最大化'}
+                    >
+                        <Show when={isMaximised()} fallback={<Square class="h-3.5 w-3.5" />}>
+                            <XSquare class="h-3.5 w-3.5" />
+                        </Show>
+                    </button>
+                    <button
+                        class="winctrl-btn winctrl-close"
+                        onClick={() => Window.Close()}
+                        title="关闭"
+                    >
+                        <X class="h-4 w-4" />
+                    </button>
+                </div>
+            </Show>
         </div>
     )
 }

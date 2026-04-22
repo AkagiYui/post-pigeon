@@ -5,6 +5,7 @@ import (
 	"log"
 	"log/slog"
 	"os"
+	"runtime"
 	"time"
 
 	"post-pigeon/internal/config"
@@ -85,12 +86,19 @@ func main() {
 		window.(*application.WebviewWindow).OpenDevTools()
 	}
 
+	// Windows/Linux 端使用无边框窗口，由前端自定义标题栏
+	frameless := runtime.GOOS != "darwin"
+
 	windowOptions := application.WebviewWindowOptions{
-		Title: config.AppName,
+		Title:     config.AppName,
+		Frameless: frameless,
 		Mac: application.MacWindow{
 			InvisibleTitleBarHeight: 50,
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
+		},
+		Windows: application.WindowsWindow{
+			DisableFramelessWindowDecorations: false,
 		},
 		BackgroundColour: application.NewRGB(27, 38, 54),
 		URL:              "/",

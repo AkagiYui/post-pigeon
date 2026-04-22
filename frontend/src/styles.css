@@ -236,6 +236,31 @@ textarea {
   color: var(--color-foreground);
 }
 
+/* Windows 端窗口控制按钮 */
+.winctrl-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 46px;
+  height: var(--titlebar-height);
+  color: var(--color-muted-foreground);
+  transition: all var(--transition-fast);
+  cursor: pointer;
+  border: none;
+  background: none;
+}
+
+.winctrl-btn:hover {
+  background: var(--color-muted);
+  color: var(--color-foreground);
+}
+
+/* 关闭按钮特殊样式：悬停时变红 */
+.winctrl-close:hover {
+  background: #e81123;
+  color: #ffffff;
+}
+
 /* 动画 */
 @keyframes fadeIn {
   from {
