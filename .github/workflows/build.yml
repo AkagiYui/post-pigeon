@@ -33,17 +33,17 @@ jobs:
           cache: true
           go-version-file: 'go.mod'
 
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          cache: true
+
       - name: 安装 Node.js
         uses: actions/setup-node@v6
         with:
           node-version-file: 'frontend/package.json'
           cache: 'pnpm'
-          cache-dependency-path: subdir/package-lock.json
-
-      - name: 安装 pnpm
-        uses: pnpm/action-setup@v6
-        with:
-          cache: true
+          cache-dependency-path: 'frontend/pnpm-lock.yaml'
 
       - name: 安装 Wails CLI
         run: |
