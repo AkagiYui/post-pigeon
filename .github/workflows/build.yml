@@ -12,8 +12,6 @@ jobs:
             artifact: post-pigeon-macos
           - os: windows-latest
             artifact: post-pigeon-windows
-          - os: ubuntu-latest
-            artifact: post-pigeon-linux
     
     name: 构建 ${{ matrix.os }}
     runs-on: ${{ matrix.os }}
