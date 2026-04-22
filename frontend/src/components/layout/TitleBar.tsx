@@ -45,7 +45,8 @@ export function TitleBar(props: TitleBarProps) {
     }
   })
 
-  // 监听路由变化，自动同步 activeProjectId
+  // 监听路由变化，同步 activeProjectId
+  // 注意：这里不自动调用 openProject，项目打开/关闭完全由用户交互控制
   createEffect(() => {
     const loc = location()
     const path = loc?.pathname
@@ -53,14 +54,12 @@ export function TitleBar(props: TitleBarProps) {
       // 在项目列表页面，清除激活项目
       setActiveProjectId(null)
     } else if (path?.startsWith("/project/")) {
-      // 在项目详情页面，提取项目 ID 并设置激活项目
+      // 在项目详情页面，提取项目 ID
       const match = path.match(/^\/project\/([^/]+)/)
       if (match && match[1]) {
         const projectId = match[1]
-        // 确保项目在打开列表中
-        if (!openProjectIds().includes(projectId)) {
-          openProject(projectId)
-        } else {
+        // 只在项目已在打开列表中时同步激活状态
+        if (openProjectIds().includes(projectId)) {
           setActiveProjectId(projectId)
         }
       }
@@ -92,7 +91,18 @@ export function TitleBar(props: TitleBarProps) {
                 openProject(id)
                 router.navigate({ to: "/project/$id", params: { id }, from: "/" })
               }}
-              onClose={() => closeProject(id)}
+              onClose={() => {
+                // 计算剩余项目
+                const remaining = openProjectIds().filter(p => p !== id)
+                // 先关闭项目（从 openProjectIds 移除）
+                closeProject(id)
+                // 然后导航到正确的页面
+                if (remaining.length > 0) {
+                  router.navigate({ to: "/project/$id", params: { id: remaining[remaining.length - 1] } })
+                } else {
+                  router.navigate({ to: "/" })
+                }
+              }}
             />
           )}
         </For>

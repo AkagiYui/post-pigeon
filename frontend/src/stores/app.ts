@@ -23,7 +23,7 @@ export {
   projectEnvironments, setProjectEnvironments,
 }
 
-/** 打开项目 */
+/** 打开项目（添加到打开列表并设为激活） */
 export function openProject(id: string) {
   if (!openProjectIds().includes(id)) {
     setOpenProjectIds(prev => [...prev, id])
@@ -31,7 +31,7 @@ export function openProject(id: string) {
   setActiveProjectId(id)
 }
 
-/** 关闭项目 */
+/** 关闭项目（从打开列表移除，并更新激活项目） */
 export function closeProject(id: string) {
   setOpenProjectIds(prev => prev.filter(p => p !== id))
   if (activeProjectId() === id) {
