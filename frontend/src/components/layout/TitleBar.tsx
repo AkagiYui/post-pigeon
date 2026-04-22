@@ -196,7 +196,7 @@ function ProjectTab(props: { projectId: string; active: boolean; onClick: () => 
             <span>{project() || props.projectId.slice(0, 8)}</span>
             {/* 关闭按钮，绝对定位覆盖在标题右侧 */}
             <button
-                class="absolute right-1.5 opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted transition-all bg-inherit"
+                class="absolute right-1.5 opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted/80 backdrop-blur-sm transition-all"
                 onClick={(e) => {
                     e.stopPropagation()
                     // TODO: 确认关闭弹窗
