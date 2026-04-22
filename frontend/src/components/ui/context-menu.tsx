@@ -57,7 +57,7 @@ export function ContextMenu(props: ContextMenuProps) {
                 <>
                     <div class="fixed inset-0 z-40" onClick={close} onContextMenu={(e) => { e.preventDefault(); close() }} />
                     <div
-                        class="fixed z-50 min-w-[180px] bg-surface border border-border rounded-md shadow-lg py-1"
+                        class="fixed z-50 min-w-45 bg-surface border border-border rounded-md shadow-lg py-1"
                         style={{ left: `${position().x}px`, top: `${position().y}px` }}
                     >
                         <MenuItems items={local.items} onClose={close} />
@@ -136,7 +136,7 @@ function SubMenu(props: { item: MenuItem; onClose: () => void }) {
             </div>
             <Show when={open()}>
                 <div
-                    class="fixed z-50 min-w-[180px] bg-surface border border-border rounded-md shadow-lg py-1"
+                    class="fixed z-50 min-w-45 bg-surface border border-border rounded-md shadow-lg py-1"
                     style={{ left: `${pos().x}px`, top: `${pos().y}px` }}
                 >
                     <MenuItems items={props.item.children || []} onClose={props.onClose} />

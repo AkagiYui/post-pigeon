@@ -100,7 +100,7 @@ export function Popover(props: PopoverProps) {
                     />
                     <div
                         class={cn(
-                            'absolute z-50 bg-surface rounded-lg shadow-lg border border-border p-3 min-w-[120px]',
+                            'absolute z-50 bg-surface rounded-lg shadow-lg border border-border p-3 min-w-30',
                             placementClasses[currentPlacement()],
                             props.class
                         )}

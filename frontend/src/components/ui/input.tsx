@@ -52,7 +52,7 @@ export function Textarea(props: TextareaProps) {
             class={cn(
                 'w-full rounded-md border bg-input text-foreground placeholder:text-muted-foreground',
                 'transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1',
-                'disabled:cursor-not-allowed disabled:opacity-50 min-h-[80px] px-3 py-2 text-sm',
+                'disabled:cursor-not-allowed disabled:opacity-50 min-h-20 px-3 py-2 text-sm',
                 local.error ? 'border-red-500' : 'border-border',
                 local.class
             )}
