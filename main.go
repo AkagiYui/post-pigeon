@@ -85,6 +85,23 @@ func main() {
 		window.(*application.WebviewWindow).OpenDevTools()
 	}
 
+	windowOptions := application.WebviewWindowOptions{
+		Title: config.AppName,
+		Mac: application.MacWindow{
+			InvisibleTitleBarHeight: 50,
+			Backdrop:                application.MacBackdropTranslucent,
+			TitleBar:                application.MacTitleBarHiddenInset,
+		},
+		BackgroundColour: application.NewRGB(27, 38, 54),
+		URL:              "/",
+		DevToolsEnabled:  true,
+		KeyBindings: map[string]func(window application.Window){
+			"F12": openDevToolsKeyBinding,
+		},
+		Width:  1280,
+		Height: 720,
+	}
+
 	// 应用菜单（第一个菜单项，显示应用名称）
 	appSubMenu := appMenu.AddSubmenu(config.AppName)
 	appSubMenu.Add("关于 " + config.AppName).SetAccelerator("Cmd+Shift+A").OnClick(func(_ *application.Context) {
@@ -94,20 +111,7 @@ func main() {
 	appSubMenu.Add("版本: " + config.Version + " (" + config.BuildHash + ")").SetEnabled(false)
 	appSubMenu.AddSeparator()
 	appSubMenu.Add("新窗口").SetAccelerator("Cmd+Shift+N").OnClick(func(_ *application.Context) {
-		app.Window.NewWithOptions(application.WebviewWindowOptions{
-			Title: config.AppName,
-			Mac: application.MacWindow{
-				InvisibleTitleBarHeight: 50,
-				Backdrop:                application.MacBackdropTranslucent,
-				TitleBar:                application.MacTitleBarHiddenInset,
-			},
-			BackgroundColour: application.NewRGB(27, 38, 54),
-			URL:              "/",
-			DevToolsEnabled:  true,
-			KeyBindings: map[string]func(window application.Window){
-				"F12": openDevToolsKeyBinding,
-			},
-		})
+		app.Window.NewWithOptions(windowOptions)
 	})
 	appSubMenu.AddSeparator()
 	appSubMenu.Add("隐藏 " + config.AppName).SetAccelerator("Cmd+H").OnClick(func(_ *application.Context) {
@@ -133,22 +137,7 @@ func main() {
 	app.Menu.Set(appMenu)
 
 	// 创建主窗口
-	mainWindow := app.Window.NewWithOptions(application.WebviewWindowOptions{
-		Title: config.AppName,
-		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
-			Backdrop:                application.MacBackdropTranslucent,
-			TitleBar:                application.MacTitleBarHiddenInset,
-		},
-		BackgroundColour: application.NewRGB(27, 38, 54),
-		URL:              "/",
-		DevToolsEnabled:  true,
-		KeyBindings: map[string]func(window application.Window){
-			"F12": openDevToolsKeyBinding,
-		},
-		Width:  1280,
-		Height: 720,
-	})
+	mainWindow := app.Window.NewWithOptions(windowOptions)
 
 	// 开发模式下自动打开开发者工具
 	if config.BuildHash == "dev" {
