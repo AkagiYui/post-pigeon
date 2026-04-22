@@ -168,7 +168,7 @@ function NavLink(props: { href: string; active: boolean; children: JSX.Element }
     <Link
       to={props.href}
       class={cn(
-        "flex items-center gap-1.5 px-3 py-1 text-sm rounded-md transition-colors",
+        "flex items-center gap-1.5 px-3 py-1 text-sm rounded-md transition-colors min-w-16 justify-center",
         props.active
           ? "bg-accent-muted text-accent font-medium"
           : "text-muted-foreground hover:text-foreground hover:bg-muted",
@@ -201,7 +201,7 @@ function ProjectTab(props: { projectId: string; active: boolean; onClick: () => 
   return (
     <div
       class={cn(
-        "relative flex items-center px-3 py-1 text-sm rounded-md cursor-pointer transition-colors group font-medium",
+        "relative flex items-center px-3 py-1 text-sm rounded-md cursor-pointer transition-colors group font-medium min-w-16 justify-center",
         props.active
           ? "bg-accent-muted text-accent"
           : "text-muted-foreground hover:text-foreground hover:bg-muted",
