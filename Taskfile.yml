@@ -14,7 +14,7 @@ vars:
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
   # 应用版本号，从 config.yml 自动读取
   APP_VERSION:
-    sh: grep -E "^\s+version:" build/config.yml | head -1 | awk -F'"' '{print $2}'
+    sh: sed -n 's/^[[:space:]]*version:[[:space:]]*"\([^"]*\)".*/\1/p' build/config.yml | head -1
   # 构建信息，通过 ldflags 注入到应用中
   BUILD_HASH:
     sh: git rev-parse HEAD 2>/dev/null || echo "dev"
