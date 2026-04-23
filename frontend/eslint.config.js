@@ -1,7 +1,7 @@
 import stylistic from "@stylistic/eslint-plugin"
-import tsParser from "@typescript-eslint/parser"
 import simpleImportSort from "eslint-plugin-simple-import-sort"
 import globals from "globals"
+import tseslint from "typescript-eslint"
 
 export default [
   {
@@ -17,6 +17,7 @@ export default [
     plugins: {
       "@stylistic": stylistic,
       "simple-import-sort": simpleImportSort,
+      "@typescript-eslint": tseslint.plugin,
     },
     rules: {
       semi: ["warn", "never"], // 禁止分号
@@ -68,10 +69,15 @@ export default [
 
       "simple-import-sort/imports": "warn",
       "simple-import-sort/exports": "off",
+
+      "@typescript-eslint/no-deprecated": "warn",
     },
     languageOptions: {
-      parser: tsParser,
+      parser: tseslint.parser,
       parserOptions: {
+        projectService: {
+          allowDefaultProject: ["*.config.js", "*.config.ts", "*.mjs"],
+        },
         sourceType: "module",
         ecmaVersion: "latest",
         // 如果你不需要类型信息，可先不配 project（最省事）
