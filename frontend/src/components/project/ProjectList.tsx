@@ -1,6 +1,6 @@
 // 项目列表页面
 import { useNavigate } from "@tanstack/solid-router"
-import { Download, FolderOpen, Plus, Trash2, Upload } from "lucide-solid"
+import { AlertTriangle, Download, FolderOpen, Plus, Trash2, Upload } from "lucide-solid"
 import { createSignal, For, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
@@ -27,6 +27,9 @@ export function ProjectListPage() {
   const [createOpen, setCreateOpen] = createSignal(false)
   const [newName, setNewName] = createSignal("")
   const [newDesc, setNewDesc] = createSignal("")
+  // 删除确认对话框状态
+  const [deleteConfirmOpen, setDeleteConfirmOpen] = createSignal(false)
+  const [projectToDelete, setProjectToDelete] = createSignal<Project | null>(null)
 
   // 加载项目列表
   const loadProjects = async () => {
@@ -57,10 +60,20 @@ export function ProjectListPage() {
     }
   }
 
-  // 删除项目
-  const handleDelete = async (id: string) => {
+  // 打开删除确认对话框
+  const handleDelete = (project: Project) => {
+    setProjectToDelete(project)
+    setDeleteConfirmOpen(true)
+  }
+
+  // 确认删除项目
+  const confirmDelete = async () => {
+    const project = projectToDelete()
+    if (!project) return
     try {
-      await ProjectService.DeleteProject(id)
+      await ProjectService.DeleteProject(project.id)
+      setDeleteConfirmOpen(false)
+      setProjectToDelete(null)
       await loadProjects()
     } catch (e) {
       console.error("删除项目失败", e)
@@ -89,7 +102,7 @@ export function ProjectListPage() {
       key: "delete",
       label: t("project.delete"),
       icon: <Trash2 class="h-3.5 w-3.5" />,
-      onClick: () => handleDelete(project.id),
+      onClick: () => handleDelete(project),
     },
   ]
 
@@ -150,7 +163,7 @@ export function ProjectListPage() {
                         class="opacity-0 group-hover:opacity-100"
                         onClick={(e) => {
                           e.stopPropagation()
-                          handleDelete(project.id)
+                          handleDelete(project)
                         }}
                       >
                         <Trash2 class="h-3.5 w-3.5" />
@@ -190,6 +203,50 @@ export function ProjectListPage() {
             </Button>
             <Button onClick={handleCreate} disabled={!newName().trim()}>
               {t("common.confirm")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* 删除确认对话框 */}
+      <Dialog
+        open={deleteConfirmOpen()}
+        onClose={() => {
+          setDeleteConfirmOpen(false)
+          setProjectToDelete(null)
+        }}
+        title={t("project.delete")}
+        closeOnEsc
+        closeOnOverlayClick
+      >
+        <div class="p-6 space-y-4">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+              <AlertTriangle class="h-5 w-5 text-red-500" />
+            </div>
+            <div class="flex-1">
+              <p class="text-foreground">
+                {t("project.deleteConfirm")}
+              </p>
+              <Show when={projectToDelete()}>
+                <p class="text-sm text-muted-foreground mt-1">
+                  {projectToDelete()?.name}
+                </p>
+              </Show>
+            </div>
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <Button
+              variant="outline"
+              onClick={() => {
+                setDeleteConfirmOpen(false)
+                setProjectToDelete(null)
+              }}
+            >
+              {t("common.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={confirmDelete}>
+              {t("project.delete")}
             </Button>
           </div>
         </div>

@@ -15,6 +15,7 @@
     "project.open": "打开项目",
     "project.empty": "暂无项目，创建一个开始吧",
     "project.confirmDelete": "确定要删除项目「{name}」吗？此操作不可恢复。",
+    "project.deleteConfirm": "确定要删除此项目吗？此操作不可恢复。",
     "module.create": "新建模块",
     "module.name": "模块名称",
     "module.delete": "删除模块",
