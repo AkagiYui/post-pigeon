@@ -26,7 +26,7 @@ const accentOptions = [
 const scaleOptions = [
   { value: "0.8", label: "80%" },
   { value: "0.9", label: "90%" },
-  { value: "1.0", label: "100%" },
+  { value: "1", label: "100%" },
   { value: "1.1", label: "110%" },
   { value: "1.25", label: "125%" },
   { value: "1.5", label: "150%" },
