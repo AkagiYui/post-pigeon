@@ -29,9 +29,9 @@ type AppInfo struct {
 // 如果构建时间为空（dev模式），则返回应用启动时间
 func (s *AppService) GetAppInfo() AppInfo {
 	buildTime := config.BuildTime
-	// 如果构建时间为空或为 "dev"，使用应用启动时间
+	// 如果构建时间为空或为 "dev"，使用应用启动时间（UTC 时间，ISO 8601 格式）
 	if buildTime == "" || buildTime == "dev" {
-		buildTime = s.startTime.Format("2006-01-02 15:04:05")
+		buildTime = s.startTime.UTC().Format(time.RFC3339)
 	}
 
 	return AppInfo{
