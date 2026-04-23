@@ -12,11 +12,13 @@ jobs:
       matrix:
         include:
           - os: macos-latest
-            artifact: post-pigeon-macos
+            arch: arm64
+            artifact: post-pigeon-macos-arm64
           - os: windows-latest
-            artifact: post-pigeon-windows
+            arch: x64
+            artifact: post-pigeon-windows-x64
     
-    name: 构建 ${{ matrix.os }}
+    name: 构建 ${{ matrix.os }} (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
     
     steps:
