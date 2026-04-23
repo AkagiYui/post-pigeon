@@ -32,6 +32,8 @@ export function Dialog(props: DialogProps) {
 
   // 遮罩层元素引用，用于自动聚焦
   let overlayRef: HTMLDivElement | undefined
+  // 记录 mousedown 是否发生在遮罩层上，用于判断是否应该触发关闭
+  let mouseDownOnOverlay = false
 
   // 模态框打开时自动聚焦，确保 ESC 键可以立即响应
   createEffect(on(
@@ -52,13 +54,27 @@ export function Dialog(props: DialogProps) {
     }
   }
 
+  // 记录 mousedown 是否发生在遮罩层上
+  const handleMouseDown = (e: MouseEvent) => {
+    mouseDownOnOverlay = e.target === overlayRef
+  }
+
+  // 只有 mousedown 和 mouseup 都发生在遮罩层上时，才触发关闭
+  const handleMouseUp = (e: MouseEvent) => {
+    if (local.closeOnOverlayClick && mouseDownOnOverlay && e.target === overlayRef) {
+      local.onClose()
+    }
+    mouseDownOnOverlay = false
+  }
+
   return (
     <Show when={local.open}>
       {/* 遮罩层 */}
       <div
         ref={overlayRef}
         class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center outline-none"
-        onClick={local.closeOnOverlayClick ? local.onClose : undefined}
+        onMouseDown={handleMouseDown}
+        onMouseUp={handleMouseUp}
         onKeyDown={handleKeyDown}
         tabIndex={-1}
       >
