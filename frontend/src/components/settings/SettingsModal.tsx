@@ -1,4 +1,5 @@
 // 设置模态框组件
+import { Globe, Info, Palette } from "lucide-solid"
 import { createSignal } from "solid-js"
 
 import { Dialog } from "@/components/ui/dialog"
@@ -16,9 +17,9 @@ export interface SettingsModalProps {
 
 /** 设置标签列表 */
 const settingsTabs = [
-  { key: "appearance", label: "" }, // label 在渲染时由 i18n 填充
-  { key: "language", label: "" },
-  { key: "about", label: "" },
+  { key: "appearance", label: "", icon: <Palette class="h-4 w-4" /> }, // label 在渲染时由 i18n 填充
+  { key: "language", label: "", icon: <Globe class="h-4 w-4" /> },
+  { key: "about", label: "", icon: <Info class="h-4 w-4" /> },
 ]
 
 /**
