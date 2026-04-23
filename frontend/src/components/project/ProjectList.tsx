@@ -1,6 +1,6 @@
 // 项目列表页面
 import { useNavigate } from "@tanstack/solid-router"
-import { AlertTriangle, Download, FolderOpen, Plus, Trash2, Upload } from "lucide-solid"
+import { Download, FolderOpen, Plus, Trash2, TriangleAlert, Upload } from "lucide-solid"
 import { createSignal, For, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
@@ -222,7 +222,7 @@ export function ProjectListPage() {
         <div class="p-6 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
-              <AlertTriangle class="h-5 w-5 text-red-500" />
+              <TriangleAlert class="h-5 w-5 text-red-500" />
             </div>
             <div class="flex-1">
               <p class="text-foreground">

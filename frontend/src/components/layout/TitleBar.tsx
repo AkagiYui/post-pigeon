@@ -3,7 +3,7 @@
 // Windows 端额外包含窗口控制按钮（最小化、最大化、关闭）
 import { Link, useLocation, useRouter } from "@tanstack/solid-router"
 import { System, Window } from "@wailsio/runtime"
-import { ChevronDown, FolderOpen, Minus, Settings, Square, X, XSquare } from "lucide-solid"
+import { ChevronDown, FolderOpen, Minus, Settings, Square, SquareX, X } from "lucide-solid"
 import { createEffect, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
@@ -151,7 +151,7 @@ export function TitleBar(props: TitleBarProps) {
             title={isMaximised() ? "还原" : "最大化"}
           >
             <Show when={isMaximised()} fallback={<Square class="h-3.5 w-3.5" />}>
-              <XSquare class="h-3.5 w-3.5" />
+              <SquareX class="h-3.5 w-3.5" />
             </Show>
           </button>
           <button
