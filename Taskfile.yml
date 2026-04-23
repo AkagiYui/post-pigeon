@@ -12,6 +12,9 @@ vars:
   APP_NAME: "post-pigeon"
   BIN_DIR: "bin"
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
+  # 应用版本号，从 config.yml 自动读取
+  APP_VERSION:
+    sh: grep "version:" build/config.yml | grep "# The application version" | awk -F'"' '{print $2}'
   # 构建信息，通过 ldflags 注入到应用中
   BUILD_HASH:
     sh: git rev-parse --short HEAD 2>/dev/null || echo "dev"

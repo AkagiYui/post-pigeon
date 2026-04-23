@@ -63,6 +63,9 @@ jobs:
         run: |
           go install github.com/wailsapp/wails/v3/cmd/wails3@latest
 
+      - name: 更新构建资源
+        run: wails3 task common:update:build-assets
+
       - name: 构建应用
         run: wails3 package
 
