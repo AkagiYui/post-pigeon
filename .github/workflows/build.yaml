@@ -64,7 +64,7 @@ jobs:
       - name: 安装 Go
         uses: actions/setup-go@v6
         with:
-          cache: true
+          cache: false
           go-version-file: 'go.mod'
 
       - name: 安装 pnpm
