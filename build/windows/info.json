@@ -1,13 +1,13 @@
 {
 	"fixed": {
-		"file_version": "0.1.0"
+		"file_version": "0.0.1"
 	},
 	"info": {
 		"0000": {
-			"ProductVersion": "0.1.0",
+			"ProductVersion": "0.0.1",
 			"CompanyName": "AkagiYui",
-			"FileDescription": "A post-pigeon application",
-			"LegalCopyright": "© 2026, AkagiYui",
+			"FileDescription": "Post Pigeon Application",
+			"LegalCopyright": "(c) 2026, AkagiYui",
 			"ProductName": "Post Pigeon",
 			"Comments": "Post Pigeon Application"
 		}
