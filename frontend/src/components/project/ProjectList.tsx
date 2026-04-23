@@ -94,10 +94,12 @@ export function ProjectListPage() {
   ]
 
   return (
-    <div class="flex items-center justify-center h-full p-8">
-      <div class="w-full max-w-2xl">
-        {/* 标题栏 */}
-        <div class="flex items-center justify-between mb-6">
+    // 外层容器：固定高度，防止溢出
+    <div class="flex flex-col h-full overflow-hidden p-8">
+      {/* 内容区域：限制最大宽度并居中 */}
+      <div class="w-full max-w-2xl mx-auto flex flex-col h-full min-h-0">
+        {/* 标题栏：固定在顶部，不参与滚动 */}
+        <div class="flex items-center justify-between mb-6 shrink-0">
           <h1 class="text-2xl font-bold">{t("project.title")}</h1>
           <div class="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleImport}>
@@ -111,53 +113,55 @@ export function ProjectListPage() {
           </div>
         </div>
 
-        {/* 项目列表 */}
-        <Show
-          when={projects().length > 0}
-          fallback={
-            <div class="text-center py-16">
-              <FolderOpen class="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-              <p class="text-muted-foreground">{t("project.empty")}</p>
-            </div>
-          }
-        >
-          <div class="grid gap-3">
-            <For each={projects()}>
-              {(project) => (
-                <ContextMenu items={contextMenuItems(project)}>
-                  <div
-                    class="group flex items-center gap-4 p-4 rounded-lg border border-border bg-surface hover:border-accent/30 hover:bg-accent-muted/30 transition-all cursor-pointer"
-                    onClick={() => {
-                      openProject(project.id)
-                      navigate({ to: "/project/$id", params: { id: project.id }, from: "/" })
-                    }}
-                  >
-                    <div class="w-10 h-10 rounded-lg bg-accent-muted flex items-center justify-center shrink-0">
-                      <span class="text-accent font-bold text-lg">{project.name[0]}</span>
-                    </div>
-                    <div class="flex-1 min-w-0">
-                      <h3 class="font-medium text-foreground truncate">{project.name}</h3>
-                      <Show when={project.description}>
-                        <p class="text-sm text-muted-foreground truncate">{project.description}</p>
-                      </Show>
-                    </div>
-                    <Button
-                      variant="ghost"
-                      size="icon-sm"
-                      class="opacity-0 group-hover:opacity-100"
-                      onClick={(e) => {
-                        e.stopPropagation()
-                        handleDelete(project.id)
+        {/* 项目列表区域：动态填充剩余高度，溢出时可滚动 */}
+        <div class="flex-1 overflow-y-auto min-h-0">
+          <Show
+            when={projects().length > 0}
+            fallback={
+              <div class="text-center py-16">
+                <FolderOpen class="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <p class="text-muted-foreground">{t("project.empty")}</p>
+              </div>
+            }
+          >
+            <div class="grid gap-3 pb-4">
+              <For each={projects()}>
+                {(project) => (
+                  <ContextMenu items={contextMenuItems(project)}>
+                    <div
+                      class="group flex items-center gap-4 p-4 rounded-lg border border-border bg-surface hover:border-accent/30 hover:bg-accent-muted/30 transition-all cursor-pointer"
+                      onClick={() => {
+                        openProject(project.id)
+                        navigate({ to: "/project/$id", params: { id: project.id }, from: "/" })
                       }}
                     >
-                      <Trash2 class="h-3.5 w-3.5" />
-                    </Button>
-                  </div>
-                </ContextMenu>
-              )}
-            </For>
-          </div>
-        </Show>
+                      <div class="w-10 h-10 rounded-lg bg-accent-muted flex items-center justify-center shrink-0">
+                        <span class="text-accent font-bold text-lg">{project.name[0]}</span>
+                      </div>
+                      <div class="flex-1 min-w-0">
+                        <h3 class="font-medium text-foreground truncate">{project.name}</h3>
+                        <Show when={project.description}>
+                          <p class="text-sm text-muted-foreground truncate">{project.description}</p>
+                        </Show>
+                      </div>
+                      <Button
+                        variant="ghost"
+                        size="icon-sm"
+                        class="opacity-0 group-hover:opacity-100"
+                        onClick={(e) => {
+                          e.stopPropagation()
+                          handleDelete(project.id)
+                        }}
+                      >
+                        <Trash2 class="h-3.5 w-3.5" />
+                      </Button>
+                    </div>
+                  </ContextMenu>
+                )}
+              </For>
+            </div>
+          </Show>
+        </div>
       </div>
 
       {/* 创建项目对话框 */}
