@@ -1,6 +1,7 @@
 // 关于页面组件
-import { ExternalLink, Mail } from "lucide-solid"
+import { Mail } from "lucide-solid"
 
+import { ExternalLink } from "@/components/ui/external-link"
 import { t } from "@/hooks/useI18n"
 
 /**
@@ -29,27 +30,13 @@ export function AboutSettings() {
       {/* 个人主页 */}
       <div class="flex items-center justify-between">
         <span class="text-sm text-foreground">{t("settings.about.homepage")}</span>
-        <a
-          href="https://aky.moe"
-          target="_blank"
-          rel="noopener noreferrer"
-          class="flex items-center gap-1 text-sm text-accent hover:underline"
-        >
-          aky.moe
-          <ExternalLink class="h-3 w-3" />
-        </a>
+        <ExternalLink href="https://aky.moe" text="aky.moe" />
       </div>
 
       {/* 联系作者 */}
       <div class="flex items-center justify-between">
         <span class="text-sm text-foreground">{t("settings.about.contact")}</span>
-        <a
-          href="mailto:akagiyui@yeah.net"
-          class="flex items-center gap-1 text-sm text-accent hover:underline"
-        >
-          akagiyui@yeah.net
-          <Mail class="h-3 w-3" />
-        </a>
+        <ExternalLink href="mailto:akagiyui@yeah.net" text="akagiyui@yeah.net" icon={Mail} />
       </div>
     </div>
   )

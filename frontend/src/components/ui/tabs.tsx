@@ -104,7 +104,7 @@ export function SideTabs(props: SideTabsProps) {
   return (
     <div class={cn("flex h-full", local.class)}>
       {/* 左侧菜单 */}
-      <div class="w-44 shrink-0 border-r border-border py-2">
+      <div class="w-44 shrink-0 border-r border-border">
         <For each={local.tabs}>
           {(tab) => (
             <button
