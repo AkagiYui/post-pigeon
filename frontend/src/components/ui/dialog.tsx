@@ -16,6 +16,8 @@ export interface DialogProps {
   children: JSX.Element
   /** 宽度 */
   width?: string
+  /** 高度，不设置则根据内容自动调整 */
+  height?: string
   /** 点击遮罩层是否触发关闭回调，默认为 false */
   closeOnOverlayClick?: boolean
   /** 按 ESC 键是否触发关闭回调，默认为 false */
@@ -26,7 +28,7 @@ export interface DialogProps {
  * Dialog 模态框组件
  */
 export function Dialog(props: DialogProps) {
-  const [local] = splitProps(props, ["open", "onClose", "title", "class", "children", "width", "closeOnOverlayClick", "closeOnEsc"])
+  const [local] = splitProps(props, ["open", "onClose", "title", "class", "children", "width", "height", "closeOnOverlayClick", "closeOnEsc"])
 
   // 遮罩层元素引用，用于自动聚焦
   let overlayRef: HTMLDivElement | undefined
@@ -63,10 +65,12 @@ export function Dialog(props: DialogProps) {
         {/* 对话框内容 */}
         <div
           class={cn(
-            "bg-surface rounded-lg shadow-xl border border-border h-[85vh] overflow-hidden flex flex-col",
+            "bg-surface rounded-lg shadow-xl border border-border overflow-hidden flex flex-col",
+            // 如果设置了高度，使用固定高度；否则使用最大高度限制，让内容自适应
+            local.height ? "" : "max-h-[85vh]",
             local.class,
           )}
-          style={{ width: local.width || "480px" }}
+          style={{ width: local.width || "480px", height: local.height }}
           onClick={(e) => e.stopPropagation()}
         >
           {/* 标题栏 */}

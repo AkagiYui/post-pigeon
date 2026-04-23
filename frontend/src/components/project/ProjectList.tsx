@@ -165,7 +165,7 @@ export function ProjectListPage() {
       </div>
 
       {/* 创建项目对话框 */}
-      <Dialog open={createOpen()} onClose={() => setCreateOpen(false)} title={t("project.create")}>
+      <Dialog open={createOpen()} onClose={() => setCreateOpen(false)} title={t("project.create")} closeOnEsc closeOnOverlayClick>
         <div class="p-6 space-y-4">
           <div>
             <label class="block text-sm font-medium mb-1.5">{t("project.name")}</label>
