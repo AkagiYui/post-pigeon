@@ -7,9 +7,39 @@ on:
       - master
 
 jobs:
+  # 检查 commits，决定是否需要构建
+  check-commits:
+    name: 检查 commits
+    runs-on: ubuntu-latest
+    outputs:
+      should-build: ${{ steps.check.outputs.should-build }}
+    
+    steps:
+      - name: 检查是否需要构建
+        id: check
+        run: |
+          # 获取所有 commit messages
+          COMMITS='${{ toJson(github.event.commits) }}'
+          
+          # 检查是否有任何 commit 不以 docs 或 style 开头
+          SHOULD_BUILD="false"
+          
+          for message in $(echo "$COMMITS" | jq -r '.[].message'); do
+            if [[ ! "$message" =~ ^(docs|style) ]]; then
+              SHOULD_BUILD="true"
+              echo "发现功能性 commit: $message"
+              break
+            fi
+          done
+          
+          echo "should-build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
+          echo "是否需要构建: $SHOULD_BUILD"
+
   build:
-    # 跳过 docs 和 style 开头的 commit message
-    if: "!startsWith(github.event.head_commit.message, 'docs') && !startsWith(github.event.head_commit.message, 'style')"
+    needs: check-commits
+    # 只要有任意一个功能性 commit 就触发构建
+    if: needs.check-commits.outputs.should-build == 'true'
+    # 构建任务
     strategy:
       matrix:
         include:
