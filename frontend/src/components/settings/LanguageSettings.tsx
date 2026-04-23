@@ -21,7 +21,7 @@ export function LanguageSettings() {
           options={languageOptions}
           value={userLanguageChoice()}
           onChange={(v) => changeLanguage(v as "zh-CN" | "en" | "system")}
-          class="w-32"
+          class="w-52"
         />
       </div>
     </div>
