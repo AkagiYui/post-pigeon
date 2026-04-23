@@ -92,6 +92,8 @@
     "settings.language.en": "English",
     "settings.about.version": "Version",
     "settings.about.buildHash": "Build Hash",
+    "settings.about.buildTime": "Build Time",
+    "settings.about.clickToCopy": "Click to copy full hash",
     "settings.about.homepage": "Homepage",
     "settings.about.contact": "Contact",
     "settings.about.debugInfo": "Debug Info",
@@ -105,5 +107,6 @@
     "common.search": "Search",
     "common.noData": "No data",
     "common.enabled": "Enabled",
-    "common.disabled": "Disabled"
+    "common.disabled": "Disabled",
+    "common.copied": "Copied"
 }

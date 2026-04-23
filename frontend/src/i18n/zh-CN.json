@@ -92,6 +92,8 @@
     "settings.language.en": "English",
     "settings.about.version": "版本",
     "settings.about.buildHash": "构建版本",
+    "settings.about.buildTime": "构建时间",
+    "settings.about.clickToCopy": "点击复制完整哈希",
     "settings.about.homepage": "个人主页",
     "settings.about.contact": "联系作者",
     "settings.about.debugInfo": "调试信息",
@@ -105,5 +107,6 @@
     "common.search": "搜索",
     "common.noData": "暂无数据",
     "common.enabled": "启用",
-    "common.disabled": "禁用"
+    "common.disabled": "禁用",
+    "common.copied": "已复制"
 }

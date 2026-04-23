@@ -11,6 +11,8 @@ var (
 	Version = "0.0.1"
 	// BuildHash 构建哈希值，通过 ldflags 注入
 	BuildHash = "dev"
+	// BuildTime 构建时间，通过 ldflags 注入
+	BuildTime = "dev"
 	// AppName 应用名称
 	AppName = "Post Pigeon"
 	// AppIdentifier 应用唯一标识符

@@ -42,6 +42,7 @@ func main() {
 	}
 
 	// 创建服务实例
+	appService := services.NewAppService()
 	projectService := services.NewProjectService(db)
 	moduleService := services.NewModuleService(db)
 	folderService := services.NewFolderService(db)
@@ -60,6 +61,7 @@ func main() {
 		Name:        config.AppName,
 		Description: "A lightweight API testing tool",
 		Services: []application.Service{
+			application.NewService(appService),
 			application.NewService(projectService),
 			application.NewService(moduleService),
 			application.NewService(folderService),

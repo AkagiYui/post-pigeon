@@ -13,6 +13,49 @@ import * as models$0 from "../models/models.js";
 import * as time$0 from "../../../time/models.js";
 
 /**
+ * AppInfo 应用信息结构
+ */
+export class AppInfo {
+    /**
+     * 应用版本
+     */
+    "version": string;
+
+    /**
+     * 构建哈希
+     */
+    "buildHash": string;
+
+    /**
+     * 构建时间
+     */
+    "buildTime": string;
+
+    /** Creates a new AppInfo instance. */
+    constructor($$source: Partial<AppInfo> = {}) {
+        if (!("version" in $$source)) {
+            this["version"] = "";
+        }
+        if (!("buildHash" in $$source)) {
+            this["buildHash"] = "";
+        }
+        if (!("buildTime" in $$source)) {
+            this["buildTime"] = "";
+        }
+
+        Object.assign(this, $$source);
+    }
+
+    /**
+     * Creates a new AppInfo instance from a string or object.
+     */
+    static createFrom($$source: any = {}): AppInfo {
+        let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
+        return new AppInfo($$parsedSource as Partial<AppInfo>);
+    }
+}
+
+/**
  * EndpointDetail 端点完整详情（包含所有关联数据）
  */
 export class EndpointDetail {
