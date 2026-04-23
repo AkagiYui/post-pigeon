@@ -5,6 +5,26 @@ import { createEffect, createSignal, onMount } from "solid-js"
 import { SettingsService } from "@/../bindings/post-pigeon/internal/services"
 import { ACCENT_COLORS, type ThemeAccent, type ThemeMode } from "@/lib/types"
 
+/** 缩放配置 */
+export const UI_SCALE_CONFIG = {
+  /** 最小缩放比例 */
+  MIN: 0.6,
+  /** 最大缩放比例 */
+  MAX: 1.4,
+  /** 缩放步进值 */
+  STEP: 0.1,
+  /** 默认缩放比例 (100%) */
+  DEFAULT: 1.0,
+  /** 刻度点配置 */
+  MARKS: [
+    { value: 0.6, label: "60%" },
+    { value: 0.8, label: "80%" },
+    { value: 1.0, label: "100%" },
+    { value: 1.2, label: "120%" },
+    { value: 1.4, label: "140%" },
+  ],
+} as const
+
 /** 当前主题模式 */
 const [themeMode, setThemeMode] = createSignal<ThemeMode>("system")
 /** 当前主题色 */
@@ -103,11 +123,46 @@ export async function changeThemeAccent(accent: ThemeAccent) {
 
 /** 切换缩放比例 */
 export async function changeUIScale(scale: number) {
-  setUiScale(scale)
-  applyScale(scale)
+  // 限制缩放范围
+  const clampedScale = Math.max(UI_SCALE_CONFIG.MIN, Math.min(UI_SCALE_CONFIG.MAX, scale))
+  setUiScale(clampedScale)
+  applyScale(clampedScale)
   try {
-    await SettingsService.SetSetting("ui.scale", scale.toString())
+    await SettingsService.SetSetting("ui.scale", clampedScale.toString())
   } catch (e) {
     console.warn("保存缩放比例失败", e)
   }
+}
+
+/** 初始化缩放快捷键 */
+export function initScaleShortcuts() {
+  const handleKeyDown = (e: KeyboardEvent) => {
+    // 检测 Cmd (Mac) 或 Ctrl (Windows/Linux)
+    const isMeta = e.metaKey || e.ctrlKey
+
+    if (!isMeta) return
+
+    // 检测 + 或 = 键（放大）
+    if (e.key === "=" || e.key === "+") {
+      e.preventDefault()
+      changeUIScale(uiScale() + UI_SCALE_CONFIG.STEP)
+      return
+    }
+
+    // 检测 - 键（缩小）
+    if (e.key === "-") {
+      e.preventDefault()
+      changeUIScale(uiScale() - UI_SCALE_CONFIG.STEP)
+      return
+    }
+
+    // 检测 0 键（重置为默认值）
+    if (e.key === "0") {
+      e.preventDefault()
+      changeUIScale(UI_SCALE_CONFIG.DEFAULT)
+      return
+    }
+  }
+
+  window.addEventListener("keydown", handleKeyDown)
 }

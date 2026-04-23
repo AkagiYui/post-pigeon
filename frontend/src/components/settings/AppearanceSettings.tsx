@@ -1,9 +1,8 @@
 // 外观设置组件
-import { createSignal, onMount } from "solid-js"
-
 import { Select } from "@/components/ui/select"
+import { Slider } from "@/components/ui/slider"
 import { t } from "@/hooks/useI18n"
-import { changeThemeAccent, changeThemeMode, changeUIScale, themeAccent, themeMode, uiScale } from "@/hooks/useTheme"
+import { changeThemeAccent, changeThemeMode, changeUIScale, themeAccent, themeMode, uiScale, UI_SCALE_CONFIG } from "@/hooks/useTheme"
 import { type ThemeAccent, type ThemeMode } from "@/lib/types"
 
 /** 主题模式选项 */
@@ -20,16 +19,6 @@ const accentOptions = [
   { value: "violet", label: "紫色" },
   { value: "rose", label: "玫瑰色" },
   { value: "orange", label: "橙色" },
-]
-
-/** 缩放选项 */
-const scaleOptions = [
-  { value: "0.8", label: "80%" },
-  { value: "0.9", label: "90%" },
-  { value: "1", label: "100%" },
-  { value: "1.1", label: "110%" },
-  { value: "1.25", label: "125%" },
-  { value: "1.5", label: "150%" },
 ]
 
 /**
@@ -71,11 +60,14 @@ export function AppearanceSettings() {
 
       {/* 界面缩放 */}
       <SettingItem label={t("settings.ui.scale")}>
-        <Select
-          options={scaleOptions}
-          value={uiScale().toString()}
-          onChange={(v) => changeUIScale(parseFloat(v))}
-          class="w-32"
+        <Slider
+          value={uiScale()}
+          min={UI_SCALE_CONFIG.MIN}
+          max={UI_SCALE_CONFIG.MAX}
+          step={UI_SCALE_CONFIG.STEP}
+          onChange={changeUIScale}
+          marks={UI_SCALE_CONFIG.MARKS}
+          class="w-64"
         />
       </SettingItem>
     </div>
