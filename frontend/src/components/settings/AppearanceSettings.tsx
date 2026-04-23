@@ -2,7 +2,7 @@
 import { Select } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { t } from "@/hooks/useI18n"
-import { changeThemeAccent, changeThemeMode, changeUIScale, themeAccent, themeMode, uiScale, UI_SCALE_CONFIG } from "@/hooks/useTheme"
+import { changeThemeAccent, changeThemeMode, changeUIScale, themeAccent, themeMode, UI_SCALE_CONFIG, uiScale } from "@/hooks/useTheme"
 import { type ThemeAccent, type ThemeMode } from "@/lib/types"
 
 /** 主题模式选项 */
