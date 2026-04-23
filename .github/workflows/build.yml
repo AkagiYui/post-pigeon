@@ -2,6 +2,9 @@ name: Build
 
 on:
   workflow_dispatch:
+  push:
+    branches:
+      - master
 
 jobs:
   build:
@@ -48,7 +51,7 @@ jobs:
 
       - name: 安装 NSIS (Windows)
         if: runner.os == 'Windows'
-        uses: AkagiYui/install-nsis@v1.1.1
+        uses: AkagiYui/install-nsis@latest
         with:
           nsis-version: '3.12'
 
