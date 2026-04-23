@@ -52,6 +52,10 @@ jobs:
     
     name: 构建 ${{ matrix.os }} (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
+    # 使用 bash 作为默认 shell（Windows 会使用 Git Bash）
+    defaults:
+      run:
+        shell: bash
     
     steps:
       - name: 检出代码
