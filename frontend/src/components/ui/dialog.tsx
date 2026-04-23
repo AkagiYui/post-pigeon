@@ -1,5 +1,5 @@
 // Dialog 模态框组件
-import { type JSX, Show, splitProps } from "solid-js"
+import { createEffect, type JSX, on, Show, splitProps } from "solid-js"
 
 import { cn } from "@/lib/utils"
 
@@ -16,20 +16,49 @@ export interface DialogProps {
   children: JSX.Element
   /** 宽度 */
   width?: string
+  /** 点击遮罩层是否触发关闭回调，默认为 false */
+  closeOnOverlayClick?: boolean
+  /** 按 ESC 键是否触发关闭回调，默认为 false */
+  closeOnEsc?: boolean
 }
 
 /**
  * Dialog 模态框组件
  */
 export function Dialog(props: DialogProps) {
-  const [local] = splitProps(props, ["open", "onClose", "title", "class", "children", "width"])
+  const [local] = splitProps(props, ["open", "onClose", "title", "class", "children", "width", "closeOnOverlayClick", "closeOnEsc"])
+
+  // 遮罩层元素引用，用于自动聚焦
+  let overlayRef: HTMLDivElement | undefined
+
+  // 模态框打开时自动聚焦，确保 ESC 键可以立即响应
+  createEffect(on(
+    () => local.open,
+    (isOpen) => {
+      if (isOpen && overlayRef) {
+        // 延迟聚焦，确保 DOM 已渲染
+        setTimeout(() => overlayRef?.focus(), 0)
+      }
+    },
+    { defer: true },
+  ))
+
+  // 处理 ESC 键关闭
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (local.closeOnEsc && e.key === "Escape") {
+      local.onClose()
+    }
+  }
 
   return (
     <Show when={local.open}>
       {/* 遮罩层 */}
       <div
-        class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center"
-        onClick={local.onClose}
+        ref={overlayRef}
+        class="fixed inset-0 z-50 bg-black/50 flex items-center justify-center outline-none"
+        onClick={local.closeOnOverlayClick ? local.onClose : undefined}
+        onKeyDown={handleKeyDown}
+        tabIndex={-1}
       >
         {/* 对话框内容 */}
         <div

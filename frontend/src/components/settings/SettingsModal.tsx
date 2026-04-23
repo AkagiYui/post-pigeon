@@ -39,6 +39,7 @@ export function SettingsModal(props: SettingsModalProps) {
       onClose={props.onClose}
       title={t("settings.title")}
       width="640px"
+      closeOnEsc
     >
       <SideTabs
         tabs={tabs()}
