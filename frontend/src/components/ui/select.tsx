@@ -33,10 +33,18 @@ export interface SelectProps {
   hideChevron?: boolean
 }
 
+/** 各尺寸的 Tailwind 类（不含字体大小，字体大小用 style 属性绕过 @layer bug） */
 const sizeClasses = {
-  xs: "h-6 text-[11px] px-1.5",
-  sm: "h-7 text-xs px-2",
-  default: "h-8 text-sm px-3",
+  xs: "h-6 px-1.5",
+  sm: "h-7 px-2",
+  default: "h-8 px-3",
+}
+
+/** 各尺寸对应的字体大小（用 style 属性设置，避免 Tailwind CSS 4 的 @layer 渲染问题） */
+const sizeFontSize: Record<string, string> = {
+  xs: "12px",
+  sm: "12px",
+  default: "14px",
 }
 
 /**
@@ -60,6 +68,7 @@ export function Select(props: SelectProps) {
           "disabled:cursor-not-allowed disabled:opacity-50",
           sizeClasses[local.size || "default"],
         )}
+        style={{ "font-size": sizeFontSize[local.size || "default"] }}
         onClick={() => !local.disabled && setOpen(!open())}
         disabled={local.disabled}
       >
