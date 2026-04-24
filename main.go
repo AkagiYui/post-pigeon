@@ -11,6 +11,8 @@ import (
 	"post-pigeon/internal/config"
 	"post-pigeon/internal/database"
 	"post-pigeon/internal/logger"
+	"post-pigeon/internal/models"
+	"post-pigeon/internal/platform"
 	"post-pigeon/internal/services"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -56,6 +58,9 @@ func main() {
 	// 注册数据变更事件
 	application.RegisterEvent[string]("data:changed")
 
+	// 窗口状态持久化服务
+	windowStateService := services.NewWindowStateService(db)
+
 	// 创建 Wails 应用
 	app := application.New(application.Options{
 		Name:        config.AppName,
@@ -91,6 +96,36 @@ func main() {
 	// Windows/Linux 端使用无边框窗口，由前端自定义标题栏
 	frameless := runtime.GOOS != "darwin"
 
+	// 尝试加载保存的窗口状态
+	// 如果启动时按住 Shift 键，则跳过加载，使用默认大小和位置
+	skipRestore := platform.IsShiftKeyPressed()
+	var savedState *models.WindowState
+	if !skipRestore {
+		savedState, _ = windowStateService.LoadWindowState()
+	}
+
+	if skipRestore {
+		slog.Info("Shift 键被按住，跳过窗口状态恢复，使用默认大小和位置")
+	}
+
+	// 初始化窗口大小和位置
+	windowWidth := platform.DefaultWindowWidth
+	windowHeight := platform.DefaultWindowHeight
+	var windowX, windowY int
+	windowStartPos := application.WindowCentered
+	windowStartState := application.WindowStateNormal
+
+	if savedState != nil {
+		windowWidth = savedState.Width
+		windowHeight = savedState.Height
+		windowX = savedState.X
+		windowY = savedState.Y
+		windowStartPos = application.WindowXY
+		if savedState.IsMaximised {
+			windowStartState = application.WindowStateMaximised
+		}
+	}
+
 	windowOptions := application.WebviewWindowOptions{
 		Title:     config.AppName,
 		Frameless: frameless,
@@ -108,8 +143,12 @@ func main() {
 		KeyBindings: map[string]func(window application.Window){
 			"F12": openDevToolsKeyBinding,
 		},
-		Width:  1280,
-		Height: 720,
+		Width:          windowWidth,
+		Height:         windowHeight,
+		X:              windowX,
+		Y:              windowY,
+		InitialPosition: windowStartPos,
+		StartState:     windowStartState,
 	}
 
 	// 应用菜单（第一个菜单项，显示应用名称）
@@ -121,7 +160,13 @@ func main() {
 	appSubMenu.Add("版本: " + config.Version + " (" + config.BuildHash + ")").SetEnabled(false)
 	appSubMenu.AddSeparator()
 	appSubMenu.Add("新窗口").SetAccelerator("Cmd+Shift+N").OnClick(func(_ *application.Context) {
-		app.Window.NewWithOptions(windowOptions)
+		// 新窗口使用默认大小并居中显示
+		defaultOpts := windowOptions
+		defaultOpts.InitialPosition = application.WindowCentered
+		defaultOpts.StartState = application.WindowStateNormal
+		defaultOpts.Width = platform.DefaultWindowWidth
+		defaultOpts.Height = platform.DefaultWindowHeight
+		app.Window.NewWithOptions(defaultOpts)
 	})
 	appSubMenu.AddSeparator()
 	appSubMenu.Add("隐藏 " + config.AppName).SetAccelerator("Cmd+H").OnClick(func(_ *application.Context) {
@@ -148,6 +193,9 @@ func main() {
 
 	// 创建主窗口
 	mainWindow := app.Window.NewWithOptions(windowOptions)
+
+	// 设置窗口状态持久化监听（保存位置和大小变化）
+	windowStateService.SetupWindowStatePersistence(mainWindow)
 
 	// 开发模式下自动打开开发者工具
 	if config.BuildHash == "dev" {
