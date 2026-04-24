@@ -252,10 +252,25 @@ func (s *ProjectService) GetProjectTree(id string) ([]ModuleTree, error) {
 			return nil, err
 		}
 
-		// 获取模块下的顶级文件夹
-		if err := s.db.Model(&models.Folder{}).Where("module_id = ? AND parent_id IS NULL", module.ID).
-			Order("sort_order ASC").Find(&tree.Folders).Error; err != nil {
+		// 获取模块下的顶级文件夹（先查 models.Folder 再转 FolderTree，避免 GORM 解析 FolderTree 的递归字段报错）
+		var topFolders []models.Folder
+		if err := s.db.Where("module_id = ? AND parent_id IS NULL", module.ID).
+			Order("sort_order ASC").Find(&topFolders).Error; err != nil {
 			return nil, err
+		}
+		tree.Folders = make([]FolderTree, len(topFolders))
+		for i, f := range topFolders {
+			tree.Folders[i] = FolderTree{
+				ID:        f.ID,
+				ModuleID:  f.ModuleID,
+				ParentID:  f.ParentID,
+				Name:      f.Name,
+				SortOrder: f.SortOrder,
+				CreatedAt: f.CreatedAt,
+				UpdatedAt: f.UpdatedAt,
+				Children:  []FolderTree{},
+				Endpoints: []models.Endpoint{},
+			}
 		}
 
 		// 递归构建文件夹树
@@ -273,10 +288,27 @@ func (s *ProjectService) GetProjectTree(id string) ([]ModuleTree, error) {
 
 // buildFolderTree 递归构建文件夹树
 func (s *ProjectService) buildFolderTree(folder *FolderTree) error {
-	// 获取子文件夹
-	if err := s.db.Model(&models.Folder{}).Where("parent_id = ?", folder.ID).
-		Order("sort_order ASC").Find(&folder.Children).Error; err != nil {
+	// 获取子文件夹（先查 models.Folder 再转 FolderTree，避免 GORM 解析 FolderTree 的递归字段报错）
+	var childFolders []models.Folder
+	if err := s.db.Where("parent_id = ?", folder.ID).
+		Order("sort_order ASC").Find(&childFolders).Error; err != nil {
 		return err
+	}
+
+	// 转换为 FolderTree
+	folder.Children = make([]FolderTree, len(childFolders))
+	for i, f := range childFolders {
+		folder.Children[i] = FolderTree{
+			ID:        f.ID,
+			ModuleID:  f.ModuleID,
+			ParentID:  f.ParentID,
+			Name:      f.Name,
+			SortOrder: f.SortOrder,
+			CreatedAt: f.CreatedAt,
+			UpdatedAt: f.UpdatedAt,
+			Children:  []FolderTree{},
+			Endpoints: []models.Endpoint{},
+		}
 	}
 
 	// 获取文件夹下的端点
