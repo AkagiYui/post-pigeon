@@ -19,8 +19,8 @@ const debounceDelay = 300 * time.Millisecond
 // 负责持久化窗口的位置和大小，以便下次启动时恢复
 type WindowStateService struct {
 	settingsService *SettingsService
-	debounceTimer   *time.Timer // 防抖定时器
-	mu              sync.Mutex  // 保护定时器操作的互斥锁
+	debounceTimer   *time.Timer        // 防抖定时器
+	mu              sync.Mutex         // 保护定时器操作的互斥锁
 	cachedState     models.WindowState // 缓存的最新有效窗口状态，用于窗口关闭时读取
 }
 

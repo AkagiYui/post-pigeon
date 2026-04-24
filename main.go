@@ -143,12 +143,12 @@ func main() {
 		KeyBindings: map[string]func(window application.Window){
 			"F12": openDevToolsKeyBinding,
 		},
-		Width:          windowWidth,
-		Height:         windowHeight,
-		X:              windowX,
-		Y:              windowY,
+		Width:           windowWidth,
+		Height:          windowHeight,
+		X:               windowX,
+		Y:               windowY,
 		InitialPosition: windowStartPos,
-		StartState:     windowStartState,
+		StartState:      windowStartState,
 	}
 
 	// 应用菜单（第一个菜单项，显示应用名称）

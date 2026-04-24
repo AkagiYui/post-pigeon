@@ -12,5 +12,5 @@ import "C"
 // 使用 CoreGraphics 的 CGEventSourceFlagsState 获取当前修饰键状态
 func isShiftKeyPressed() bool {
 	flags := C.CGEventSourceFlagsState(C.kCGEventSourceStateHIDSystemState)
-	return flags & C.kCGEventFlagMaskShift != 0
+	return flags&C.kCGEventFlagMaskShift != 0
 }

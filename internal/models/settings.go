@@ -13,20 +13,20 @@ type Settings struct {
 
 // 窗口状态，记录窗口位置和大小
 type WindowState struct {
-	X          int  `json:"x"`          // 窗口左上角 X 坐标
-	Y          int  `json:"y"`          // 窗口左上角 Y 坐标
-	Width      int  `json:"width"`      // 窗口宽度
-	Height     int  `json:"height"`     // 窗口高度
+	X           int  `json:"x"`           // 窗口左上角 X 坐标
+	Y           int  `json:"y"`           // 窗口左上角 Y 坐标
+	Width       int  `json:"width"`       // 窗口宽度
+	Height      int  `json:"height"`      // 窗口高度
 	IsMaximised bool `json:"isMaximised"` // 是否已最大化
 }
 
 // 预定义的设置键
 const (
-	SettingsKeyThemeMode     = "theme.mode"      // light, dark, system
-	SettingsKeyThemeAccent   = "theme.accent"    // teal, blue, violet, rose, orange
-	SettingsKeyLanguage      = "language"        // zh-CN, en
-	SettingsKeyUIScale       = "ui.scale"        // 0.8, 0.9, 1.0, 1.1, 1.25, 1.5
-	SettingsKeyWindowState   = "window.state"    // 窗口位置和大小
+	SettingsKeyThemeMode   = "theme.mode"   // light, dark, system
+	SettingsKeyThemeAccent = "theme.accent" // teal, blue, violet, rose, orange
+	SettingsKeyLanguage    = "language"     // zh-CN, en
+	SettingsKeyUIScale     = "ui.scale"     // 0.8, 0.9, 1.0, 1.1, 1.25, 1.5
+	SettingsKeyWindowState = "window.state" // 窗口位置和大小
 )
 
 // DefaultSettings 默认设置值
