@@ -24,13 +24,15 @@ jobs:
           # 检查是否有任何 commit 不以 docs 或 style 开头
           SHOULD_BUILD="false"
           
-          for message in $(echo "$COMMITS" | jq -r '.[].message'); do
-            if [[ ! "$message" =~ ^(docs|style) ]]; then
+          # 使用 jq 提取每个 commit 的第一行（标题），再用 while read 安全遍历
+          # 避免直接 for $(...) 导致的单词拆分和括号语法错误
+          while IFS= read -r title; do
+            if [[ -n "$title" && ! "$title" =~ ^(docs|style) ]]; then
               SHOULD_BUILD="true"
-              echo "发现功能性 commit: $message"
+              echo "发现功能性 commit: $title"
               break
             fi
-          done
+          done < <(echo "$COMMITS" | jq -r '.[].message | split("\n")[0]')
           
           echo "should-build=$SHOULD_BUILD" >> $GITHUB_OUTPUT
           echo "是否需要构建: $SHOULD_BUILD"
