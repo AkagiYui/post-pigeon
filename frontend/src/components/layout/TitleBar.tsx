@@ -116,11 +116,10 @@ export function TitleBar(props: TitleBarProps) {
       {/* 右侧：全局操作按钮 */}
       <div class="flex items-center gap-1 shrink-0 pr-2" style="--wails-draggable:no-drag">
         <Show when={activeProjectId()}>
-          {/* 环境选择下拉框 */}
-          <EnvironmentSelect />
+          {/* 项目设置按钮 */}
           <Tooltip content={t("nav.projectSettings")} placement="bottom">
             <button
-              class="btn-ghost"
+              class="btn-ghost gap-0.5"
               onClick={() => {
                 const projectId = activeProjectId()
                 if (projectId) {
@@ -130,11 +129,15 @@ export function TitleBar(props: TitleBarProps) {
               }}
             >
               <Cog class="h-4 w-4" />
+              <span class="hidden md:inline text-sm">{t("nav.settings")}</span>
             </button>
           </Tooltip>
+          {/* 环境选择下拉框 */}
+          <EnvironmentSelect />
           {/* 低对比度分隔线 */}
           <div class="w-px h-4 bg-border/40 mx-0.5" />
         </Show>
+        {/* 全局设置按钮 */}
         <Tooltip content={t("nav.settings")} placement="bottom">
           <button class="btn-ghost" onClick={() => setSettingsOpen(true)}>
             <Settings class="h-4 w-4" />
