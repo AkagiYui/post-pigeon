@@ -76,7 +76,8 @@ tasks:
             ' "$INDEX_HTML" > "$INDEX_HTML.tmp" && mv "$INDEX_HTML.tmp" "$INDEX_HTML"
           fi
           # Replace default .btn with Puppertino primary button classes if present
-          sed -E -i'' 's/class=\"btn\"/class=\"p-btn p-prim-col\"/g' "$INDEX_HTML" || true
+          # Use a portable sed -i syntax (redirect to temp file for better cross-platform compatibility)
+          sed -E 's/class=\"btn\"/class=\"p-btn p-prim-col\"/g' "$INDEX_HTML" > "$INDEX_HTML.tmp" && mv "$INDEX_HTML.tmp" "$INDEX_HTML" || true
         fi
 
 
