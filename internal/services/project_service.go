@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"post-pigeon/internal/models"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -66,16 +67,49 @@ func (s *ProjectService) GetProject(id string) (*models.Project, error) {
 	return &project, nil
 }
 
-// CreateProject 创建新项目
+// CreateProject 创建新项目，并自动创建默认模块和根文件夹
 func (s *ProjectService) CreateProject(name string, description string) (*models.Project, error) {
 	project := &models.Project{
 		Name:        name,
 		Description: description,
 	}
-	if err := s.db.Create(project).Error; err != nil {
+
+	// 使用事务确保项目、默认模块和根文件夹的创建是原子操作
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// 创建项目
+		if err := tx.Create(project).Error; err != nil {
+			return err
+		}
+
+		// 创建默认模块
+		module := &models.Module{
+			ProjectID: project.ID,
+			Name:      "默认模块",
+			SortOrder: 0,
+		}
+		if err := tx.Create(module).Error; err != nil {
+			return err
+		}
+
+		// 创建根文件夹
+		folder := &models.Folder{
+			ModuleID:  module.ID,
+			ParentID:  nil,
+			Name:      "根目录",
+			SortOrder: 0,
+		}
+		if err := tx.Create(folder).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		slog.Error("创建项目失败", "error", err)
 		return nil, fmt.Errorf("创建项目失败: %w", err)
 	}
+
 	slog.Info("项目已创建", "id", project.ID, "name", project.Name)
 	return project, nil
 }
@@ -190,7 +224,12 @@ func (s *ProjectService) GetProjectTree(id string) ([]ModuleTree, error) {
 	var result []ModuleTree
 	for _, module := range modules {
 		tree := ModuleTree{
-			Module:    module,
+			ID:        module.ID,
+			ProjectID: module.ProjectID,
+			Name:      module.Name,
+			SortOrder: module.SortOrder,
+			CreatedAt: module.CreatedAt,
+			UpdatedAt: module.UpdatedAt,
 			Folders:   []FolderTree{},
 			Endpoints: []models.Endpoint{},
 		}
@@ -202,7 +241,7 @@ func (s *ProjectService) GetProjectTree(id string) ([]ModuleTree, error) {
 		}
 
 		// 获取模块下的顶级文件夹
-		if err := s.db.Where("module_id = ? AND parent_id IS NULL", module.ID).
+		if err := s.db.Model(&models.Folder{}).Where("module_id = ? AND parent_id IS NULL", module.ID).
 			Order("sort_order ASC").Find(&tree.Folders).Error; err != nil {
 			return nil, err
 		}
@@ -223,13 +262,13 @@ func (s *ProjectService) GetProjectTree(id string) ([]ModuleTree, error) {
 // buildFolderTree 递归构建文件夹树
 func (s *ProjectService) buildFolderTree(folder *FolderTree) error {
 	// 获取子文件夹
-	if err := s.db.Where("parent_id = ?", folder.ID).
+	if err := s.db.Model(&models.Folder{}).Where("parent_id = ?", folder.ID).
 		Order("sort_order ASC").Find(&folder.Children).Error; err != nil {
 		return err
 	}
 
 	// 获取文件夹下的端点
-	if err := s.db.Where("folder_id = ?", folder.ID).
+	if err := s.db.Model(&models.Endpoint{}).Where("folder_id = ?", folder.ID).
 		Order("sort_order ASC").Find(&folder.Endpoints).Error; err != nil {
 		return err
 	}
@@ -244,16 +283,27 @@ func (s *ProjectService) buildFolderTree(folder *FolderTree) error {
 	return nil
 }
 
-// ModuleTree 模块树形结构
+// ModuleTree 模块树形结构（不含 GORM 标签，避免与 models.Module 的 GORM 注解冲突）
 type ModuleTree struct {
-	models.Module
+	ID        string            `json:"id"`
+	ProjectID string            `json:"projectId"`
+	Name      string            `json:"name"`
+	SortOrder int               `json:"sortOrder"`
+	CreatedAt time.Time         `json:"createdAt"`
+	UpdatedAt time.Time         `json:"updatedAt"`
 	Folders   []FolderTree      `json:"folders"`
 	Endpoints []models.Endpoint `json:"endpoints"`
 }
 
-// FolderTree 文件夹树形结构
+// FolderTree 文件夹树形结构（不含 GORM 标签，避免与 models.Folder 的 GORM 注解冲突）
 type FolderTree struct {
-	models.Folder
+	ID        string            `json:"id"`
+	ModuleID  string            `json:"moduleId"`
+	ParentID  *string           `json:"parentId"`
+	Name      string            `json:"name"`
+	SortOrder int               `json:"sortOrder"`
+	CreatedAt time.Time         `json:"createdAt"`
+	UpdatedAt time.Time         `json:"updatedAt"`
 	Children  []FolderTree      `json:"children"`
 	Endpoints []models.Endpoint `json:"endpoints"`
 }

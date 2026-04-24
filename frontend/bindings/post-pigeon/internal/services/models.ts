@@ -260,7 +260,7 @@ export class EndpointSaveData {
 }
 
 /**
- * FolderTree 文件夹树形结构
+ * FolderTree 文件夹树形结构（不含 GORM 标签，避免与 models.Folder 的 GORM 注解冲突）
  */
 export class FolderTree {
     "id": string;
@@ -457,7 +457,7 @@ export class HistoryDetail {
 }
 
 /**
- * ModuleTree 模块树形结构
+ * ModuleTree 模块树形结构（不含 GORM 标签，避免与 models.Module 的 GORM 注解冲突）
  */
 export class ModuleTree {
     "id": string;
@@ -466,11 +466,6 @@ export class ModuleTree {
     "sortOrder": number;
     "createdAt": time$0.Time;
     "updatedAt": time$0.Time;
-
-    /**
-     * 关联
-     */
-    "baseUrls"?: models$0.ModuleBaseURL[];
     "folders": FolderTree[];
     "endpoints": models$0.Endpoint[];
 
@@ -508,18 +503,14 @@ export class ModuleTree {
      * Creates a new ModuleTree instance from a string or object.
      */
     static createFrom($$source: any = {}): ModuleTree {
-        const $$createField6_0 = $$createType22;
-        const $$createField7_0 = $$createType11;
-        const $$createField8_0 = $$createType13;
+        const $$createField6_0 = $$createType11;
+        const $$createField7_0 = $$createType13;
         let $$parsedSource = typeof $$source === 'string' ? JSON.parse($$source) : $$source;
-        if ("baseUrls" in $$parsedSource) {
-            $$parsedSource["baseUrls"] = $$createField6_0($$parsedSource["baseUrls"]);
-        }
         if ("folders" in $$parsedSource) {
-            $$parsedSource["folders"] = $$createField7_0($$parsedSource["folders"]);
+            $$parsedSource["folders"] = $$createField6_0($$parsedSource["folders"]);
         }
         if ("endpoints" in $$parsedSource) {
-            $$parsedSource["endpoints"] = $$createField8_0($$parsedSource["endpoints"]);
+            $$parsedSource["endpoints"] = $$createField7_0($$parsedSource["endpoints"]);
         }
         return new ModuleTree($$parsedSource as Partial<ModuleTree>);
     }
@@ -643,5 +634,3 @@ const $$createType17 = $Create.Array($$createType16);
 const $$createType18 = models$0.TimingInfo.createFrom;
 const $$createType19 = models$0.ActualRequestInfo.createFrom;
 const $$createType20 = $Create.Nullable($$createType18);
-const $$createType21 = models$0.ModuleBaseURL.createFrom;
-const $$createType22 = $Create.Array($$createType21);

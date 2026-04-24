@@ -15,7 +15,7 @@ import { Call as $Call, CancellablePromise as $CancellablePromise, Create as $Cr
 import * as models$0 from "../models/models.js";
 
 /**
- * CreateModule 在项目中创建新模块
+ * CreateModule 在项目中创建新模块，并自动创建根文件夹
  */
 export function CreateModule(projectID: string, name: string): $CancellablePromise<models$0.Module | null> {
     return $Call.ByID(2711850218, projectID, name).then(($result: any) => {

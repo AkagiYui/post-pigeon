@@ -38,7 +38,7 @@ func (s *ModuleService) GetModule(id string) (*models.Module, error) {
 	return &module, nil
 }
 
-// CreateModule 在项目中创建新模块
+// CreateModule 在项目中创建新模块，并自动创建根文件夹
 func (s *ModuleService) CreateModule(projectID string, name string) (*models.Module, error) {
 	// 获取当前最大排序号
 	var maxSort int
@@ -49,10 +49,32 @@ func (s *ModuleService) CreateModule(projectID string, name string) (*models.Mod
 		Name:      name,
 		SortOrder: maxSort + 1,
 	}
-	if err := s.db.Create(module).Error; err != nil {
+
+	// 使用事务确保模块和根文件夹的创建是原子操作
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(module).Error; err != nil {
+			return err
+		}
+
+		// 创建根文件夹
+		folder := &models.Folder{
+			ModuleID:  module.ID,
+			ParentID:  nil,
+			Name:      "根目录",
+			SortOrder: 0,
+		}
+		if err := tx.Create(folder).Error; err != nil {
+			return err
+		}
+
+		return nil
+	})
+
+	if err != nil {
 		slog.Error("创建模块失败", "error", err)
 		return nil, fmt.Errorf("创建模块失败: %w", err)
 	}
+
 	slog.Info("模块已创建", "id", module.ID, "name", module.Name)
 	return module, nil
 }
