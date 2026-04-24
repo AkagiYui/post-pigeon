@@ -82,7 +82,7 @@ export function EndpointTree(props: EndpointTreeProps) {
       </div>
 
       {/* 树形内容 */}
-      <div class="flex-1 overflow-auto py-1">
+      <div class="flex-1 overflow-auto">
         <For each={props.data}>
           {(node) => (
             <Show
