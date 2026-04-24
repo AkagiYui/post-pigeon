@@ -35,8 +35,40 @@ func Initialize(dbPath string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("数据库迁移失败: %w", err)
 	}
 
+	// 为现有项目初始化排序值（如果尚未设置）
+	if err := migrateProjectSortOrder(db); err != nil {
+		return nil, fmt.Errorf("项目排序迁移失败: %w", err)
+	}
+
 	slog.Info("数据库初始化完成")
 	return db, nil
+}
+
+// migrateProjectSortOrder 为现有项目初始化排序值
+// 对于 sort_order 为 0 的项目，按 updated_at 降序设置排序值
+func migrateProjectSortOrder(db *gorm.DB) error {
+	var projects []models.Project
+	// 找出所有未设置排序（sort_order = 0）且有多个项目的情况
+	if err := db.Where("sort_order = 0").Order("updated_at DESC").Find(&projects).Error; err != nil {
+		return err
+	}
+
+	// 如果有未设置排序的项目，逐个更新
+	if len(projects) > 0 {
+		slog.Info("正在为现有项目初始化排序值", "count", len(projects))
+		// 先获取最大排序值，避免覆盖已有排序的项目
+		var maxOrder int64
+		db.Model(&models.Project{}).Select("COALESCE(MAX(sort_order), 0)").Scan(&maxOrder)
+
+		for i, project := range projects {
+			newOrder := maxOrder + int64(i) + 1
+			if err := db.Model(&project).Update("sort_order", newOrder).Error; err != nil {
+				return err
+			}
+		}
+		slog.Info("项目排序值初始化完成")
+	}
+	return nil
 }
 
 // autoMigrate 执行所有模型的自动迁移

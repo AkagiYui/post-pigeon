@@ -13,6 +13,7 @@ type Project struct {
 	ID          string    `gorm:"primaryKey" json:"id"`
 	Name        string    `gorm:"not null" json:"name"`
 	Description string    `json:"description"`
+	SortOrder   int64     `gorm:"default:0" json:"sortOrder"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 }

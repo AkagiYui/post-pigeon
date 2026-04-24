@@ -1,11 +1,20 @@
 // 项目列表页面
 import { useNavigate } from "@tanstack/solid-router"
-import { Download, FolderOpen, Plus, Trash2, TriangleAlert, Upload } from "lucide-solid"
-import { createSignal, For, onMount, Show } from "solid-js"
+import {
+  createSortable,
+  DragDropProvider,
+  DragDropSensors,
+  type DragEvent,
+  DragOverlay,
+  SortableProvider,
+  transformStyle,
+} from "@thisbeyond/solid-dnd"
+import { FolderOpen, GripVertical, Plus, Trash2, TriangleAlert, Upload } from "lucide-solid"
+import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
 import { Button } from "@/components/ui/button"
-import { ContextMenu, type MenuItem } from "@/components/ui/context-menu"
+import { ContextMenu } from "@/components/ui/context-menu"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"
@@ -18,6 +27,80 @@ interface Project {
   description: string
   createdAt: string
   updatedAt: string
+}
+
+/**
+ * 可拖拽排序的项目卡片组件
+ */
+function SortableProjectCard(props: {
+  project: Project
+  onDelete: (project: Project) => void
+  onClick: () => void
+}) {
+  // 创建可拖拽排序的实例，sortable 既是一个指令函数，也包含属性和方法
+  const sortable = createSortable(props.project.id)
+
+  return (
+    <div
+      // use:sortable 指令使元素可拖拽排序
+      use:sortable={sortable}
+      class={cn(
+        "group flex items-center gap-3 p-4 rounded-lg border transition-all cursor-pointer",
+        "bg-surface",
+        sortable.isActiveDraggable
+          ? "border-accent shadow-lg shadow-accent/10 z-10 opacity-30"
+          : "border-border hover:border-accent/30 hover:bg-accent-muted/30",
+      )}
+      style={{
+        // 应用拖拽时的 transform 动画（由 solid-dnd 自动计算）
+        transition: sortable.isActiveDraggable
+          ? "none"
+          : "transform 200ms ease, box-shadow 200ms ease, border-color 200ms ease",
+        ...transformStyle(sortable.transform),
+      }}
+      onClick={() => props.onClick()}
+    >
+      {/* 拖拽手柄 */}
+      <div
+        class="flex items-center justify-center w-8 h-8 rounded-md shrink-0
+                   text-muted-foreground/40 hover:text-muted-foreground
+                   hover:bg-accent/10 cursor-grab active:cursor-grabbing transition-colors"
+        {...sortable.dragActivators}
+        onMouseDown={(e) => {
+          // 阻止事件冒泡，防止点击拖拽手柄时触发卡片点击
+          e.stopPropagation()
+        }}
+      >
+        <GripVertical class="h-4 w-4" />
+      </div>
+
+      {/* 项目图标 */}
+      <div class="w-10 h-10 rounded-lg bg-accent-muted flex items-center justify-center shrink-0">
+        <span class="text-accent font-bold text-lg">{props.project.name[0]}</span>
+      </div>
+
+      {/* 项目信息 */}
+      <div class="flex-1 min-w-0">
+        <h3 class="font-medium text-foreground truncate">{props.project.name}</h3>
+        <Show when={props.project.description}>
+          <p class="text-sm text-muted-foreground truncate">{props.project.description}</p>
+        </Show>
+      </div>
+
+      {/* 删除按钮 */}
+      <Button
+        variant="ghost"
+        size="icon-sm"
+        class="opacity-0 group-hover:opacity-100 shrink-0"
+        onClick={(e) => {
+          e.stopPropagation()
+          props.onDelete(props.project)
+        }}
+      >
+        <Trash2 class="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  )
 }
 
 export function ProjectListPage() {
@@ -86,25 +169,71 @@ export function ProjectListPage() {
     console.log("导入项目")
   }
 
-  // 右键菜单
-  const contextMenuItems = (project: Project): MenuItem[] => [
-    {
-      key: "open",
-      label: t("project.open"),
-      icon: <FolderOpen class="h-3.5 w-3.5" />,
-      onClick: () => {
-        openProject(project.id)
-        navigate({ to: "/project/$id", params: { id: project.id }, from: "/" })
+  // 拖拽排序结束回调
+  const handleDragEnd = async (event: DragEvent) => {
+    const { draggable, droppable } = event
+    // 清除拖拽中的高亮状态
+    setActiveProjectId(null)
+    // 如果没有拖拽到有效目标位置，不做任何操作
+    if (!droppable || draggable.id === droppable.id) return
+
+    const currentProjects = projects()
+    const oldIndex = currentProjects.findIndex((p) => p.id === draggable.id)
+    const newIndex = currentProjects.findIndex((p) => p.id === droppable.id)
+    if (oldIndex === -1 || newIndex === -1) return
+
+    // 重新排列项目列表
+    const reordered = [...currentProjects]
+    const [moved] = reordered.splice(oldIndex, 1)
+    reordered.splice(newIndex, 0, moved)
+    setProjects(reordered)
+
+    // 将新的排序保存到后端
+    try {
+      await ProjectService.ReorderProjects(reordered.map((p) => p.id))
+    } catch (e) {
+      console.error("保存项目排序失败", e)
+      // 保存失败时重新加载原始顺序
+      await loadProjects()
+    }
+  }
+
+  // 当前正在拖拽的项目 ID（用于 DragOverlay 显示）
+  const [activeProjectId, setActiveProjectId] = createSignal<string | null>(null)
+
+  // 拖拽开始时记录被拖拽的项目 ID
+  const handleDragStart = (event: DragEvent) => {
+    setActiveProjectId(event.draggable.id as string)
+  }
+
+  // 根据 activeProjectId 查找对应的项目数据（用于 overlay 渲染）
+  const activeProject = createMemo(() => {
+    const id = activeProjectId()
+    if (!id) return null
+    return projects().find((p) => p.id === id) ?? null
+  })
+
+  // 生成右键菜单项（使用闭包保存 navigate）
+  const getMenuItems = (project: Project) => {
+    return [
+      {
+        key: "open",
+        label: t("project.open"),
+        icon: <FolderOpen class="h-3.5 w-3.5" />,
+        onClick: () => {
+          openProject(project.id)
+          navigate({ to: "/project/$id", params: { id: project.id }, from: "/" })
+        },
       },
-    },
-    { key: "sep1", label: "", separator: true },
-    {
-      key: "delete",
-      label: t("project.delete"),
-      icon: <Trash2 class="h-3.5 w-3.5" />,
-      onClick: () => handleDelete(project),
-    },
-  ]
+      { key: "sep1", label: "", separator: true },
+      {
+        key: "delete",
+        label: t("project.delete"),
+        icon: <Trash2 class="h-3.5 w-3.5" />,
+        onClick: () => handleDelete(project),
+      },
+    ]
+  }
 
   return (
     // 外层容器：固定高度，防止溢出
@@ -137,42 +266,48 @@ export function ProjectListPage() {
               </div>
             }
           >
-            <div class="grid gap-3 pb-4">
-              <For each={projects()}>
-                {(project) => (
-                  <ContextMenu items={contextMenuItems(project)}>
+            <DragDropProvider onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+              <DragDropSensors />
+              <SortableProvider ids={projects().map((p) => p.id)}>
+                <div class="flex flex-col gap-3 pb-4">
+                  <For each={projects()}>
+                    {(project) => (
+                      <ContextMenu items={getMenuItems(project)}>
+                        <SortableProjectCard
+                          project={project}
+                          onDelete={handleDelete}
+                          onClick={() => {
+                            openProject(project.id)
+                            navigate({ to: "/project/$id", params: { id: project.id }, from: "/" })
+                          }}
+                        />
+                      </ContextMenu>
+                    )}
+                  </For>
+                </div>
+              </SortableProvider>
+              {/* DragOverlay 渲染在 DOM 顶层，不会被父容器裁剪 */}
+              <DragOverlay>
+                <Show when={activeProject()}>
+                  {(project) => (
                     <div
-                      class="group flex items-center gap-4 p-4 rounded-lg border border-border bg-surface hover:border-accent/30 hover:bg-accent-muted/30 transition-all cursor-pointer"
-                      onClick={() => {
-                        openProject(project.id)
-                        navigate({ to: "/project/$id", params: { id: project.id }, from: "/" })
-                      }}
+                      class="flex items-center gap-3 p-4 rounded-lg border border-accent shadow-xl shadow-accent/15 scale-[1.02] bg-surface w-[calc(100vw-4rem)] max-w-160"
                     >
+                      <div class="w-8 h-8 shrink-0" />
                       <div class="w-10 h-10 rounded-lg bg-accent-muted flex items-center justify-center shrink-0">
-                        <span class="text-accent font-bold text-lg">{project.name[0]}</span>
+                        <span class="text-accent font-bold text-lg">{project().name[0]}</span>
                       </div>
                       <div class="flex-1 min-w-0">
-                        <h3 class="font-medium text-foreground truncate">{project.name}</h3>
-                        <Show when={project.description}>
-                          <p class="text-sm text-muted-foreground truncate">{project.description}</p>
+                        <h3 class="font-medium text-foreground truncate">{project().name}</h3>
+                        <Show when={project().description}>
+                          <p class="text-sm text-muted-foreground truncate">{project().description}</p>
                         </Show>
                       </div>
-                      <Button
-                        variant="ghost"
-                        size="icon-sm"
-                        class="opacity-0 group-hover:opacity-100"
-                        onClick={(e) => {
-                          e.stopPropagation()
-                          handleDelete(project)
-                        }}
-                      >
-                        <Trash2 class="h-3.5 w-3.5" />
-                      </Button>
                     </div>
-                  </ContextMenu>
-                )}
-              </For>
-            </div>
+                  )}
+                </Show>
+              </DragOverlay>
+            </DragDropProvider>
           </Show>
         </div>
       </div>

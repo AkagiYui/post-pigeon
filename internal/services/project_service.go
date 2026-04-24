@@ -22,12 +22,31 @@ func NewProjectService(db *gorm.DB) *ProjectService {
 // ListProjects 获取所有项目列表
 func (s *ProjectService) ListProjects() ([]models.Project, error) {
 	var projects []models.Project
-	err := s.db.Order("updated_at DESC").Find(&projects).Error
+	err := s.db.Order("sort_order ASC, updated_at DESC").Find(&projects).Error
 	if err != nil {
 		slog.Error("获取项目列表失败", "error", err)
 		return nil, fmt.Errorf("获取项目列表失败: %w", err)
 	}
 	return projects, nil
+}
+
+// ReorderProjects 更新项目排序顺序
+// 接收一个项目 ID 列表，按列表顺序设置每个项目的 sort_order
+func (s *ProjectService) ReorderProjects(ids []string) error {
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for i, id := range ids {
+			result := tx.Model(&models.Project{}).Where("id = ?", id).Update("sort_order", i+1)
+			if result.Error != nil {
+				slog.Error("更新项目排序失败", "error", result.Error, "id", id)
+				return fmt.Errorf("更新项目排序失败: %w", result.Error)
+			}
+			if result.RowsAffected == 0 {
+				slog.Warn("排序项目不存在", "id", id)
+			}
+		}
+		slog.Info("项目排序已更新")
+		return nil
+	})
 }
 
 // GetProject 根据 ID 获取项目详情

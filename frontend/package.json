@@ -30,6 +30,7 @@
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/router-plugin": "^1.132.0",
     "@tanstack/solid-router": "^1.132.0",
+    "@thisbeyond/solid-dnd": "^0.7.5",
     "@wailsio/runtime": "latest",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",

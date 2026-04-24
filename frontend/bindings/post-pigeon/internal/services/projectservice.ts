@@ -62,6 +62,14 @@ export function ListProjects(): $CancellablePromise<models$0.Project[]> {
 }
 
 /**
+ * ReorderProjects 更新项目排序顺序
+ * 接收一个项目 ID 列表，按列表顺序设置每个项目的 sort_order
+ */
+export function ReorderProjects(ids: string[]): $CancellablePromise<void> {
+    return $Call.ByID(1431053370, ids);
+}
+
+/**
  * UpdateProject 更新项目信息
  */
 export function UpdateProject(id: string, name: string, description: string): $CancellablePromise<void> {

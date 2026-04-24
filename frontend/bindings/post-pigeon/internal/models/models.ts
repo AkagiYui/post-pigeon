@@ -641,6 +641,7 @@ export class Project {
     "id": string;
     "name": string;
     "description": string;
+    "sortOrder": number;
     "createdAt": time$0.Time;
     "updatedAt": time$0.Time;
 
@@ -654,6 +655,9 @@ export class Project {
         }
         if (!("description" in $$source)) {
             this["description"] = "";
+        }
+        if (!("sortOrder" in $$source)) {
+            this["sortOrder"] = 0;
         }
         if (!("createdAt" in $$source)) {
             this["createdAt"] = null;
