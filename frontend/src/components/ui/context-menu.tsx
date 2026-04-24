@@ -32,8 +32,10 @@ export interface ContextMenuProps {
 }
 
 /**
- * ContextMenu 右键菜单组件
- * 支持多级嵌套菜单
+ * ContextMenu 右键菜单组件，支持多级菜单
+ *
+ * 通过 e.stopPropagation() 阻止右键事件冒泡到父级 ContextMenu，
+ * 避免树形结构中嵌套的上下文菜单同时弹出。
  */
 export function ContextMenu(props: ContextMenuProps) {
   const [local] = splitProps(props, ["children", "items", "class"])
@@ -42,6 +44,8 @@ export function ContextMenu(props: ContextMenuProps) {
 
   const handleContextMenu = (e: MouseEvent) => {
     e.preventDefault()
+    e.stopPropagation() // 阻止冒泡到父级 ContextMenu，避免多层菜单同时弹出
+    if (local.items.length === 0) return // 没有菜单项时不弹出空白菜单
     setPosition({ x: e.clientX, y: e.clientY })
     setVisible(true)
   }
@@ -54,17 +58,23 @@ export function ContextMenu(props: ContextMenuProps) {
       onContextMenu={handleContextMenu}
     >
       {local.children}
-      <Show when={visible()}>
-        <>
-          <div class="fixed inset-0 z-40" onClick={close} onContextMenu={(e) => { e.preventDefault(); close() }} />
-          <div
-            class="fixed z-50 min-w-45 bg-surface border border-border rounded-md shadow-lg py-1"
-            style={{ left: `${position().x}px`, top: `${position().y}px` }}
-          >
-            <MenuItems items={local.items} onClose={close} />
-          </div>
-        </>
-      </Show>
+      <div
+        class="fixed inset-0 z-40"
+        hidden={!visible()}
+        onClick={(e) => { e.stopPropagation(); close() }}
+        onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); close() }}
+      />
+      <div
+        class="fixed z-50 min-w-45 bg-surface border border-border rounded-md shadow-lg py-1"
+        hidden={!visible()}
+        onClick={(e) => e.stopPropagation()}
+        style={{
+          left: `${position().x}px`,
+          top: `${position().y}px`,
+        }}
+      >
+        <MenuItems items={local.items} onClose={close} />
+      </div>
     </div>
   )
 }
