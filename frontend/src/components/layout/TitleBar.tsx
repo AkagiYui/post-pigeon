@@ -132,6 +132,8 @@ export function TitleBar(props: TitleBarProps) {
               <Cog class="h-4 w-4" />
             </button>
           </Tooltip>
+          {/* 低对比度分隔线 */}
+          <div class="w-px h-4 bg-border/40 mx-0.5" />
         </Show>
         <Tooltip content={t("nav.settings")}>
           <button class="btn-ghost" onClick={() => setSettingsOpen(true)}>
@@ -270,7 +272,8 @@ function EnvironmentSelect() {
       value={currentEnv()}
       onChange={handleEnvChange}
       size="sm"
-      class="min-w-24"
+      hideChevron
+      class="min-w-32 [&>button]:border-0 [&>button]:bg-transparent [&>button]:rounded-md [&>button]:hover:bg-muted [&>button]:whitespace-nowrap"
     />
   )
 }

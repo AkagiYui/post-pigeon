@@ -29,6 +29,8 @@ export interface SelectProps {
   size?: "sm" | "default"
   /** 是否可搜索 */
   searchable?: boolean
+  /** 是否隐藏下拉箭头 */
+  hideChevron?: boolean
 }
 
 const sizeClasses = {
@@ -40,7 +42,7 @@ const sizeClasses = {
  * Select 下拉选择组件
  */
 export function Select(props: SelectProps) {
-  const [local] = splitProps(props, ["options", "value", "onChange", "placeholder", "class", "disabled", "size", "searchable"])
+  const [local] = splitProps(props, ["options", "value", "onChange", "placeholder", "class", "disabled", "size", "searchable", "hideChevron"])
   const [open, setOpen] = createSignal(false)
 
   const currentLabel = () => {
@@ -60,12 +62,14 @@ export function Select(props: SelectProps) {
         onClick={() => !local.disabled && setOpen(!open())}
         disabled={local.disabled}
       >
-        <span class={cn(!local.value && "text-muted-foreground")}>
+        <span class={cn("whitespace-nowrap", !local.value && "text-muted-foreground")}>
           {currentLabel()}
         </span>
-        <svg class="h-3.5 w-3.5 shrink-0 ml-1 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-          <path d="M6 9l6 6 6-6" />
-        </svg>
+        <Show when={!local.hideChevron}>
+          <svg class="h-3.5 w-3.5 shrink-0 ml-1 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </Show>
       </button>
 
       <Show when={open()}>
