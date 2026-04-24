@@ -65,8 +65,16 @@ export function TitleBar(props: TitleBarProps) {
       }
     }
   })
+  // Windows 端双击标题栏切换最大化
+  const handleDoubleClick = () => {
+    if (!isMac()) {
+      Window.ToggleMaximise()
+      Window.IsMaximised().then(setIsMaximised)
+    }
+  }
+
   return (
-    <div class="flex items-center h-(--titlebar-height) border-b border-border bg-surface shrink-0 select-none" style="--wails-draggable:drag">
+    <div class="flex items-center h-(--titlebar-height) border-b border-border bg-surface shrink-0 select-none" style="--wails-draggable:drag" onDblClick={handleDoubleClick}>
       {/* 左侧：红绿灯占位区域（仅 macOS） */}
       <Show when={isMac() && !isFullscreen()}>
         <div class="w-18 shrink-0 flex items-center pl-3" />
