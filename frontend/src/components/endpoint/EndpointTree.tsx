@@ -30,6 +30,8 @@ export interface EndpointTreeProps {
   onSelect?: (node: TreeNode) => void
   /** 创建端点回调 */
   onCreateEndpoint?: (parentId: string | undefined, type: "module" | "folder") => void
+  /** 创建文件夹回调 */
+  onCreateFolder?: (parentId: string | undefined, type: "module" | "folder") => void
   /** 搜索框文字变更 */
   onSearch?: (query: string) => void
   /** 收起面板回调 */
@@ -96,6 +98,7 @@ export function EndpointTree(props: EndpointTreeProps) {
                 onSelect={props.onSelect}
                 onToggle={toggleExpand}
                 onCreateEndpoint={props.onCreateEndpoint}
+                onCreateFolder={props.onCreateFolder}
               />
             </Show>
           )}
@@ -106,7 +109,11 @@ export function EndpointTree(props: EndpointTreeProps) {
 }
 
 /** 根据节点类型创建右键菜单项 */
-function createMenuItems(node: TreeNode, onCreateEndpoint: EndpointTreeProps["onCreateEndpoint"]): MenuItem[] {
+function createMenuItems(
+  node: TreeNode,
+  onCreateEndpoint: EndpointTreeProps["onCreateEndpoint"],
+  onCreateFolder: EndpointTreeProps["onCreateFolder"],
+): MenuItem[] {
   if (node.type === "module") {
     return [
       {
@@ -117,7 +124,7 @@ function createMenuItems(node: TreeNode, onCreateEndpoint: EndpointTreeProps["on
       {
         key: "new-folder",
         label: t("folder.create"),
-        onClick: () => onCreateEndpoint?.(node.id, "module"),
+        onClick: () => onCreateFolder?.(node.id, "module"),
       },
     ]
   }
@@ -131,7 +138,7 @@ function createMenuItems(node: TreeNode, onCreateEndpoint: EndpointTreeProps["on
       {
         key: "new-folder",
         label: t("folder.create"),
-        onClick: () => onCreateEndpoint?.(node.id, "folder"),
+        onClick: () => onCreateFolder?.(node.id, "folder"),
       },
     ]
   }
@@ -147,13 +154,14 @@ function TreeNodeItem(props: {
   onSelect?: (node: TreeNode) => void
   onToggle: (id: string) => void
   onCreateEndpoint?: EndpointTreeProps["onCreateEndpoint"]
+  onCreateFolder?: EndpointTreeProps["onCreateFolder"]
 }) {
   const isExpanded = () => props.expandedIds.has(props.node.id)
   const isSelected = () => props.selectedId === props.node.id
   const hasChildren = () => (props.node.children?.length || 0) > 0
 
   return (
-    <ContextMenu items={createMenuItems(props.node, props.onCreateEndpoint)}>
+    <ContextMenu items={createMenuItems(props.node, props.onCreateEndpoint, props.onCreateFolder)}>
       <div>
         {/* 节点行 */}
         <div
@@ -211,6 +219,7 @@ function TreeNodeItem(props: {
                 onSelect={props.onSelect}
                 onToggle={props.onToggle}
                 onCreateEndpoint={props.onCreateEndpoint}
+                onCreateFolder={props.onCreateFolder}
               />
             )}
           </For>
