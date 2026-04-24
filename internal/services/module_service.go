@@ -60,7 +60,7 @@ func (s *ModuleService) CreateModule(projectID string, name string) (*models.Mod
 		folder := &models.Folder{
 			ModuleID:  module.ID,
 			ParentID:  nil,
-			Name:      "根目录",
+			Name:      "__root",
 			SortOrder: 0,
 		}
 		if err := tx.Create(folder).Error; err != nil {

@@ -95,7 +95,7 @@ func (s *ProjectService) CreateProject(name string, description string) (*models
 		folder := &models.Folder{
 			ModuleID:  module.ID,
 			ParentID:  nil,
-			Name:      "根目录",
+			Name:      "__root",
 			SortOrder: 0,
 		}
 		if err := tx.Create(folder).Error; err != nil {
@@ -258,9 +258,12 @@ func (s *ProjectService) GetProjectTree(id string) ([]ModuleTree, error) {
 			Order("sort_order ASC").Find(&topFolders).Error; err != nil {
 			return nil, err
 		}
-		tree.Folders = make([]FolderTree, len(topFolders))
-		for i, f := range topFolders {
-			tree.Folders[i] = FolderTree{
+
+		// 将 parent_id 为空的顶级文件夹（即根文件夹）的内容展开到模块层级，不显示根文件夹本身
+		tree.Folders = make([]FolderTree, 0)
+		for _, f := range topFolders {
+			// 构建根文件夹的完整树
+			rootTree := FolderTree{
 				ID:        f.ID,
 				ModuleID:  f.ModuleID,
 				ParentID:  f.ParentID,
@@ -271,13 +274,12 @@ func (s *ProjectService) GetProjectTree(id string) ([]ModuleTree, error) {
 				Children:  []FolderTree{},
 				Endpoints: []models.Endpoint{},
 			}
-		}
-
-		// 递归构建文件夹树
-		for i := range tree.Folders {
-			if err := s.buildFolderTree(&tree.Folders[i]); err != nil {
+			if err := s.buildFolderTree(&rootTree); err != nil {
 				return nil, err
 			}
+			// 将根文件夹的子文件夹和端点直接合并到模块层级
+			tree.Endpoints = append(tree.Endpoints, rootTree.Endpoints...)
+			tree.Folders = append(tree.Folders, rootTree.Children...)
 		}
 
 		result = append(result, tree)
