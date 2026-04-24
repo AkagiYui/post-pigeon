@@ -1,22 +1,69 @@
 // 全局应用状态管理
-import { createSignal } from "solid-js"
+import { createEffect, createRoot, createSignal } from "solid-js"
 
-/** 当前打开的项目 ID 列表 */
-const [openProjectIds, setOpenProjectIds] = createSignal<string[]>([])
-/** 当前激活的项目 ID */
-const [activeProjectId, setActiveProjectId] = createSignal<string | null>(null)
-/** 设置模态框是否显示 */
-const [settingsOpen, setSettingsOpen] = createSignal(false)
-/** 项目设置模态框是否显示 */
-const [projectSettingsOpen, setProjectSettingsOpen] = createSignal(false)
-/** 项目设置中正在编辑的项目 ID */
-const [projectSettingsTargetId, setProjectSettingsTargetId] = createSignal<string | null>(null)
-/** 当前环境 ID（每个项目独立） */
-const [currentEnvironmentIds, setCurrentEnvironmentIds] = createSignal<Record<string, string>>({})
-/** 项目名称映射（projectId -> projectName） */
-const [projectNames, setProjectNames] = createSignal<Record<string, string>>({})
-/** 项目环境列表映射（projectId -> environments[]） */
+// ---- localStorage 持久化工具 ----
+
+const STORAGE_PREFIX = "post-pigeon:"
+
+/**
+ * 从 localStorage 读取 JSON 数据
+ */
+function loadFromStorage<T>(key: string, fallback: T): T {
+  try {
+    const raw = localStorage.getItem(STORAGE_PREFIX + key)
+    if (raw !== null) {
+      return JSON.parse(raw) as T
+    }
+  } catch {
+    // 解析失败时忽略
+  }
+  return fallback
+}
+
+/**
+ * 将数据写入 localStorage
+ */
+function saveToStorage(key: string, value: unknown) {
+  try {
+    localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value))
+  } catch {
+    // 写入失败时忽略（如存储空间不足）
+  }
+}
+
+// ---- 持久化的应用状态 ----
+
+/** 当前打开的项目 ID 列表（持久化） */
+const [openProjectIds, setOpenProjectIds] = createSignal<string[]>(
+  loadFromStorage<string[]>("openProjectIds", []),
+)
+
+/** 当前激活的项目 ID（持久化） */
+const [activeProjectId, setActiveProjectId] = createSignal<string | null>(
+  loadFromStorage<string | null>("activeProjectId", null),
+)
+
+/** 当前环境 ID 映射（每个项目独立，持久化） */
+const [currentEnvironmentIds, setCurrentEnvironmentIds] = createSignal<Record<string, string>>(
+  loadFromStorage<Record<string, string>>("currentEnvironmentIds", {}),
+)
+
+/** 项目名称映射 projectId -> projectName（持久化） */
+const [projectNames, setProjectNames] = createSignal<Record<string, string>>(
+  loadFromStorage<Record<string, string>>("projectNames", {}),
+)
+
+/** 项目环境列表映射 projectId -> environments[]（持久化） */
 const [projectEnvironments, setProjectEnvironments] = createSignal<Record<string, any[]>>({})
+
+/** 设置模态框是否显示（不持久化） */
+const [settingsOpen, setSettingsOpen] = createSignal(false)
+
+/** 项目设置模态框是否显示（不持久化） */
+const [projectSettingsOpen, setProjectSettingsOpen] = createSignal(false)
+
+/** 项目设置中正在编辑的项目 ID（不持久化） */
+const [projectSettingsTargetId, setProjectSettingsTargetId] = createSignal<string | null>(null)
 
 export {
   openProjectIds, setOpenProjectIds,
@@ -27,6 +74,39 @@ export {
   currentEnvironmentIds, setCurrentEnvironmentIds,
   projectNames, setProjectNames,
   projectEnvironments, setProjectEnvironments,
+}
+
+// ---- 自动持久化：在模块根作用域创建 effect 监听状态变化 ----
+
+if (typeof window !== "undefined") {
+  createRoot(() => {
+    // 监听并持久化 openProjectIds
+    createEffect(() => {
+      saveToStorage("openProjectIds", openProjectIds())
+    })
+  })
+
+  createRoot(() => {
+    // 监听并持久化 activeProjectId
+    createEffect(() => {
+      const id = activeProjectId()
+      saveToStorage("activeProjectId", id)
+    })
+  })
+
+  createRoot(() => {
+    // 监听并持久化 currentEnvironmentIds
+    createEffect(() => {
+      saveToStorage("currentEnvironmentIds", currentEnvironmentIds())
+    })
+  })
+
+  createRoot(() => {
+    // 监听并持久化 projectNames
+    createEffect(() => {
+      saveToStorage("projectNames", projectNames())
+    })
+  })
 }
 
 /** 打开项目（添加到打开列表并设为激活） */
