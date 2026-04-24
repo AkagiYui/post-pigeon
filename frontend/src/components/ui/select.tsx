@@ -27,6 +27,8 @@ export interface SelectProps {
   disabled?: boolean
   /** 尺寸 */
   size?: "xs" | "sm" | "default"
+  /** 独立字体大小，不传则跟随 size */
+  textSize?: "xs" | "sm" | "default"
   /** 是否可搜索 */
   searchable?: boolean
   /** 是否隐藏下拉箭头 */
@@ -39,12 +41,23 @@ const sizeClasses = {
   default: "h-8 text-sm px-3",
 }
 
+const textSizeClasses = {
+  xs: "text-[11px]",
+  sm: "text-xs",
+  default: "text-sm",
+}
+
 /**
  * Select 下拉选择组件
  */
 export function Select(props: SelectProps) {
-  const [local] = splitProps(props, ["options", "value", "onChange", "placeholder", "class", "disabled", "size", "searchable", "hideChevron"])
+  const [local] = splitProps(props, ["options", "value", "onChange", "placeholder", "class", "disabled", "size", "textSize", "searchable", "hideChevron"])
   const [open, setOpen] = createSignal(false)
+
+  // 当前选中项的按钮尺寸类
+  const sizeCls = () => sizeClasses[local.size || "default"]
+  // 仅字体大小类（给内部文本使用，避免 h-* / px-* 干扰布局；可独立于 size 设置）
+  const textSizeCls = () => textSizeClasses[local.textSize || local.size || "default"]
 
   const currentLabel = () => {
     const opt = local.options.find(o => o.value === local.value)
@@ -58,12 +71,12 @@ export function Select(props: SelectProps) {
           "flex items-center justify-between w-full rounded-md border border-border bg-input text-foreground",
           "transition-colors hover:border-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
           "disabled:cursor-not-allowed disabled:opacity-50",
-          sizeClasses[local.size || "default"],
+          sizeCls(),
         )}
         onClick={() => !local.disabled && setOpen(!open())}
         disabled={local.disabled}
       >
-        <span class={cn("whitespace-nowrap", !local.value && "text-muted-foreground")}>
+        <span class={cn("whitespace-nowrap", !local.value && "text-muted-foreground", textSizeCls())}>
           {currentLabel()}
         </span>
         <Show when={!local.hideChevron}>

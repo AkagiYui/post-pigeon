@@ -272,6 +272,7 @@ function EnvironmentSelect() {
       value={currentEnv()}
       onChange={handleEnvChange}
       size="xs"
+      textSize="default"
       hideChevron
       class="min-w-28 [&>button]:border-0 [&>button]:bg-transparent [&>button]:rounded-md [&>button]:hover:bg-muted [&>button]:whitespace-nowrap"
     />
