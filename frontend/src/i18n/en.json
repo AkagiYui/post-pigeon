@@ -4,6 +4,8 @@
     "nav.projects": "Projects",
     "nav.settings": "Settings",
     "nav.projectSettings": "Project Settings",
+    "nav.alwaysOnTop": "Always on Top",
+    "nav.alwaysOnTop.off": "Turn off Always on Top",
     "nav.apiManagement": "API Management",
     "project.title": "Projects",
     "project.create": "New Project",

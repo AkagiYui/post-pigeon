@@ -3,7 +3,7 @@
 // Windows 端额外包含窗口控制按钮（最小化、最大化、关闭）
 import { Link, useLocation, useRouter } from "@tanstack/solid-router"
 import { System, Window } from "@wailsio/runtime"
-import { ChevronDown, Cog, FolderOpen, Minus, Settings, Square, SquareX, X } from "lucide-solid"
+import { ChevronDown, Cog, FolderOpen, Minus, Pin, Settings, Square, SquareX, X } from "lucide-solid"
 import { createEffect, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
@@ -37,6 +37,7 @@ export function TitleBar(props: TitleBarProps) {
   // Windows 端窗口控制方法
   // Window 从 @wailsio/runtime 导出时已是当前窗口实例
   const [isMaximised, setIsMaximised] = createSignal(false)
+  const [isAlwaysOnTop, setIsAlwaysOnTop] = createSignal(false)
 
   // 监听窗口状态变化（最大化/还原）
   onMount(() => {
@@ -122,7 +123,7 @@ export function TitleBar(props: TitleBarProps) {
       </div>
 
       {/* 右侧：全局操作按钮 - 移除 no-drag，让间隙区域可拖动窗口 */}
-      <div class="flex items-center gap-1 shrink-0 pr-2">
+      <div class="flex items-center gap-1 shrink-0 pr-2" onDblClick={(e) => e.stopPropagation()}>
         <Show when={activeProjectId()}>
           {/* 项目设置按钮 */}
           <Tooltip content={t("nav.projectSettings")} placement="bottom">
@@ -151,11 +152,25 @@ export function TitleBar(props: TitleBarProps) {
             <Settings class="h-4 w-4" />
           </button>
         </Tooltip>
+        {/* 窗口置顶按钮 */}
+        <Tooltip content={isAlwaysOnTop() ? t("nav.alwaysOnTop.off") : t("nav.alwaysOnTop")} placement="bottom">
+          <button
+            class="btn-ghost"
+            style={isAlwaysOnTop() ? { color: "var(--color-accent)" } : undefined}
+            onClick={() => {
+              const newValue = !isAlwaysOnTop()
+              setIsAlwaysOnTop(newValue)
+              Window.SetAlwaysOnTop(newValue)
+            }}
+          >
+            <Pin class="h-4 w-4 transition-transform" style={isAlwaysOnTop() ? { transform: "rotate(45deg)" } : undefined} />
+          </button>
+        </Tooltip>
       </div>
 
       {/* Windows 端：窗口控制按钮（最小化、最大化/还原、关闭） */}
       <Show when={!isMac()}>
-        <div class="flex items-center shrink-0 ml-1" style="--wails-draggable:no-drag">
+        <div class="flex items-center shrink-0" style="--wails-draggable:no-drag">
           <button
             class="winctrl-btn"
             onClick={() => Window.Minimise()}

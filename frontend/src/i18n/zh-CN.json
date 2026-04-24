@@ -4,6 +4,8 @@
     "nav.projects": "项目",
     "nav.settings": "设置",
     "nav.projectSettings": "项目设置",
+    "nav.alwaysOnTop": "窗口置顶",
+    "nav.alwaysOnTop.off": "取消置顶",
     "nav.apiManagement": "接口管理",
     "project.title": "项目列表",
     "project.create": "新建项目",
