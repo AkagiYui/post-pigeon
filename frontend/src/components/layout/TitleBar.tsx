@@ -271,9 +271,9 @@ function EnvironmentSelect() {
       options={envOptions()}
       value={currentEnv()}
       onChange={handleEnvChange}
-      size="sm"
+      size="xs"
       hideChevron
-      class="min-w-32 [&>button]:border-0 [&>button]:bg-transparent [&>button]:rounded-md [&>button]:hover:bg-muted [&>button]:whitespace-nowrap"
+      class="min-w-28 [&>button]:border-0 [&>button]:bg-transparent [&>button]:rounded-md [&>button]:hover:bg-muted [&>button]:whitespace-nowrap"
     />
   )
 }

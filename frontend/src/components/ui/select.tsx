@@ -26,7 +26,7 @@ export interface SelectProps {
   /** 是否禁用 */
   disabled?: boolean
   /** 尺寸 */
-  size?: "sm" | "default"
+  size?: "xs" | "sm" | "default"
   /** 是否可搜索 */
   searchable?: boolean
   /** 是否隐藏下拉箭头 */
@@ -34,6 +34,7 @@ export interface SelectProps {
 }
 
 const sizeClasses = {
+  xs: "h-6 text-[11px] px-1.5",
   sm: "h-7 text-xs px-2",
   default: "h-8 text-sm px-3",
 }
