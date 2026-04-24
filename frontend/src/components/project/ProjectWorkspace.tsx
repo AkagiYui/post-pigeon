@@ -40,9 +40,11 @@ export function ProjectWorkspace() {
       // 将环境列表存储到全局 store
       setProjectEnvironmentsList(currentParams.id, envList || [])
 
-      // 设置默认环境
+      // 设置默认环境：优先选择"正式环境"，否则选择第一个环境
       if (envList && envList.length > 0) {
-        setCurrentEnvironment(currentParams.id, envList[0].id)
+        const productionEnv = envList.find((env: any) => env.name === "正式环境")
+        const defaultEnv = productionEnv || envList[0]
+        setCurrentEnvironment(currentParams.id, defaultEnv.id)
       }
     } catch (e) {
       console.error("加载项目失败", e)

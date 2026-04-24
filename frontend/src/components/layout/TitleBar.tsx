@@ -242,15 +242,12 @@ function ProjectTab(props: { projectId: string; active: boolean; onClick: () => 
 /** 环境选择下拉框组件 */
 function EnvironmentSelect() {
   const projectId = activeProjectId
-  // 环境选项
+  // 环境选项（直接显示项目下的实际环境列表）
   const envOptions = () => {
     const id = projectId()
-    if (!id) return [{ value: "", label: "Default" }]
+    if (!id) return []
     const envs = projectEnvironments()[id] || []
-    return [
-      { value: "", label: "Default" },
-      ...envs.map((e: any) => ({ value: e.id, label: e.name })),
-    ]
+    return envs.map((e: any) => ({ value: e.id, label: e.name }))
   }
 
   // 当前选中的环境

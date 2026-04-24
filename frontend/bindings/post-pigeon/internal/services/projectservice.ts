@@ -19,7 +19,7 @@ import * as models$0 from "../models/models.js";
 import * as $models from "./models.js";
 
 /**
- * CreateProject 创建新项目，并自动创建默认模块和根文件夹
+ * CreateProject 创建新项目，并自动创建默认模块、根文件夹和默认环境
  */
 export function CreateProject(name: string, description: string): $CancellablePromise<models$0.Project | null> {
     return $Call.ByID(917571478, name, description).then(($result: any) => {

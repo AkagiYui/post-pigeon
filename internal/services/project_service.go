@@ -67,14 +67,14 @@ func (s *ProjectService) GetProject(id string) (*models.Project, error) {
 	return &project, nil
 }
 
-// CreateProject 创建新项目，并自动创建默认模块和根文件夹
+// CreateProject 创建新项目，并自动创建默认模块、根文件夹和默认环境
 func (s *ProjectService) CreateProject(name string, description string) (*models.Project, error) {
 	project := &models.Project{
 		Name:        name,
 		Description: description,
 	}
 
-	// 使用事务确保项目、默认模块和根文件夹的创建是原子操作
+	// 使用事务确保项目、默认模块、根文件夹和默认环境的创建是原子操作
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// 创建项目
 		if err := tx.Create(project).Error; err != nil {
@@ -100,6 +100,18 @@ func (s *ProjectService) CreateProject(name string, description string) (*models
 		}
 		if err := tx.Create(folder).Error; err != nil {
 			return err
+		}
+
+		// 创建默认环境：「测试环境」和「正式环境」
+		envNames := []string{"测试环境", "正式环境"}
+		for _, envName := range envNames {
+			env := &models.Environment{
+				ProjectID: project.ID,
+				Name:      envName,
+			}
+			if err := tx.Create(env).Error; err != nil {
+				return err
+			}
 		}
 
 		return nil
