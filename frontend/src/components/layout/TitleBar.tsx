@@ -72,8 +72,8 @@ export function TitleBar(props: TitleBarProps) {
         <div class="w-18 shrink-0 flex items-center pl-3" />
       </Show>
 
-      {/* 导航标签区域 */}
-      <div class="ml-1 flex items-center gap-0.5 flex-1 overflow-x-auto no-scrollbar" style="--wails-draggable:no-drag">
+      {/* 导航标签区域 - 移除 no-drag，让间隙区域可拖动窗口 */}
+      <div class="ml-1 flex items-center gap-0.5 flex-1 overflow-x-auto no-scrollbar">
         {/* 项目列表标签 */}
         <NavLink href="/" active={activeProjectId() === null}>
           <FolderOpen class="h-3.5 w-3.5" />
@@ -113,8 +113,8 @@ export function TitleBar(props: TitleBarProps) {
         </For>
       </div>
 
-      {/* 右侧：全局操作按钮 */}
-      <div class="flex items-center gap-1 shrink-0 pr-2" style="--wails-draggable:no-drag">
+      {/* 右侧：全局操作按钮 - 移除 no-drag，让间隙区域可拖动窗口 */}
+      <div class="flex items-center gap-1 shrink-0 pr-2">
         <Show when={activeProjectId()}>
           {/* 项目设置按钮 */}
           <Tooltip content={t("nav.projectSettings")} placement="bottom">
