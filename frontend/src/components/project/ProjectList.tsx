@@ -19,7 +19,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
-import { openProject } from "@/stores/app"
+import { activeProjectId as storeActiveProjectId, closeProject, openProject, openProjectIds } from "@/stores/app"
 
 interface Project {
   id: string
@@ -155,6 +155,22 @@ export function ProjectListPage() {
     if (!project) return
     try {
       await ProjectService.DeleteProject(project.id)
+
+      // 如果该项目在顶栏有打开的标签页，自动关闭
+      if (openProjectIds().includes(project.id)) {
+        const isActiveProject = storeActiveProjectId() === project.id
+        closeProject(project.id)
+        // 如果被删除的是当前激活的项目，切换到其他项目或返回列表页
+        if (isActiveProject) {
+          const remaining = openProjectIds()
+          if (remaining.length > 0) {
+            navigate({ to: "/project/$id", params: { id: remaining[remaining.length - 1] } })
+          } else {
+            navigate({ to: "/" })
+          }
+        }
+      }
+
       setDeleteConfirmOpen(false)
       setProjectToDelete(null)
       await loadProjects()
@@ -366,6 +382,13 @@ export function ProjectListPage() {
               <Show when={projectToDelete()}>
                 <p class="text-sm text-muted-foreground mt-1">
                   {projectToDelete()?.name}
+                </p>
+              </Show>
+              {/* 如果该项目已在顶栏打开，提示删除后将自动关闭标签页 */}
+              <Show when={projectToDelete() && openProjectIds().includes(projectToDelete()!.id)}>
+                <p class="text-sm text-amber-500 dark:text-amber-400 mt-2 flex items-center gap-1.5">
+                  <TriangleAlert class="h-3.5 w-3.5 shrink-0" />
+                  此项目当前已打开，删除后将自动关闭标签页
                 </p>
               </Show>
             </div>
