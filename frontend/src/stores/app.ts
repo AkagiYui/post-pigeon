@@ -7,6 +7,10 @@ const [openProjectIds, setOpenProjectIds] = createSignal<string[]>([])
 const [activeProjectId, setActiveProjectId] = createSignal<string | null>(null)
 /** 设置模态框是否显示 */
 const [settingsOpen, setSettingsOpen] = createSignal(false)
+/** 项目设置模态框是否显示 */
+const [projectSettingsOpen, setProjectSettingsOpen] = createSignal(false)
+/** 项目设置中正在编辑的项目 ID */
+const [projectSettingsTargetId, setProjectSettingsTargetId] = createSignal<string | null>(null)
 /** 当前环境 ID（每个项目独立） */
 const [currentEnvironmentIds, setCurrentEnvironmentIds] = createSignal<Record<string, string>>({})
 /** 项目名称映射（projectId -> projectName） */
@@ -18,6 +22,8 @@ export {
   openProjectIds, setOpenProjectIds,
   activeProjectId, setActiveProjectId,
   settingsOpen, setSettingsOpen,
+  projectSettingsOpen, setProjectSettingsOpen,
+  projectSettingsTargetId, setProjectSettingsTargetId,
   currentEnvironmentIds, setCurrentEnvironmentIds,
   projectNames, setProjectNames,
   projectEnvironments, setProjectEnvironments,

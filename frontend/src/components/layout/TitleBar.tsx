@@ -12,7 +12,7 @@ import { Tooltip } from "@/components/ui/tooltip"
 import { useFullscreen } from "@/hooks/useFullscreen"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
-import { activeProjectId, closeProject, getCurrentEnvironmentId, openProject, openProjectIds, projectEnvironments, projectNames, setActiveProjectId, setCurrentEnvironment, setProjectNames, setSettingsOpen, settingsOpen } from "@/stores/app"
+import { activeProjectId, closeProject, getCurrentEnvironmentId, openProject, openProjectIds, projectEnvironments, projectNames, setActiveProjectId, setCurrentEnvironment, setProjectNames, setProjectSettingsOpen, setProjectSettingsTargetId, setSettingsOpen, settingsOpen } from "@/stores/app"
 
 export interface TitleBarProps {
   /** 项目标签点击回调 */
@@ -119,7 +119,16 @@ export function TitleBar(props: TitleBarProps) {
           {/* 环境选择下拉框 */}
           <EnvironmentSelect />
           <Tooltip content={t("nav.projectSettings")}>
-            <button class="btn-ghost">
+            <button
+              class="btn-ghost"
+              onClick={() => {
+                const projectId = activeProjectId()
+                if (projectId) {
+                  setProjectSettingsTargetId(projectId)
+                  setProjectSettingsOpen(true)
+                }
+              }}
+            >
               <Settings class="h-4 w-4" />
             </button>
           </Tooltip>

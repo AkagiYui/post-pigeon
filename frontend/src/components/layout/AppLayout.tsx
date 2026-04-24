@@ -1,8 +1,9 @@
 // 应用主布局组件
 import { Show } from "solid-js"
 
+import { ProjectSettingsModal } from "@/components/settings/ProjectSettingsModal"
 import { SettingsModal } from "@/components/settings/SettingsModal"
-import { setSettingsOpen, settingsOpen } from "@/stores/app"
+import { activeProjectId, projectSettingsOpen, setProjectSettingsOpen, setProjectSettingsTargetId, setSettingsOpen, settingsOpen } from "@/stores/app"
 
 import { TitleBar } from "./TitleBar"
 
@@ -29,6 +30,16 @@ export function AppLayout(props: AppLayoutProps) {
       <SettingsModal
         open={settingsOpen()}
         onClose={() => setSettingsOpen(false)}
+      />
+
+      {/* 项目设置模态框 */}
+      <ProjectSettingsModal
+        open={projectSettingsOpen()}
+        projectId={activeProjectId()}
+        onClose={() => {
+          setProjectSettingsOpen(false)
+          setProjectSettingsTargetId(null)
+        }}
       />
     </div>
   )
