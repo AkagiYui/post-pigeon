@@ -3,7 +3,7 @@
 // Windows 端额外包含窗口控制按钮（最小化、最大化、关闭）
 import { Link, useLocation, useRouter } from "@tanstack/solid-router"
 import { System, Window } from "@wailsio/runtime"
-import { ChevronDown, FolderOpen, Minus, Settings, Square, SquareX, X } from "lucide-solid"
+import { ChevronDown, Cog, FolderOpen, Minus, Settings, Square, SquareX, X } from "lucide-solid"
 import { createEffect, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
@@ -129,7 +129,7 @@ export function TitleBar(props: TitleBarProps) {
                 }
               }}
             >
-              <Settings class="h-4 w-4" />
+              <Cog class="h-4 w-4" />
             </button>
           </Tooltip>
         </Show>
