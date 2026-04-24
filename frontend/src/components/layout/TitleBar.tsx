@@ -118,7 +118,7 @@ export function TitleBar(props: TitleBarProps) {
         <Show when={activeProjectId()}>
           {/* 环境选择下拉框 */}
           <EnvironmentSelect />
-          <Tooltip content={t("nav.projectSettings")}>
+          <Tooltip content={t("nav.projectSettings")} placement="bottom">
             <button
               class="btn-ghost"
               onClick={() => {
@@ -135,7 +135,7 @@ export function TitleBar(props: TitleBarProps) {
           {/* 低对比度分隔线 */}
           <div class="w-px h-4 bg-border/40 mx-0.5" />
         </Show>
-        <Tooltip content={t("nav.settings")}>
+        <Tooltip content={t("nav.settings")} placement="bottom">
           <button class="btn-ghost" onClick={() => setSettingsOpen(true)}>
             <Settings class="h-4 w-4" />
           </button>
