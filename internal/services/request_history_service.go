@@ -37,6 +37,27 @@ func (s *RequestHistoryService) ListHistoryByModule(moduleID string, limit int, 
 	return history, nil
 }
 
+// ListHistoryByProject 获取项目的请求历史（按时间倒序）
+func (s *RequestHistoryService) ListHistoryByProject(projectID string, limit int, offset int) ([]models.RequestHistory, error) {
+	var history []models.RequestHistory
+	if limit <= 0 {
+		limit = 50
+	}
+
+	// 通过模块关联查询项目的请求历史
+	err := s.db.Table("request_histories").
+		Joins("JOIN modules ON modules.id = request_histories.module_id").
+		Where("modules.project_id = ?", projectID).
+		Order("request_histories.created_at DESC").
+		Limit(limit).
+		Offset(offset).
+		Find(&history).Error
+	if err != nil {
+		return nil, fmt.Errorf("获取请求历史失败: %w", err)
+	}
+	return history, nil
+}
+
 // GetHistory 获取单条请求历史
 func (s *RequestHistoryService) GetHistory(id string) (*models.RequestHistory, error) {
 	var history models.RequestHistory

@@ -693,7 +693,36 @@ export class RequestHistory {
      * JSON 格式 TimingInfo
      */
     "timing": string;
+
+    /**
+     * 响应体大小
+     */
     "size": number;
+
+    /**
+     * JSON 格式，请求头
+     */
+    "requestHeaders": string;
+
+    /**
+     * 请求体
+     */
+    "requestBody": string;
+
+    /**
+     * JSON 格式，响应头
+     */
+    "responseHeaders": string;
+
+    /**
+     * 响应体
+     */
+    "responseBody": string;
+
+    /**
+     * 响应 Content-Type
+     */
+    "contentType": string;
     "createdAt": time$0.Time;
 
     /** Creates a new RequestHistory instance. */
@@ -721,6 +750,21 @@ export class RequestHistory {
         }
         if (!("size" in $$source)) {
             this["size"] = 0;
+        }
+        if (!("requestHeaders" in $$source)) {
+            this["requestHeaders"] = "";
+        }
+        if (!("requestBody" in $$source)) {
+            this["requestBody"] = "";
+        }
+        if (!("responseHeaders" in $$source)) {
+            this["responseHeaders"] = "";
+        }
+        if (!("responseBody" in $$source)) {
+            this["responseBody"] = "";
+        }
+        if (!("contentType" in $$source)) {
+            this["contentType"] = "";
         }
         if (!("createdAt" in $$source)) {
             this["createdAt"] = null;

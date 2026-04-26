@@ -3,7 +3,7 @@
 // Windows 端额外包含窗口控制按钮（最小化、最大化、关闭）
 import { Link, useLocation, useRouter } from "@tanstack/solid-router"
 import { System, Window } from "@wailsio/runtime"
-import { ChevronDown, Cog, FolderOpen, Minus, Pin, Settings, Square, SquareX, X } from "lucide-solid"
+import { ChevronDown, Cog, FolderOpen, History, Minus, Pin, Settings, Square, SquareX, X } from "lucide-solid"
 import { createEffect, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
@@ -125,6 +125,15 @@ export function TitleBar(props: TitleBarProps) {
       {/* 右侧：全局操作按钮 - 移除 no-drag，让间隙区域可拖动窗口 */}
       <div class="flex items-center gap-1 shrink-0 pr-2" onDblClick={(e) => e.stopPropagation()}>
         <Show when={activeProjectId()}>
+          {/* 请求历史按钮 */}
+          <Tooltip content={t("nav.history")} placement="bottom">
+            <Link href="/project/$id/history" params={{ id: activeProjectId()! }}>
+              <button class="btn-ghost gap-0.5">
+                <History class="h-4 w-4" />
+                <span class="hidden md:inline text-sm">{t("nav.history")}</span>
+              </button>
+            </Link>
+          </Tooltip>
           {/* 项目设置按钮 */}
           <Tooltip content={t("nav.projectSettings")} placement="bottom">
             <button
