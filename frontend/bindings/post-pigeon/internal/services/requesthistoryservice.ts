@@ -51,7 +51,12 @@ export function GetHistoryDetail(id: string): $CancellablePromise<$models.Histor
 }
 
 /**
- * ListHistoryByModule 获取模块的请求历史（按时间倒序）
+ * Fetches request history entries for a module ordered by most recent first.
+ *
+ * @param moduleID - The identifier of the module to query
+ * @param limit - Maximum number of history entries to return
+ * @param offset - Number of entries to skip (for pagination)
+ * @returns An array of `RequestHistory` entries ordered by most recent first
  */
 export function ListHistoryByModule(moduleID: string, limit: number, offset: number): $CancellablePromise<models$0.RequestHistory[]> {
     return $Call.ByID(485494822, moduleID, limit, offset).then(($result: any) => {
@@ -60,7 +65,12 @@ export function ListHistoryByModule(moduleID: string, limit: number, offset: num
 }
 
 /**
- * ListHistoryByProject 获取项目的请求历史（按时间倒序）
+ * Retrieves request history for a project in reverse chronological order.
+ *
+ * @param projectID - The project identifier to query
+ * @param limit - Maximum number of history entries to return
+ * @param offset - Number of entries to skip (for pagination)
+ * @returns An array of `RequestHistory` records ordered from newest to oldest
  */
 export function ListHistoryByProject(projectID: string, limit: number, offset: number): $CancellablePromise<models$0.RequestHistory[]> {
     return $Call.ByID(1923264971, projectID, limit, offset).then(($result: any) => {

@@ -7,6 +7,11 @@ export const Route = createFileRoute("/project/$id/history")({
   component: RequestHistoryPageComponent,
 })
 
+/**
+ * Renders the request history page for a project.
+ *
+ * @returns The JSX element for the request history page.
+ */
 function RequestHistoryPageComponent() {
   return <RequestHistoryPage />
 }

@@ -20,8 +20,14 @@ export interface TitleBarProps {
 }
 
 /**
- * TitleBar 顶栏组件
- * macOS 风格，红绿灯居中，导航标签在右侧
+ * Render the application's title bar with platform-specific window controls and project navigation.
+ *
+ * Displays macOS-style traffic-light placeholder when appropriate, project navigation tabs and related
+ * project actions (history, project settings, environment selector) in the center/right, and Windows
+ * window controls (minimize, maximize/restore, close) when running on Windows. Also exposes a global
+ * settings button and an always-on-top toggle.
+ *
+ * @returns The title bar JSX element
  */
 export function TitleBar(props: TitleBarProps) {
   const router = useRouter()

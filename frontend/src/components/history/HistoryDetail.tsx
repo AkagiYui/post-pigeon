@@ -31,7 +31,14 @@ const encodingOptions = [
 ]
 
 /**
- * HistoryDetail 请求历史详情
+ * Render a request-history detail view for a given history ID.
+ *
+ * Fetches the history entry when mounted and displays status, method, URL,
+ * formatted timestamps/sizes, and tabs for response/request details (body, headers, timing).
+ *
+ * @param props - Component props
+ * @param props.historyId - The identifier of the request history record to load and display
+ * @returns The component's rendered request-history detail view
  */
 export function HistoryDetail(props: HistoryDetailProps) {
   const [detail, setDetail] = createSignal<RequestHistory | null>(null)

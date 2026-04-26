@@ -16,7 +16,12 @@ import { HistoryDetail } from "./HistoryDetail"
 const PAGE_SIZE = 50
 
 /**
- * RequestHistoryPage 请求历史页面
+ * Renders the request history page for a project, showing a selectable list of request records and a detail view.
+ *
+ * The component loads and paginates history for the project ID from the route, allows selecting a record to view details,
+ * and supports deleting individual history entries.
+ *
+ * @returns The JSX element for the request history page.
  */
 export function RequestHistoryPage() {
   const params = useParams({ from: "/project/$id/history" })

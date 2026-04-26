@@ -9,6 +9,15 @@ import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
 import { setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
 
+/**
+ * Render the project workspace page and manage loading and selection of project data.
+ *
+ * Loads the project, its modules, and environments on mount; updates the global environment list
+ * and sets a default current environment when available. Displays loading and "project not found"
+ * fallbacks and renders the ApiManagement interface for the active project.
+ *
+ * @returns The JSX element for the project workspace.
+ */
 export function ProjectWorkspace() {
   const params = useParams({ from: "/project/$id" })
   const [project, setProject] = createSignal<any>(null)

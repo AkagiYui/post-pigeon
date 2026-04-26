@@ -7,6 +7,11 @@ export const Route = createFileRoute("/project/$id/")({
   component: ProjectWorkspacePage,
 })
 
+/**
+ * Renders the project workspace page.
+ *
+ * @returns A JSX element that renders the ProjectWorkspace UI
+ */
 function ProjectWorkspacePage() {
   return <ProjectWorkspace />
 }
