@@ -68,6 +68,14 @@ export function ApiManagement(props: ApiManagementProps) {
     setCreateFolderOpen(true)
   }
 
+  // 从空白状态创建接口——取第一个模块作为父节点
+  const handleCreateFromEmpty = () => {
+    const modules = treeData()
+    if (modules.length > 0) {
+      openCreateEndpoint(modules[0].id, "module")
+    }
+  }
+
   // 执行创建接口
   const handleCreateEndpoint = async () => {
     const name = newEndpointName().trim()
@@ -338,8 +346,11 @@ export function ApiManagement(props: ApiManagementProps) {
             <Show
               when={openTabs().length > 0}
               fallback={
-                <div class="flex items-center justify-center h-full text-muted-foreground">
-                  选择或创建一个接口开始
+                <div class="flex flex-col items-center justify-center h-full text-muted-foreground gap-4">
+                  <span>从左侧选择一个接口，或者</span>
+                  <Button onClick={handleCreateFromEmpty} variant="outline">
+                    + 创建接口
+                  </Button>
                 </div>
               }
             >
