@@ -12,7 +12,7 @@ import { Tooltip } from "@/components/ui/tooltip"
 import { useFullscreen } from "@/hooks/useFullscreen"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
-import { activeProjectId, closeProject, getCurrentEnvironmentId, openProject, openProjectIds, projectEnvironments, projectNames, setActiveProjectId, setCurrentEnvironment, setProjectNames, setProjectSettingsOpen, setProjectSettingsTargetId, setSettingsOpen, settingsOpen } from "@/stores/app"
+import { activeProjectId, closeProject, getCurrentEnvironmentId, openProject, openProjectIds, projectEnvironments, projectNames, setActiveProjectId, setCurrentEnvironment, setProjectNames, setSettingsOpen, settingsOpen } from "@/stores/app"
 
 export interface TitleBarProps {
   /** 项目标签点击回调 */
@@ -34,6 +34,12 @@ export function TitleBar(props: TitleBarProps) {
   const isHistoryRoute = () => {
     const matches = router.state.matches
     return matches.some((match) => match.routeId === "/project/$id/history")
+  }
+
+  // 判断当前是否在项目设置路由
+  const isSettingsRoute = () => {
+    const matches = router.state.matches
+    return matches.some((match) => match.routeId === "/project/$id/settings")
   }
 
   // 检测平台
@@ -132,8 +138,8 @@ export function TitleBar(props: TitleBarProps) {
       {/* 右侧：全局操作按钮 - 移除 no-drag，让间隙区域可拖动窗口 */}
       <div class="flex items-center gap-1 shrink-0 pr-2" onDblClick={(e) => e.stopPropagation()}>
         <Show when={activeProjectId()}>
-          {/* 请求历史页面返回按钮 - 仅在当前处于历史路由时显示 */}
-          <Show when={isHistoryRoute()}>
+          {/* 返回按钮 - 仅在当前处于历史或设置路由时显示 */}
+          <Show when={isHistoryRoute() || isSettingsRoute()}>
             <Tooltip content={t("history.back")} placement="bottom">
               <Link to="/project/$id" params={{ id: activeProjectId()! }}>
                 <button class="btn-ghost gap-0.5">
@@ -151,21 +157,14 @@ export function TitleBar(props: TitleBarProps) {
               </button>
             </Link>
           </Tooltip>
-          {/* 项目设置按钮 */}
+          {/* 项目设置按钮 - 当前处于设置路由时高亮 */}
           <Tooltip content={t("nav.projectSettings")} placement="bottom">
-            <button
-              class="btn-ghost gap-0.5"
-              onClick={() => {
-                const projectId = activeProjectId()
-                if (projectId) {
-                  setProjectSettingsTargetId(projectId)
-                  setProjectSettingsOpen(true)
-                }
-              }}
-            >
-              <Cog class="h-4 w-4" />
-              <span class="hidden md:inline text-sm">{t("nav.settings")}</span>
-            </button>
+            <Link to="/project/$id/settings" params={{ id: activeProjectId()! }}>
+              <button class={cn("btn-ghost gap-0.5", isSettingsRoute() && "text-accent font-medium bg-amber-600")}>
+                <Cog class="h-4 w-4" />
+                <span class="hidden md:inline text-sm">{t("nav.settings")}</span>
+              </button>
+            </Link>
           </Tooltip>
           {/* 环境选择下拉框 */}
           <EnvironmentSelect />

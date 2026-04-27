@@ -59,18 +59,10 @@ const [projectEnvironments, setProjectEnvironments] = createSignal<Record<string
 /** 设置模态框是否显示（不持久化） */
 const [settingsOpen, setSettingsOpen] = createSignal(false)
 
-/** 项目设置模态框是否显示（不持久化） */
-const [projectSettingsOpen, setProjectSettingsOpen] = createSignal(false)
-
-/** 项目设置中正在编辑的项目 ID（不持久化） */
-const [projectSettingsTargetId, setProjectSettingsTargetId] = createSignal<string | null>(null)
-
 export {
   openProjectIds, setOpenProjectIds,
   activeProjectId, setActiveProjectId,
   settingsOpen, setSettingsOpen,
-  projectSettingsOpen, setProjectSettingsOpen,
-  projectSettingsTargetId, setProjectSettingsTargetId,
   currentEnvironmentIds, setCurrentEnvironmentIds,
   projectNames, setProjectNames,
   projectEnvironments, setProjectEnvironments,
