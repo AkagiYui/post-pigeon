@@ -20,15 +20,21 @@ func NewFolderService(db *gorm.DB) *FolderService {
 
 // CreateFolder 创建新文件夹
 func (s *FolderService) CreateFolder(moduleID string, parentID *string, name string) (*models.Folder, error) {
+	// 如果没有指定父文件夹，则自动使用模块的根文件夹作为父文件夹
+	// 根文件夹是该模块下 parent_id 为空的文件夹，新文件夹作为其子节点才能被树正确展示
+	if parentID == nil {
+		var rootFolder models.Folder
+		if err := s.db.Where("module_id = ? AND parent_id IS NULL", moduleID).First(&rootFolder).Error; err != nil {
+			slog.Error("查找根文件夹失败", "error", err, "moduleID", moduleID)
+			return nil, fmt.Errorf("查找根文件夹失败: %w", err)
+		}
+		parentID = &rootFolder.ID
+	}
+
 	// 获取当前最大排序号
 	var maxSort int
-	query := s.db.Model(&models.Folder{}).Where("module_id = ?", moduleID)
-	if parentID != nil {
-		query = query.Where("parent_id = ?", *parentID)
-	} else {
-		query = query.Where("parent_id IS NULL")
-	}
-	query.Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
+	s.db.Model(&models.Folder{}).Where("module_id = ? AND parent_id = ?", moduleID, *parentID).
+		Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
 
 	folder := &models.Folder{
 		ModuleID:  moduleID,
@@ -40,7 +46,7 @@ func (s *FolderService) CreateFolder(moduleID string, parentID *string, name str
 		slog.Error("创建文件夹失败", "error", err)
 		return nil, fmt.Errorf("创建文件夹失败: %w", err)
 	}
-	slog.Info("文件夹已创建", "id", folder.ID, "name", folder.Name)
+	slog.Info("文件夹已创建", "id", folder.ID, "name", folder.Name, "parentID", *parentID)
 	return folder, nil
 }
 
