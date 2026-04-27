@@ -47,6 +47,22 @@ export function EndpointTree(props: EndpointTreeProps) {
   const [searchQuery, setSearchQuery] = createSignal("")
   const [expandedIds, setExpandedIds] = createSignal<Set<string>>(new Set())
 
+  // 当树数据加载时，自动展开第一个模块节点
+  createEffect(() => {
+    const data = props.data
+    if (data.length > 0) {
+      const firstModule = data[0]
+      if (firstModule.type === "module") {
+        setExpandedIds(prev => {
+          if (prev.has(firstModule.id)) return prev
+          const next = new Set(prev)
+          next.add(firstModule.id)
+          return next
+        })
+      }
+    }
+  })
+
   const toggleExpand = (id: string) => {
     setExpandedIds(prev => {
       const next = new Set(prev)
