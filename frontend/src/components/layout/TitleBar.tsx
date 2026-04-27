@@ -141,7 +141,7 @@ export function TitleBar(props: TitleBarProps) {
           {/* 返回按钮 - 仅在当前处于历史或设置路由时显示 */}
           <Show when={isHistoryRoute() || isSettingsRoute()}>
             <Tooltip content={t("history.back")} placement="bottom">
-              <Link to="/project/$id" params={{ id: activeProjectId()! }}>
+              <Link to="/project/$id" params={{ id: activeProjectId()! }} class="flex items-center">
                 <button class="btn-ghost gap-0.5">
                   <ArrowLeft class="h-4 w-4" />
                 </button>
@@ -150,7 +150,7 @@ export function TitleBar(props: TitleBarProps) {
           </Show>
           {/* 请求历史按钮 - 当前处于历史路由时高亮 */}
           <Tooltip content={t("nav.history")} placement="bottom">
-            <Link to="/project/$id/history" params={{ id: activeProjectId()! }}>
+            <Link to="/project/$id/history" params={{ id: activeProjectId()! }} class="flex items-center">
               <button class={cn("btn-ghost gap-0.5", isHistoryRoute() && "btn-ghost-active")}>
                 <History class="h-4 w-4" />
                 <span class="hidden md:inline text-sm">{t("nav.history")}</span>
@@ -159,7 +159,7 @@ export function TitleBar(props: TitleBarProps) {
           </Tooltip>
           {/* 项目设置按钮 - 当前处于设置路由时高亮 */}
           <Tooltip content={t("nav.projectSettings")} placement="bottom">
-            <Link to="/project/$id/settings" params={{ id: activeProjectId()! }}>
+            <Link to="/project/$id/settings" params={{ id: activeProjectId()! }} class="flex items-center">
               <button class={cn("btn-ghost gap-0.5", isSettingsRoute() && "btn-ghost-active")}>
                 <Cog class="h-4 w-4" />
                 <span class="hidden md:inline text-sm">{t("nav.settings")}</span>
