@@ -61,6 +61,30 @@ export function EndpointTree(props: EndpointTreeProps) {
     props.onSearch?.(query)
   }
 
+  // 根据搜索关键词过滤树数据，只保留匹配的节点及其祖先路径
+  const filteredData = () => {
+    const query = searchQuery()
+    if (!query) return props.data
+    return filterTree(props.data, query)
+  }
+
+  // 搜索模式下自动展开所有父节点以显示匹配结果；非搜索模式使用手动展开状态
+  const effectiveExpandedIds = () => {
+    const query = searchQuery()
+    if (!query) return expandedIds()
+    const ids = new Set<string>()
+    const collectIds = (nodes: TreeNode[]) => {
+      for (const node of nodes) {
+        if (node.children && node.children.length > 0) {
+          ids.add(node.id)
+          collectIds(node.children)
+        }
+      }
+    }
+    collectIds(filteredData())
+    return ids
+  }
+
   return (
     <div class={cn("flex flex-col h-full", props.class)}>
       {/* 搜索框和操作栏 */}
@@ -85,22 +109,18 @@ export function EndpointTree(props: EndpointTreeProps) {
 
       {/* 树形内容 */}
       <div class="flex-1 overflow-auto">
-        <For each={props.data}>
+        <For each={filteredData()}>
           {(node) => (
-            <Show
-              when={!searchQuery() || node.name.toLowerCase().includes(searchQuery().toLowerCase())}
-            >
-              <TreeNodeItem
-                node={node}
-                level={0}
-                selectedId={props.selectedId}
-                expandedIds={expandedIds()}
-                onSelect={props.onSelect}
-                onToggle={toggleExpand}
-                onCreateEndpoint={props.onCreateEndpoint}
-                onCreateFolder={props.onCreateFolder}
-              />
-            </Show>
+            <TreeNodeItem
+              node={node}
+              level={0}
+              selectedId={props.selectedId}
+              expandedIds={effectiveExpandedIds()}
+              onSelect={props.onSelect}
+              onToggle={toggleExpand}
+              onCreateEndpoint={props.onCreateEndpoint}
+              onCreateFolder={props.onCreateFolder}
+            />
           )}
         </For>
       </div>
@@ -143,6 +163,25 @@ function createMenuItems(
     ]
   }
   return []
+}
+
+/** 递归过滤树节点，只保留匹配搜索的节点及其祖先路径 */
+function filterTree(nodes: TreeNode[], query: string): TreeNode[] {
+  if (!query) return nodes
+  const q = query.toLowerCase()
+  const result: TreeNode[] = []
+  for (const node of nodes) {
+    const nodeMatches = node.name.toLowerCase().includes(q)
+    const filteredChildren = node.children ? filterTree(node.children, query) : undefined
+    const hasMatchingChildren = filteredChildren && filteredChildren.length > 0
+    if (nodeMatches || hasMatchingChildren) {
+      result.push({
+        ...node,
+        children: hasMatchingChildren ? filteredChildren : undefined,
+      })
+    }
+  }
+  return result
 }
 
 /** 树节点渲染 */
