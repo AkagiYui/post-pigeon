@@ -235,7 +235,7 @@ function NavLink(props: { href: string; active: boolean; children: JSX.Element }
     <Link
       to={props.href}
       class={cn(
-        "flex items-center gap-1.5 px-3 py-1 text-sm rounded-md transition-colors min-w-6 justify-center",
+        "flex items-center gap-1.5 px-3 py-1 text-sm rounded-md transition-colors shrink-0 w-18 justify-center",
         props.active
           ? "bg-accent-muted text-accent font-medium"
           : "text-muted-foreground hover:text-foreground hover:bg-muted",
