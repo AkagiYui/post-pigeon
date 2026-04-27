@@ -37,7 +37,7 @@ export function HeadersEditor() {
   }
 
   return (
-    <div class="p-3 h-full overflow-auto">
+    <div class="h-full overflow-auto">
       <Table
         columns={[
           {

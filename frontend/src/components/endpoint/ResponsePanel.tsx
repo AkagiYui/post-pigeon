@@ -62,7 +62,7 @@ export function ResponsePanel(props: ResponsePanelProps) {
       </Show>
 
       <Show when={props.tab === "headers"}>
-        <div class="p-3 overflow-auto">
+        <div class="overflow-auto">
           <Table
             columns={[
               { header: "Name", field: "name" },
@@ -78,7 +78,7 @@ export function ResponsePanel(props: ResponsePanelProps) {
       </Show>
 
       <Show when={props.tab === "cookies"}>
-        <div class="p-3 overflow-auto">
+        <div class="overflow-auto">
           <Table
             columns={[
               { header: "Name", field: "name" },
