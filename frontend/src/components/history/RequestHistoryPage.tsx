@@ -1,6 +1,6 @@
 // 请求历史页面组件
-import { Link, useParams } from "@tanstack/solid-router"
-import { ArrowLeft, Clock, Trash2 } from "lucide-solid"
+import { useParams } from "@tanstack/solid-router"
+import { Clock, Trash2 } from "lucide-solid"
 import { createEffect, createSignal, For, onMount, Show } from "solid-js"
 
 import type { RequestHistory } from "@/../bindings/post-pigeon/internal/models"
@@ -111,22 +111,6 @@ export function RequestHistoryPage() {
 
   return (
     <div class="flex flex-col h-full">
-      {/* 顶部工具栏 */}
-      <div class="flex items-center gap-2 px-4 py-2 border-b border-border shrink-0">
-        <Link href="/project/$id" params={{ id: params().id }}>
-          <Button variant="ghost" size="sm">
-            <ArrowLeft class="h-4 w-4 mr-1" />
-            {t("history.back")}
-          </Button>
-        </Link>
-        <div class="flex-1" />
-        <Show when={historyList().length > 0}>
-          <span class="text-sm text-muted-foreground">
-            {t("history.total", { count: historyList().length })}
-          </span>
-        </Show>
-      </div>
-
       {/* 主内容区 */}
       <div class="flex-1 overflow-hidden">
         <Show
@@ -151,6 +135,12 @@ export function RequestHistoryPage() {
               maxSize={450}
               left={
                 <div class="flex flex-col h-full border-r border-border">
+                  {/* 请求数量统计 */}
+                  <Show when={historyList().length > 0}>
+                    <div class="px-3 py-1.5 text-sm text-muted-foreground border-b border-border/50 shrink-0">
+                      {t("history.total", { count: historyList().length })}
+                    </div>
+                  </Show>
                   {/* 历史列表 */}
                   <div class="flex-1 overflow-auto">
                     <For each={historyList()}>

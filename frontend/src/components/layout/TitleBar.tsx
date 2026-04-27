@@ -3,7 +3,7 @@
 // Windows 端额外包含窗口控制按钮（最小化、最大化、关闭）
 import { Link, useLocation, useRouter } from "@tanstack/solid-router"
 import { System, Window } from "@wailsio/runtime"
-import { ChevronDown, Cog, FolderOpen, History, Minus, Pin, Settings, Square, SquareX, X } from "lucide-solid"
+import { ArrowLeft, ChevronDown, Cog, FolderOpen, History, Minus, Pin, Settings, Square, SquareX, X } from "lucide-solid"
 import { createEffect, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
@@ -28,6 +28,13 @@ export function TitleBar(props: TitleBarProps) {
   const location = useLocation()
   const [isMac, setIsMac] = createSignal(false)
   const isFullscreen = useFullscreen()
+
+  // 判断当前是否在请求历史路由
+  // 通过检查路由匹配状态来判断是否在历史页面
+  const isHistoryRoute = () => {
+    const matches = router.state.matches
+    return matches.some((match) => match.routeId === "/project/$id/history")
+  }
 
   // 检测平台
   onMount(() => {
@@ -125,10 +132,20 @@ export function TitleBar(props: TitleBarProps) {
       {/* 右侧：全局操作按钮 - 移除 no-drag，让间隙区域可拖动窗口 */}
       <div class="flex items-center gap-1 shrink-0 pr-2" onDblClick={(e) => e.stopPropagation()}>
         <Show when={activeProjectId()}>
-          {/* 请求历史按钮 */}
+          {/* 请求历史页面返回按钮 - 仅在当前处于历史路由时显示 */}
+          <Show when={isHistoryRoute()}>
+            <Tooltip content={t("history.back")} placement="bottom">
+              <Link to="/project/$id" params={{ id: activeProjectId()! }}>
+                <button class="btn-ghost gap-0.5">
+                  <ArrowLeft class="h-4 w-4" />
+                </button>
+              </Link>
+            </Tooltip>
+          </Show>
+          {/* 请求历史按钮 - 当前处于历史路由时高亮 */}
           <Tooltip content={t("nav.history")} placement="bottom">
             <Link to="/project/$id/history" params={{ id: activeProjectId()! }}>
-              <button class="btn-ghost gap-0.5">
+              <button class={cn("btn-ghost gap-0.5", isHistoryRoute() && "text-accent font-medium bg-amber-600")}>
                 <History class="h-4 w-4" />
                 <span class="hidden md:inline text-sm">{t("nav.history")}</span>
               </button>
