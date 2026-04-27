@@ -127,7 +127,7 @@ export function TitleBar(props: TitleBarProps) {
         <Show when={activeProjectId()}>
           {/* 请求历史按钮 */}
           <Tooltip content={t("nav.history")} placement="bottom">
-            <Link href="/project/$id/history" params={{ id: activeProjectId()! }}>
+            <Link to="/project/$id/history" params={{ id: activeProjectId()! }}>
               <button class="btn-ghost gap-0.5">
                 <History class="h-4 w-4" />
                 <span class="hidden md:inline text-sm">{t("nav.history")}</span>

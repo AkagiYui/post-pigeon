@@ -58,7 +58,7 @@ export function ProjectWorkspace() {
       when={!loading()}
       fallback={
         <div class="flex items-center justify-center h-full">
-          <p class="text-muted-foreground">{t("app.loading")}</p>123
+          <p class="text-muted-foreground">{t("app.loading")}</p>
         </div>
       }
     >
@@ -66,8 +66,8 @@ export function ProjectWorkspace() {
         when={project()}
         fallback={
           <div class="flex items-center justify-center h-full">
-            <p class="text-muted-foreground">项目不存在</p>456899123123123123
-          </div>  
+            <p class="text-muted-foreground">项目不存在</p>
+          </div>
         }
       >
         <ApiManagement
