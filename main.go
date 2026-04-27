@@ -108,6 +108,9 @@ func main() {
 		slog.Info("Shift 键被按住，跳过窗口状态恢复，使用默认大小和位置")
 	}
 
+	// 窗口最小有效尺寸阈值，低于此值则恢复默认大小和位置
+	const minWindowThreshold = 200
+
 	// 初始化窗口大小和位置
 	windowWidth := platform.DefaultWindowWidth
 	windowHeight := platform.DefaultWindowHeight
@@ -116,13 +119,21 @@ func main() {
 	windowStartState := application.WindowStateNormal
 
 	if savedState != nil {
-		windowWidth = savedState.Width
-		windowHeight = savedState.Height
-		windowX = savedState.X
-		windowY = savedState.Y
-		windowStartPos = application.WindowXY
-		if savedState.IsMaximised {
-			windowStartState = application.WindowStateMaximised
+		// 检查保存的尺寸是否有效（长宽均不低于阈值）
+		if savedState.Width >= minWindowThreshold && savedState.Height >= minWindowThreshold {
+			windowWidth = savedState.Width
+			windowHeight = savedState.Height
+			windowX = savedState.X
+			windowY = savedState.Y
+			windowStartPos = application.WindowXY
+			if savedState.IsMaximised {
+				windowStartState = application.WindowStateMaximised
+			}
+		} else {
+			slog.Warn("保存的窗口尺寸过小，使用默认大小和位置",
+				"width", savedState.Width, "height", savedState.Height,
+				"threshold", minWindowThreshold,
+			)
 		}
 	}
 
