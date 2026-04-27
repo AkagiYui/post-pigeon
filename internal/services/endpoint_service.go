@@ -253,6 +253,94 @@ func (s *EndpointService) GetEndpointsByModule(moduleID string) ([]models.Endpoi
 	return endpoints, err
 }
 
+// CreateFullEndpoint 创建完整端点（包含所有关联数据），用于从未保存请求保存到项目
+// 以事务方式一次性创建端点及其所有关联数据（参数、请求体字段、请求头、认证信息）
+func (s *EndpointService) CreateFullEndpoint(moduleID string, folderID *string, data EndpointSaveData) (*models.Endpoint, error) {
+	// 获取当前最大排序号
+	var maxSort int
+	query := s.db.Model(&models.Endpoint{}).Where("module_id = ?", moduleID)
+	if folderID != nil {
+		query = query.Where("folder_id = ?", *folderID)
+	} else {
+		query = query.Where("folder_id IS NULL")
+	}
+	query.Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
+
+	endpoint := &models.Endpoint{
+		ModuleID:        moduleID,
+		FolderID:        folderID,
+		Name:            data.Name,
+		Method:          data.Method,
+		Path:            data.Path,
+		BodyType:        data.BodyType,
+		BodyContent:     data.BodyContent,
+		ContentType:     data.ContentType,
+		Timeout:         data.Timeout,
+		FollowRedirects: data.FollowRedirects,
+		SortOrder:       maxSort + 1,
+	}
+
+	// 使用事务创建端点及其所有关联数据
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		// 创建端点基本信息
+		if err := tx.Create(endpoint).Error; err != nil {
+			return err
+		}
+
+		// 保存参数
+		if data.Params != nil {
+			for i := range data.Params {
+				data.Params[i].ID = ""
+				data.Params[i].EndpointID = endpoint.ID
+				if err := tx.Create(&data.Params[i]).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		// 保存请求体字段
+		if data.BodyFields != nil {
+			for i := range data.BodyFields {
+				data.BodyFields[i].ID = ""
+				data.BodyFields[i].EndpointID = endpoint.ID
+				if err := tx.Create(&data.BodyFields[i]).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		// 保存请求头
+		if data.Headers != nil {
+			for i := range data.Headers {
+				data.Headers[i].ID = ""
+				data.Headers[i].EndpointID = endpoint.ID
+				if err := tx.Create(&data.Headers[i]).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		// 保存认证信息
+		if data.Auth != nil {
+			data.Auth.ID = ""
+			data.Auth.EndpointID = endpoint.ID
+			if err := tx.Create(data.Auth).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+
+	if err != nil {
+		slog.Error("创建完整端点失败", "error", err)
+		return nil, fmt.Errorf("创建完整端点失败: %w", err)
+	}
+
+	slog.Info("完整端点已创建", "id", endpoint.ID, "name", endpoint.Name)
+	return endpoint, nil
+}
+
 // EndpointToJSON 将端点导出为 JSON
 func (s *EndpointService) EndpointToJSON(endpoint *EndpointDetail) (string, error) {
 	data, err := json.MarshalIndent(endpoint, "", "  ")

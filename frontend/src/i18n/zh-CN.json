@@ -25,11 +25,19 @@
     "folder.name": "文件夹名称",
     "folder.delete": "删除文件夹",
     "endpoint.create": "新建接口",
+    "endpoint.newRequest": "新建请求",
+    "endpoint.unsaved": "未保存",
     "endpoint.name": "接口名称",
     "endpoint.save": "保存",
+    "endpoint.saveToProject": "保存到项目",
+    "endpoint.saveToProjectTitle": "保存请求到项目",
+    "endpoint.selectModule": "选择模块",
+    "endpoint.selectFolder": "选择文件夹",
     "endpoint.delete": "删除",
     "endpoint.send": "发送",
     "endpoint.search": "搜索接口...",
+    "endpoint.unsavedChanges": "未保存的更改",
+    "endpoint.confirmCloseUnsaved": "此请求尚未保存，关闭前是否保存？",
     "endpoint.confirmDelete": "确定要删除接口「{name}」吗？",
     "endpoint.params": "参数",
     "endpoint.body": "请求体",
@@ -130,5 +138,7 @@
     "common.noData": "暂无数据",
     "common.enabled": "启用",
     "common.disabled": "禁用",
-    "common.copied": "已复制"
+    "common.copied": "已复制",
+    "common.discard": "放弃",
+    "common.saveAndClose": "保存并关闭"
 }

@@ -25,11 +25,19 @@
     "folder.name": "Folder Name",
     "folder.delete": "Delete Folder",
     "endpoint.create": "New Endpoint",
+    "endpoint.newRequest": "New Request",
+    "endpoint.unsaved": "Unsaved",
     "endpoint.name": "Endpoint Name",
     "endpoint.save": "Save",
+    "endpoint.saveToProject": "Save to Project",
+    "endpoint.saveToProjectTitle": "Save Request to Project",
+    "endpoint.selectModule": "Select Module",
+    "endpoint.selectFolder": "Select Folder",
     "endpoint.delete": "Delete",
     "endpoint.send": "Send",
     "endpoint.search": "Search endpoints...",
+    "endpoint.unsavedChanges": "Unsaved Changes",
+    "endpoint.confirmCloseUnsaved": "This request has not been saved yet. Do you want to save before closing?",
     "endpoint.confirmDelete": "Are you sure you want to delete endpoint \"{name}\"?",
     "endpoint.params": "Params",
     "endpoint.body": "Body",
@@ -130,5 +138,7 @@
     "common.noData": "No data",
     "common.enabled": "Enabled",
     "common.disabled": "Disabled",
-    "common.copied": "Copied"
+    "common.copied": "Copied",
+    "common.discard": "Discard",
+    "common.saveAndClose": "Save & Close"
 }

@@ -81,6 +81,8 @@ export interface EndpointDetailProps {
   response?: ResponseData | null
   /** 是否正在发送请求 */
   sending?: boolean
+  /** 是否为未保存请求 */
+  isUnsaved?: boolean
   /** 发送请求回调 */
   onSend?: () => void
   /** 保存回调 */
@@ -139,9 +141,9 @@ export function EndpointDetail(props: EndpointDetailProps) {
             {props.sending ? "发送中..." : t("endpoint.send")}
           </Button>
         </Tooltip>
-        <Button variant="outline" size="sm" onClick={props.onSave}>
+        <Button variant={props.isUnsaved ? "default" : "outline"} size="sm" onClick={props.onSave}>
           <Save class="h-3.5 w-3.5" />
-          {t("endpoint.save")}
+          {props.isUnsaved ? t("endpoint.saveToProject") : t("endpoint.save")}
         </Button>
         <Button variant="ghost" size="icon-sm" onClick={props.onDelete}>
           <Trash2 class="h-3.5 w-3.5" />
