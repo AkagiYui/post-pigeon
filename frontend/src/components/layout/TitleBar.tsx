@@ -3,8 +3,8 @@
 // Windows 端额外包含窗口控制按钮（最小化、最大化、关闭）
 import { Link, useLocation, useRouter } from "@tanstack/solid-router"
 import { System, Window } from "@wailsio/runtime"
-import { ArrowLeft, ChevronDown, Cog, FolderOpen, History, Minus, Pin, Settings, Square, SquareX, X } from "lucide-solid"
-import { createEffect, createMemo, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js"
+import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Cog, FolderOpen, History, Minus, Pin, Settings, Square, SquareX, X } from "lucide-solid"
+import { createEffect, createMemo, createResource, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
 import { Select } from "@/components/ui/select"
@@ -59,6 +59,43 @@ export function TitleBar(props: TitleBarProps) {
     }
   })
 
+  // 标签滚动相关状态
+  let tabsContainerRef: HTMLDivElement | undefined
+  const [canScrollLeft, setCanScrollLeft] = createSignal(false)
+  const [canScrollRight, setCanScrollRight] = createSignal(false)
+
+  // 更新滚动按钮显示状态
+  const updateScrollButtons = () => {
+    if (!tabsContainerRef) return
+    const el = tabsContainerRef
+    setCanScrollLeft(el.scrollLeft > 2)
+    setCanScrollRight(el.scrollLeft < el.scrollWidth - el.clientWidth - 2)
+  }
+
+  // 滚轮横向滚动处理
+  const handleTabWheel = (e: WheelEvent) => {
+    if (!tabsContainerRef) return
+    const el = tabsContainerRef
+    // 阻止默认垂直滚动
+    e.preventDefault()
+    // 将垂直滚轮增量转换为水平滚动
+    el.scrollLeft += e.deltaY
+    updateScrollButtons()
+  }
+
+  // 滚动到指定方向
+  const scrollTabs = (direction: "left" | "right") => {
+    if (!tabsContainerRef) return
+    const el = tabsContainerRef
+    const scrollAmount = 200
+    el.scrollBy({
+      left: direction === "left" ? -scrollAmount : scrollAmount,
+      behavior: "smooth",
+    })
+    // 滚动完成后更新按钮状态
+    setTimeout(updateScrollButtons, 200)
+  }
+
   // 监听路由变化，同步 activeProjectId
   // 注意：这里不自动调用 openProject，项目打开/关闭完全由用户交互控制
   createEffect(() => {
@@ -95,44 +132,74 @@ export function TitleBar(props: TitleBarProps) {
       </Show>
 
       {/* 导航标签区域 - 移除 no-drag，让间隙区域可拖动窗口 */}
-      <div class="ml-1 flex items-center gap-0.5 flex-1 overflow-x-auto no-scrollbar">
-        {/* 项目列表标签 */}
-        <NavLink href="/" active={activeProjectId() === null}>
-          <FolderOpen class="h-3.5 w-3.5" />
-          <span>{t("nav.projects")}</span>
-        </NavLink>
+      <div class="flex items-center flex-1 min-w-0 group/tabs">
+        {/* 左侧滚动按钮 - 仅在可向左滚动时显示 */}
+        <Show when={canScrollLeft()}>
+          <button
+            class="scroll-tab-btn -ml-1"
+            onClick={() => scrollTabs("left")}
+            title="向左滚动"
+          >
+            <ChevronLeft class="h-3.5 w-3.5" />
+          </button>
+        </Show>
 
-        {/* 打开的项目标签 */}
-        <For each={openProjectIds()}>
-          {(id) => (
-            <ProjectTab
-              projectId={id}
-              active={activeProjectId() === id}
-              onClick={() => {
-                // 点击项目标签时，打开项目并导航
-                openProject(id)
-                router.navigate({ to: "/project/$id", params: { id }, from: "/" })
-              }}
-              onClose={() => {
-                // 判断关闭的是否是当前激活的项目
-                const isActiveProject = activeProjectId() === id
-                // 关闭项目
-                closeProject(id)
-                // 只有关闭的是当前激活的项目时，才需要切换路由
-                if (isActiveProject) {
-                  const remaining = openProjectIds()
-                  if (remaining.length > 0) {
-                    // 导航到最后一个剩余项目
-                    router.navigate({ to: "/project/$id", params: { id: remaining[remaining.length - 1] } })
-                  } else {
-                    // 没有剩余项目，导航到项目列表
-                    router.navigate({ to: "/" })
+        {/* 标签容器 */}
+        <div
+          ref={tabsContainerRef}
+          class="flex items-center gap-0.5 flex-1 overflow-x-auto no-scrollbar"
+          onWheel={handleTabWheel}
+          onScroll={updateScrollButtons}
+        >
+          {/* 项目列表标签 */}
+          <NavLink href="/" active={activeProjectId() === null}>
+            <FolderOpen class="h-3.5 w-3.5" />
+            <span>{t("nav.projects")}</span>
+          </NavLink>
+
+          {/* 打开的项目标签 */}
+          <For each={openProjectIds()}>
+            {(id) => (
+              <ProjectTab
+                projectId={id}
+                active={activeProjectId() === id}
+                onClick={() => {
+                  // 点击项目标签时，打开项目并导航
+                  openProject(id)
+                  router.navigate({ to: "/project/$id", params: { id }, from: "/" })
+                }}
+                onClose={() => {
+                  // 判断关闭的是否是当前激活的项目
+                  const isActiveProject = activeProjectId() === id
+                  // 关闭项目
+                  closeProject(id)
+                  // 只有关闭的是当前激活的项目时，才需要切换路由
+                  if (isActiveProject) {
+                    const remaining = openProjectIds()
+                    if (remaining.length > 0) {
+                      // 导航到最后一个剩余项目
+                      router.navigate({ to: "/project/$id", params: { id: remaining[remaining.length - 1] } })
+                    } else {
+                      // 没有剩余项目，导航到项目列表
+                      router.navigate({ to: "/" })
+                    }
                   }
-                }
-              }}
-            />
-          )}
-        </For>
+                }}
+              />
+            )}
+          </For>
+        </div>
+
+        {/* 右侧滚动按钮 - 仅在可向右滚动时显示 */}
+        <Show when={canScrollRight()}>
+          <button
+            class="scroll-tab-btn -mr-1"
+            onClick={() => scrollTabs("right")}
+            title="向右滚动"
+          >
+            <ChevronRight class="h-3.5 w-3.5" />
+          </button>
+        </Show>
       </div>
 
       {/* 右侧：全局操作按钮 - 移除 no-drag，让间隙区域可拖动窗口 */}

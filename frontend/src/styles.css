@@ -317,3 +317,29 @@ textarea {
   mask-image: linear-gradient(to right, black 70%, transparent 95%);
   -webkit-mask-image: linear-gradient(to right, black 70%, transparent 95%);
 }
+
+/* ============================================
+   标签滚动按钮
+   ============================================ */
+
+/* 左右滚动按钮 - 悬浮在标签容器两侧 */
+.scroll-tab-btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  width: 20px;
+  height: 24px;
+  border-radius: 4px;
+  color: var(--color-muted-foreground);
+  background: var(--color-surface);
+  border: 1px solid var(--color-border);
+  cursor: pointer;
+  flex-shrink: 0;
+  transition: all var(--transition-fast);
+  z-index: 1;
+}
+
+.scroll-tab-btn:hover {
+  background: var(--color-muted);
+  color: var(--color-foreground);
+}
