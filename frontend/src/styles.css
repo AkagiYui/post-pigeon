@@ -299,3 +299,21 @@ textarea {
 .animate-slide-in {
   animation: slideIn 200ms ease-out;
 }
+
+/* ============================================
+   项目标签文字渐隐效果（Chrome 风格）
+   ============================================ */
+
+/* 文字超出容器时，右侧渐隐透明 */
+.tab-title-fade {
+  overflow: hidden;
+  white-space: nowrap;
+  mask-image: linear-gradient(to right, black 85%, transparent 98%);
+  -webkit-mask-image: linear-gradient(to right, black 85%, transparent 98%);
+}
+
+/* 悬停时关闭按钮出现，渐隐位置相应提前，避免文字被按钮遮挡 */
+.group:hover .tab-title-fade {
+  mask-image: linear-gradient(to right, black 70%, transparent 95%);
+  -webkit-mask-image: linear-gradient(to right, black 70%, transparent 95%);
+}

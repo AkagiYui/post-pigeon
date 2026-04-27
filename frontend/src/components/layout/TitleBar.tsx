@@ -235,7 +235,7 @@ function NavLink(props: { href: string; active: boolean; children: JSX.Element }
     <Link
       to={props.href}
       class={cn(
-        "flex items-center gap-1.5 px-3 py-1 text-sm rounded-md transition-colors min-w-16 justify-center",
+        "flex items-center gap-1.5 px-3 py-1 text-sm rounded-md transition-colors min-w-6 justify-center",
         props.active
           ? "bg-accent-muted text-accent font-medium"
           : "text-muted-foreground hover:text-foreground hover:bg-muted",
@@ -246,7 +246,7 @@ function NavLink(props: { href: string; active: boolean; children: JSX.Element }
   )
 }
 
-/** 项目标签（带关闭按钮） */
+/** 项目标签（Chrome 风格，带关闭按钮） */
 function ProjectTab(props: { projectId: string; active: boolean; onClick: () => void; onClose: () => void }) {
   // 从缓存中获取项目名称
   const [project] = createResource(() => props.projectId, async (id) => {
@@ -268,21 +268,20 @@ function ProjectTab(props: { projectId: string; active: boolean; onClick: () => 
   return (
     <div
       class={cn(
-        "relative flex items-center px-3 py-1 text-sm rounded-md cursor-pointer transition-colors group font-medium min-w-16 justify-center",
+        "relative flex items-center pl-3 pr-2 py-1 text-sm rounded-md cursor-pointer transition-colors group font-medium max-w-2222 min-w-16",
         props.active
           ? "bg-accent-muted text-accent"
           : "text-muted-foreground hover:text-foreground hover:bg-muted",
       )}
       onClick={props.onClick}
     >
-      {/* 标题文字 */}
-      <span>{project() || props.projectId.slice(0, 8)}</span>
-      {/* 关闭按钮，绝对定位覆盖在标题右侧 */}
+      {/* 标题文字 - 左对齐，超出渐隐 */}
+      <span class="tab-title-fade flex-1 text-left">{project() || props.projectId.slice(0, 8)}</span>
+      {/* 关闭按钮 - 位于右侧，悬停时显示 */}
       <button
-        class="absolute right-1.5 opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted/80 backdrop-blur-sm transition-all"
+        class="ml-0.5 shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted/80 transition-all"
         onClick={(e) => {
           e.stopPropagation()
-          // TODO: 确认关闭弹窗
           props.onClose()
         }}
       >
