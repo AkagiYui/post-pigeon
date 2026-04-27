@@ -3,7 +3,7 @@
 // 中：请求设置 tabs (Params/Body/Headers/Auth/设置)
 // 下：响应信息 tabs (Body/Headers/Cookies/实际请求)
 import { Save, Send, Trash2 } from "lucide-solid"
-import { createSignal, For, Show } from "solid-js"
+import { createEffect, createSignal, For, on, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -93,14 +93,41 @@ export interface EndpointDetailProps {
   onChange?: (data: Partial<EndpointData>) => void
 }
 
+// 按端点 ID 持久化标签页状态，避免组件重新挂载时丢失
+const tabStateStore = new Map<string, { requestTab: string; responseTab: string }>()
+
 /**
  * EndpointDetail 端点详情组件
  */
 export function EndpointDetail(props: EndpointDetailProps) {
+  const ep = () => props.endpoint
+
+  // 初始化标签页状态（从持久化存储恢复，或使用默认值）
   const [activeRequestTab, setActiveRequestTab] = createSignal("params")
   const [activeResponseTab, setActiveResponseTab] = createSignal("body")
 
-  const ep = () => props.endpoint
+  // 端点切换时，从持久化存储中恢复对应的标签页状态
+  createEffect(on(
+    () => ep().id,
+    (id) => {
+      const saved = tabStateStore.get(id)
+      if (saved) {
+        setActiveRequestTab(saved.requestTab)
+        setActiveResponseTab(saved.responseTab)
+      } else {
+        setActiveRequestTab("params")
+        setActiveResponseTab("body")
+      }
+    },
+  ))
+
+  // 标签页变化时，保存到持久化存储（仅跟踪标签变化，不跟踪端点 ID 变化）
+  createEffect(on(
+    () => [activeRequestTab(), activeResponseTab()],
+    ([requestTab, responseTab]) => {
+      tabStateStore.set(ep().id, { requestTab, responseTab })
+    },
+  ))
 
   return (
     <div class="flex flex-col h-full">
