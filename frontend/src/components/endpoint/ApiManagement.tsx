@@ -2,6 +2,7 @@
 // 左侧树形面板 + 右侧多 Tab 端点详情编辑器
 // 支持未保存的请求标签页和已保存的端点标签页
 import { createSignal, For, onMount, Show } from "solid-js"
+import { createStore } from "solid-js/store"
 
 import type {
   EndpointDetail as EndpointDetailType,
@@ -70,7 +71,15 @@ export function ApiManagement(props: ApiManagementProps) {
   const [treeData, setTreeData] = createSignal<TreeNode[]>([])
   const [requestTabs, setRequestTabs] = createSignal<RequestTab[]>([])
   const [activeTabId, setActiveTabId] = createSignal<string | null>(null)
-  const [endpointData, setEndpointData] = createSignal<EndpointData | null>(null)
+  // 空的端点数据默认值
+  const emptyEndpoint: EndpointData = {
+    id: "", name: "", method: "GET" as HTTPMethod, path: "",
+    bodyType: "none" as BodyType, bodyContent: "", contentType: "",
+    timeout: 30000, followRedirects: true, baseUrl: "",
+  }
+  // 使用 createStore 替代 createSignal，实现细粒度响应式更新
+  // 避免每次输入都创建新对象引用导致 EndpointDetail 组件被重新挂载（丢失焦点）
+  const [endpointData, setEndpointData] = createStore<EndpointData>({ ...emptyEndpoint })
   const [responseData, setResponseData] = createSignal<ResponseData | null>(null)
   const [sending, setSending] = createSignal(false)
   const [unsavedRequests, setUnsavedRequests] = createSignal<Record<string, UnsavedRequestData>>({})
@@ -222,7 +231,7 @@ export function ApiManagement(props: ApiManagementProps) {
       id: tempId, name: unsaved.name, method: unsaved.method, path: unsaved.path,
       bodyType: unsaved.bodyType, bodyContent: unsaved.bodyContent, contentType: unsaved.contentType,
       timeout: unsaved.timeout, followRedirects: unsaved.followRedirects, baseUrl: unsaved.baseUrl,
-    })
+    } as EndpointData)
     setResponseData(null)
   }
 
@@ -249,7 +258,7 @@ export function ApiManagement(props: ApiManagementProps) {
           path: detail.path, bodyType: detail.bodyType as BodyType, bodyContent: detail.bodyContent,
           contentType: detail.contentType, timeout: detail.timeout, followRedirects: detail.followRedirects,
           baseUrl: "",
-        })
+        } as EndpointData)
         if (detail.response) {
           const ti = detail.response.timing ? JSON.parse(detail.response.timing) : { total: 0, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0, ttfb: 0 }
           setResponseData({
@@ -276,31 +285,30 @@ export function ApiManagement(props: ApiManagementProps) {
         id: unsaved.id, name: unsaved.name, method: unsaved.method, path: unsaved.path,
         bodyType: unsaved.bodyType, bodyContent: unsaved.bodyContent, contentType: unsaved.contentType,
         timeout: unsaved.timeout, followRedirects: unsaved.followRedirects, baseUrl: unsaved.baseUrl,
-      })
+      } as EndpointData)
     }
   }
 
   // ---- 数据变更回调 ----
+  // 使用 createStore 的合并更新，避免创建新对象引用导致组件重挂载
   const handleDataChange = (data: Partial<EndpointData>) => {
     const ct = requestTabs().find(t => t.id === activeTabId())
     if (!ct) return
-    setEndpointData(prev => {
-      if (!prev) return null
-      const updated = { ...prev, ...data }
-      if (!ct.saved) {
-        setUnsavedRequests(p => ({ ...p, [ct.id]: { ...p[ct.id], ...updated, id: ct.id } }))
-        if (data.method || data.name) setRequestTabs(pt => pt.map(t => t.id === ct.id ? { ...t, method: (data.method as HTTPMethod) || t.method, name: data.name || t.name } : t))
-      } else {
-        setRequestTabs(pt => pt.map(t => t.id === ct.id ? { ...t, dirty: true } : t))
-      }
-      return updated
-    })
+    // 合并更新到 store（不创建新对象引用，避免组件重挂载）
+    setEndpointData(data as Partial<EndpointData>)
+    if (!ct.saved) {
+      // 从 store 获取当前完整数据保存到未保存请求记录
+      setUnsavedRequests(p => ({ ...p, [ct.id]: { ...p[ct.id], ...endpointData, id: ct.id } }))
+      if (data.method || data.name) setRequestTabs(pt => pt.map(t => t.id === ct.id ? { ...t, method: (data.method as HTTPMethod) || t.method, name: data.name || t.name } : t))
+    } else {
+      setRequestTabs(pt => pt.map(t => t.id === ct.id ? { ...t, dirty: true } : t))
+    }
   }
 
   // ---- 发送请求 ----
   const handleSend = async () => {
-    const ep = endpointData()
-    if (!ep) return
+    const ep = endpointData
+    if (!ep.id) return
     setSending(true)
     try {
       const sendData = new SendRequestData()
@@ -330,9 +338,9 @@ export function ApiManagement(props: ApiManagementProps) {
   // ---- 保存逻辑 ----
   const handleSave = () => {
     const ct = requestTabs().find(t => t.id === activeTabId())
-    if (!ct || !endpointData()) return
+    if (!ct) return
     if (!ct.saved) {
-      setSaveName(endpointData()!.name !== t("endpoint.newRequest") ? endpointData()!.name : "")
+      setSaveName(endpointData.name !== t("endpoint.newRequest") ? endpointData.name : "")
       const opts = buildSaveLocationOptions(treeData())
       if (opts.length > 0) setSelectedSaveLocation(opts[0].value)
       setSaveDialogOpen(true)
@@ -342,8 +350,8 @@ export function ApiManagement(props: ApiManagementProps) {
   }
 
   const handleSaveSavedEndpoint = async () => {
-    const ep = endpointData()
-    if (!ep) return
+    const ep = endpointData
+    if (!ep.id) return
     try {
       await EndpointService.SaveEndpointData({
         id: ep.id, name: ep.name, method: ep.method, path: ep.path,
@@ -357,8 +365,8 @@ export function ApiManagement(props: ApiManagementProps) {
   }
 
   const handleSaveToProject = async () => {
-    const ep = endpointData(); const ct = requestTabs().find(t => t.id === activeTabId())
-    if (!ep || !ct || ct.saved) return
+    const ep = endpointData; const ct = requestTabs().find(t => t.id === activeTabId())
+    if (!ct || ct.saved) return
     const name = saveName().trim()
     if (!name) return
     setSaving(true)
@@ -373,7 +381,7 @@ export function ApiManagement(props: ApiManagementProps) {
       })
       if (created) {
         setRequestTabs(pt => pt.map(t => t.id === ct.id ? { id: created.id, name, method: ep.method as HTTPMethod, saved: true, dirty: false } : t))
-        setEndpointData(p => p ? { ...p, id: created.id, name } : null)
+        setEndpointData({ id: created.id, name } as EndpointData)
         setUnsavedRequests(p => { const n = { ...p }; delete n[ct.id]; return n })
         setActiveTabId(created.id); setSaveDialogOpen(false); await loadTree()
       }
@@ -398,8 +406,8 @@ export function ApiManagement(props: ApiManagementProps) {
     if (!tab || !tid) return
     if (!tab.saved) {
       setCloseConfirmOpen(false)
-      const ep = endpointData()
-      if (ep) {
+      const ep = endpointData
+      if (ep.id) {
         setSaveName(ep.name !== t("endpoint.newRequest") ? ep.name : "")
         const opts = buildSaveLocationOptions(treeData())
         if (opts.length > 0) setSelectedSaveLocation(opts[0].value)
@@ -419,7 +427,7 @@ export function ApiManagement(props: ApiManagementProps) {
       if (remaining.length > 0) {
         const nt = remaining[remaining.length - 1]
         setActiveTabId(nt.id); handleTabChange(nt.id)
-      } else { setActiveTabId(null); setEndpointData(null); setResponseData(null) }
+      } else { setActiveTabId(null); setEndpointData({ ...emptyEndpoint }); setResponseData(null) }
     }
   }
 
@@ -469,8 +477,8 @@ export function ApiManagement(props: ApiManagementProps) {
               }))}
               value={activeTabId() || ""} onChange={handleTabChange} onClose={handleCloseTab}
             >
-              {() => endpointData() ? <EndpointDetail
-                endpoint={endpointData()!} response={responseData()} sending={sending()}
+              {() => endpointData.id ? <EndpointDetail
+                endpoint={endpointData} response={responseData()} sending={sending()}
                 isUnsaved={isActiveTabUnsaved()} onSend={handleSend} onSave={handleSave}
                 onDelete={handleDelete} onChange={handleDataChange}
               /> : null}
@@ -514,7 +522,7 @@ export function ApiManagement(props: ApiManagementProps) {
       {/* 删除端点确认对话框 */}
       <Dialog open={deleteConfirmOpen()} onClose={() => { setDeleteConfirmOpen(false); setDeletingEndpointId(null) }} title={t("endpoint.delete")} closeOnEsc closeOnOverlayClick>
         <div class="p-6 space-y-4">
-          <p class="text-sm text-muted-foreground">{t("endpoint.confirmDelete", { name: endpointData()?.name || "" })}</p>
+          <p class="text-sm text-muted-foreground">{t("endpoint.confirmDelete", { name: endpointData.name || "" })}</p>
           <div class="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>{t("common.cancel")}</Button>
             <Button onClick={handleConfirmDelete} disabled={deleting()}>{deleting() ? "删除中..." : t("common.confirm")}</Button>
