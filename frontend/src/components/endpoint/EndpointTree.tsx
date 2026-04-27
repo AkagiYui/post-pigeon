@@ -1,12 +1,13 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
-import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, PanelLeftClose, Plus, Search } from "lucide-solid"
+import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, FolderPlus, PanelLeftClose, Plus, Search } from "lucide-solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ContextMenu, type MenuItem } from "@/components/ui/context-menu"
 import { Input } from "@/components/ui/input"
+import { Popover } from "@/components/ui/popover"
 import { t } from "@/hooks/useI18n"
 import { type HTTPMethod } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -28,6 +29,8 @@ export interface EndpointTreeProps {
   selectedId?: string
   /** 选中回调 */
   onSelect?: (node: TreeNode) => void
+  /** 创建模块回调 */
+  onCreateModule?: () => void
   /** 创建端点回调 */
   onCreateEndpoint?: (parentId: string | undefined, type: "module" | "folder") => void
   /** 创建文件夹回调 */
@@ -115,9 +118,38 @@ export function EndpointTree(props: EndpointTreeProps) {
             class="pl-7"
           />
         </div>
-        <Button variant="ghost" size="icon-sm" onClick={() => props.onCreateEndpoint?.(undefined, "module")}>
-          <Plus class="h-3.5 w-3.5" />
-        </Button>
+        <Popover
+          trigger={
+            <Button variant="ghost" size="icon-sm">
+              <Plus class="h-3.5 w-3.5" />
+            </Button>
+          }
+          placement="bottom"
+        >
+          <div class="flex flex-col gap-1 min-w-32">
+            <button
+              class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-accent-muted hover:text-accent transition-colors text-left"
+              onClick={() => props.onCreateModule?.()}
+            >
+              <FolderPlus class="h-4 w-4 text-amber-500 shrink-0" />
+              <span>{t("module.create")}</span>
+            </button>
+            <button
+              class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-accent-muted hover:text-accent transition-colors text-left"
+              onClick={() => props.onCreateFolder?.(undefined, "module")}
+            >
+              <Folder class="h-4 w-4 text-amber-500 shrink-0" />
+              <span>{t("folder.create")}</span>
+            </button>
+            <button
+              class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-accent-muted hover:text-accent transition-colors text-left"
+              onClick={() => props.onCreateEndpoint?.(undefined, "module")}
+            >
+              <FileText class="h-4 w-4 text-blue-500 shrink-0" />
+              <span>{t("endpoint.create")}</span>
+            </button>
+          </div>
+        </Popover>
         <Button variant="ghost" size="icon-sm" onClick={props.onCollapse}>
           <PanelLeftClose class="h-3.5 w-3.5" />
         </Button>

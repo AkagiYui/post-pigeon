@@ -1,4 +1,5 @@
 // Popover 气泡弹出组件
+// 使用 fixed 定位而非 absolute，避免被父容器的 overflow 裁剪
 import { createEffect, createSignal, type JSX, Show } from "solid-js"
 
 import { cn } from "@/lib/utils"
@@ -20,12 +21,13 @@ export interface PopoverProps {
 
 /**
  * Popover 气泡弹出组件
- * 支持自动定位，根据视口边界选择最佳弹出位置
+ * 使用 fixed 定位基于触发元素视口坐标计算位置，避免被父容器 overflow 裁剪
  */
 export function Popover(props: PopoverProps) {
   const [internalOpen, setInternalOpen] = createSignal(false)
   const isOpen = () => props.open !== undefined ? props.open : internalOpen()
   let triggerRef: HTMLDivElement | undefined
+  const [position, setPosition] = createSignal({ left: 0, top: 0 })
   const [autoPlacement, setAutoPlacement] = createSignal<"top" | "bottom" | "left" | "right">("bottom")
 
   const setOpen = (val: boolean) => {
@@ -33,28 +35,45 @@ export function Popover(props: PopoverProps) {
     props.onOpenChange?.(val)
   }
 
-  // 计算最佳弹出位置
-  const calculatePlacement = (): "top" | "bottom" | "left" | "right" => {
-    // 如果用户指定了位置，优先使用
-    if (props.placement) return props.placement
-
-    if (!triggerRef) return "bottom"
+  // 计算最佳弹出位置和坐标
+  const updatePosition = () => {
+    if (!triggerRef) return
 
     const rect = triggerRef.getBoundingClientRect()
+    const placement = props.placement || calculateBestPlacement(rect)
+
+    setAutoPlacement(placement)
+
+    // 根据 placement 计算弹出框的 left/top
+    switch (placement) {
+      case "bottom":
+        setPosition({ left: rect.left + rect.width / 2, top: rect.bottom + 4 })
+        break
+      case "top":
+        setPosition({ left: rect.left + rect.width / 2, top: rect.top - 4 })
+        break
+      case "left":
+        setPosition({ left: rect.left - 4, top: rect.top + rect.height / 2 })
+        break
+      case "right":
+        setPosition({ left: rect.right + 4, top: rect.top + rect.height / 2 })
+        break
+    }
+  }
+
+  // 计算最佳弹出位置
+  const calculateBestPlacement = (rect: DOMRect): "top" | "bottom" | "left" | "right" => {
     const viewportWidth = window.innerWidth
     const viewportHeight = window.innerHeight
 
-    // 计算各方向的可用空间
     const spaceTop = rect.top
     const spaceBottom = viewportHeight - rect.bottom
     const spaceLeft = rect.left
     const spaceRight = viewportWidth - rect.right
 
-    // 估算弹出框大小（默认最小宽度 120px，高度根据内容）
     const popoverWidth = 120
     const popoverHeight = 100
 
-    // 计算各方向的得分（空间越大得分越高，空间不足则为负分）
     const scores = {
       bottom: spaceBottom >= popoverHeight ? spaceBottom : -1000,
       top: spaceTop >= popoverHeight ? spaceTop : -1000,
@@ -62,34 +81,45 @@ export function Popover(props: PopoverProps) {
       left: spaceLeft >= popoverWidth ? spaceLeft : -1000,
     }
 
-    // 选择得分最高的方向
-    const best = Object.entries(scores).reduce((a, b) =>
+    return Object.entries(scores).reduce((a, b) =>
       b[1] > a[1] ? b : a,
     )[0] as "top" | "bottom" | "left" | "right"
-
-    return best
   }
 
   // 打开时计算位置
   createEffect(() => {
     if (isOpen()) {
-      setAutoPlacement(calculatePlacement())
+      updatePosition()
     }
   })
 
-  const placementClasses = {
-    top: "bottom-full left-1/2 -translate-x-1/2 mb-1",
-    bottom: "top-full left-1/2 -translate-x-1/2 mt-1",
-    left: "right-full top-1/2 -translate-y-1/2 mr-1",
-    right: "left-full top-1/2 -translate-y-1/2 ml-1",
+  // 根据 placement 计算 transform 偏移，用于居中/居中对齐
+  const getTransform = (placement: "top" | "bottom" | "left" | "right") => {
+    switch (placement) {
+      case "bottom":
+      case "top":
+        return "translateX(-50%)"
+      case "left":
+      case "right":
+        return "translateY(-50%)"
+    }
   }
 
-  // 使用用户指定的位置或自动计算的位置
+  // 根据 placement 计算 margin，制造间距
+  const getMargin = (placement: "top" | "bottom" | "left" | "right") => {
+    switch (placement) {
+      case "bottom": return "margin-top: 4px;"
+      case "top": return "margin-bottom: 4px;"
+      case "right": return "margin-left: 4px;"
+      case "left": return "margin-right: 4px;"
+    }
+  }
+
   const currentPlacement = () => props.placement || autoPlacement()
 
   return (
-    <div class="relative inline-flex" ref={triggerRef}>
-      <div onClick={() => setOpen(!isOpen())}>
+    <div class="inline-flex" ref={triggerRef}>
+      <div onClick={() => { if (!isOpen()) updatePosition(); setOpen(!isOpen()) }}>
         {props.trigger}
       </div>
       <Show when={isOpen()}>
@@ -101,10 +131,18 @@ export function Popover(props: PopoverProps) {
           />
           <div
             class={cn(
-              "absolute z-50 bg-surface rounded-lg shadow-lg border border-border p-3 min-w-30",
-              placementClasses[currentPlacement()],
+              "fixed z-50 bg-surface rounded-lg shadow-lg border border-border p-3 min-w-30",
               props.class,
             )}
+            style={{
+              left: `${position().left}px`,
+              top: `${position().top}px`,
+              transform: getTransform(currentPlacement()),
+              margin: currentPlacement() === "bottom" ? "4px 0 0 0"
+                : currentPlacement() === "top" ? "0 0 4px 0"
+                  : currentPlacement() === "right" ? "0 0 0 4px"
+                    : "0 4px 0 0",
+            }}
             onClick={(e) => e.stopPropagation()}
           >
             {props.children}

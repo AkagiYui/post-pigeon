@@ -14,6 +14,7 @@ import {
   EndpointService,
   FolderService,
   HTTPService,
+  ModuleService,
   ProjectService,
 } from "@/../bindings/post-pigeon/internal/services"
 import { SendRequestData } from "@/../bindings/post-pigeon/internal/services"
@@ -96,6 +97,8 @@ export function ApiManagement(props: ApiManagementProps) {
   const [newFolderName, setNewFolderName] = createSignal("")
   const [createFolderParentId, setCreateFolderParentId] = createSignal<string | undefined>()
   const [createFolderParentType, setCreateFolderParentType] = createSignal<"module" | "folder">("module")
+  const [createModuleOpen, setCreateModuleOpen] = createSignal(false)
+  const [newModuleName, setNewModuleName] = createSignal("")
 
   // ---- 打开创建文件夹对话框 ----
   const openCreateFolder = (parentId: string | undefined, type: "module" | "folder") => {
@@ -122,6 +125,25 @@ export function ApiManagement(props: ApiManagementProps) {
       await loadTree()
     } catch (e) {
       console.error("创建文件夹失败", e)
+    }
+  }
+
+  // ---- 打开创建模块对话框 ----
+  const openCreateModule = () => {
+    setNewModuleName("")
+    setCreateModuleOpen(true)
+  }
+
+  const handleCreateModule = async () => {
+    const name = newModuleName().trim()
+    if (!name) return
+
+    try {
+      await ModuleService.CreateModule(props.projectId, name)
+      setCreateModuleOpen(false)
+      await loadTree()
+    } catch (e) {
+      console.error("创建模块失败", e)
     }
   }
 
@@ -459,6 +481,7 @@ export function ApiManagement(props: ApiManagementProps) {
           <EndpointTree
             data={treeData()} selectedId={activeTabId() || undefined}
             onSelect={handleSelectNode} onCollapse={() => setSidebarCollapsed(true)}
+            onCreateModule={openCreateModule}
             onCreateEndpoint={() => createUnsavedTab()} onCreateFolder={openCreateFolder}
           />
         </div>}
@@ -547,6 +570,29 @@ export function ApiManagement(props: ApiManagementProps) {
               {t("common.cancel")}
             </Button>
             <Button onClick={handleCreateFolder} disabled={!newFolderName().trim()}>
+              {t("common.confirm")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* 创建模块对话框 */}
+      <Dialog open={createModuleOpen()} onClose={() => setCreateModuleOpen(false)} title={t("module.create")} closeOnEsc closeOnOverlayClick>
+        <div class="p-6 space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-1.5">{t("module.name")}</label>
+            <Input
+              value={newModuleName()}
+              onInput={(e) => setNewModuleName(e.currentTarget.value)}
+              placeholder={t("module.name")}
+              onKeyDown={(e) => e.key === "Enter" && handleCreateModule()}
+            />
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setCreateModuleOpen(false)}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={handleCreateModule} disabled={!newModuleName().trim()}>
               {t("common.confirm")}
             </Button>
           </div>
