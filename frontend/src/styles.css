@@ -237,6 +237,13 @@ textarea {
   color: var(--color-foreground);
 }
 
+/* 激活状态的透明按钮 */
+.btn-ghost-active {
+  background: var(--color-accent-muted);
+  color: var(--color-accent);
+  font-weight: 500;
+}
+
 /* Windows 端窗口控制按钮 */
 .winctrl-btn {
   display: inline-flex;

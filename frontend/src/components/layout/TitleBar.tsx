@@ -4,7 +4,7 @@
 import { Link, useLocation, useRouter } from "@tanstack/solid-router"
 import { System, Window } from "@wailsio/runtime"
 import { ArrowLeft, ChevronDown, Cog, FolderOpen, History, Minus, Pin, Settings, Square, SquareX, X } from "lucide-solid"
-import { createEffect, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
 import { Select } from "@/components/ui/select"
@@ -30,17 +30,17 @@ export function TitleBar(props: TitleBarProps) {
   const isFullscreen = useFullscreen()
 
   // 判断当前是否在请求历史路由
-  // 通过检查路由匹配状态来判断是否在历史页面
-  const isHistoryRoute = () => {
-    const matches = router.state.matches
-    return matches.some((match) => match.routeId === "/project/$id/history")
-  }
+  // 使用 createMemo 确保响应式追踪
+  const isHistoryRoute = createMemo(() => {
+    const pathname = location().pathname
+    return pathname?.endsWith("/history") ?? false
+  })
 
   // 判断当前是否在项目设置路由
-  const isSettingsRoute = () => {
-    const matches = router.state.matches
-    return matches.some((match) => match.routeId === "/project/$id/settings")
-  }
+  const isSettingsRoute = createMemo(() => {
+    const pathname = location().pathname
+    return pathname?.endsWith("/settings") ?? false
+  })
 
   // 检测平台
   onMount(() => {
@@ -151,7 +151,7 @@ export function TitleBar(props: TitleBarProps) {
           {/* 请求历史按钮 - 当前处于历史路由时高亮 */}
           <Tooltip content={t("nav.history")} placement="bottom">
             <Link to="/project/$id/history" params={{ id: activeProjectId()! }}>
-              <button class={cn("btn-ghost gap-0.5", isHistoryRoute() && "text-accent font-medium bg-amber-600")}>
+              <button class={cn("btn-ghost gap-0.5", isHistoryRoute() && "btn-ghost-active")}>
                 <History class="h-4 w-4" />
                 <span class="hidden md:inline text-sm">{t("nav.history")}</span>
               </button>
@@ -160,7 +160,7 @@ export function TitleBar(props: TitleBarProps) {
           {/* 项目设置按钮 - 当前处于设置路由时高亮 */}
           <Tooltip content={t("nav.projectSettings")} placement="bottom">
             <Link to="/project/$id/settings" params={{ id: activeProjectId()! }}>
-              <button class={cn("btn-ghost gap-0.5", isSettingsRoute() && "text-accent font-medium bg-amber-600")}>
+              <button class={cn("btn-ghost gap-0.5", isSettingsRoute() && "btn-ghost-active")}>
                 <Cog class="h-4 w-4" />
                 <span class="hidden md:inline text-sm">{t("nav.settings")}</span>
               </button>
