@@ -9,15 +9,20 @@ import (
 
 // RequestHistory 请求历史记录，按模块组织
 type RequestHistory struct {
-	ID         string    `gorm:"primaryKey" json:"id"`
-	ModuleID   string    `gorm:"not null;index" json:"moduleId"`
-	EndpointID *string   `gorm:"index" json:"endpointId"`
-	Method     string    `gorm:"not null" json:"method"`
-	URL        string    `gorm:"not null" json:"url"`
-	StatusCode int       `json:"statusCode"`
-	Timing     string    `json:"timing"` // JSON 格式 TimingInfo
-	Size       int64     `json:"size"`
-	CreatedAt  time.Time `json:"createdAt"`
+	ID            string    `gorm:"primaryKey" json:"id"`
+	ModuleID      string    `gorm:"not null;index" json:"moduleId"`
+	EndpointID    *string   `gorm:"index" json:"endpointId"`
+	Method        string    `gorm:"not null" json:"method"`
+	URL           string    `gorm:"not null" json:"url"`
+	StatusCode    int       `json:"statusCode"`
+	Timing        string    `json:"timing"`        // JSON 格式 TimingInfo
+	Size          int64     `json:"size"`          // 响应体大小
+	RequestHeaders string   `gorm:"type:text" json:"requestHeaders"` // JSON 格式，请求头
+	RequestBody   string    `gorm:"type:text" json:"requestBody"`   // 请求体
+	ResponseHeaders string  `gorm:"type:text" json:"responseHeaders"` // JSON 格式，响应头
+	ResponseBody  string    `gorm:"type:text" json:"responseBody"`  // 响应体
+	ContentType   string    `json:"contentType"`   // 响应 Content-Type
+	CreatedAt     time.Time `json:"createdAt"`
 }
 
 // BeforeCreate 创建前自动生成 UUID

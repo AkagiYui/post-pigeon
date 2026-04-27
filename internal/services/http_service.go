@@ -335,14 +335,27 @@ func (s *HTTPService) saveResponseAndHistory(data SendRequestData, resp *HTTPRes
 
 	// 保存请求历史
 	if data.ModuleID != "" {
+		// 构建请求头
+		reqHeaders := make(map[string]string)
+		for _, h := range data.Headers {
+			if h.Enabled {
+				reqHeaders[h.Name] = h.Value
+			}
+		}
+
 		history := &models.RequestHistory{
-			ModuleID:   data.ModuleID,
-			EndpointID: nilOrNilString(data.EndpointID),
-			Method:     data.Method,
-			URL:        combineURL(data.BaseURL, data.Path),
-			StatusCode: resp.StatusCode,
-			Timing:     models.ToJSON(resp.Timing),
-			Size:       resp.Size,
+			ModuleID:        data.ModuleID,
+			EndpointID:      nilOrNilString(data.EndpointID),
+			Method:          data.Method,
+			URL:             combineURL(data.BaseURL, data.Path),
+			StatusCode:      resp.StatusCode,
+			Timing:          models.ToJSON(resp.Timing),
+			Size:            resp.Size,
+			RequestHeaders:  models.ToJSON(reqHeaders),
+			RequestBody:     data.BodyContent,
+			ResponseHeaders: models.ToJSON(resp.Headers),
+			ResponseBody:    resp.Body,
+			ContentType:     resp.ContentType,
 		}
 		if err := s.db.Create(history).Error; err != nil {
 			slog.Error("保存请求历史失败", "error", err)

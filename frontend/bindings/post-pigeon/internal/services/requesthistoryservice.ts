@@ -60,6 +60,15 @@ export function ListHistoryByModule(moduleID: string, limit: number, offset: num
 }
 
 /**
+ * ListHistoryByProject 获取项目的请求历史（按时间倒序）
+ */
+export function ListHistoryByProject(projectID: string, limit: number, offset: number): $CancellablePromise<models$0.RequestHistory[]> {
+    return $Call.ByID(1923264971, projectID, limit, offset).then(($result: any) => {
+        return $$createType4($result);
+    });
+}
+
+/**
  * PruneOldHistory 清理超过指定天数的请求历史
  */
 export function PruneOldHistory(moduleID: string, days: number): $CancellablePromise<void> {
