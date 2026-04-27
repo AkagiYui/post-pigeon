@@ -2,7 +2,6 @@
 // 左侧树形面板 + 右侧多 Tab 端点详情编辑器
 // 支持未保存的请求标签页和已保存的端点标签页
 import { createSignal, For, onMount, Show } from "solid-js"
-import { createStore } from "solid-js/store"
 
 import type {
   EndpointDetail as EndpointDetailType,
@@ -26,6 +25,7 @@ import { Input } from "@/components/ui/input"
 import { SplitPane } from "@/components/ui/split-pane"
 import { Tabs } from "@/components/ui/tabs"
 import { t } from "@/hooks/useI18n"
+import { useRouteCache } from "@/hooks/useRouteCache"
 import { type BodyType, type HTTPMethod } from "@/lib/types"
 import { getCurrentEnvironmentId } from "@/stores/app"
 
@@ -68,22 +68,25 @@ export interface ApiManagementProps {
  * ApiManagement 接口管理主界面
  */
 export function ApiManagement(props: ApiManagementProps) {
+  // ---- 路由状态缓存（自动保存/恢复所有 createCachedSignal/createCachedStore） ----
+  const cache = useRouteCache("index")
+
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false)
-  const [treeData, setTreeData] = createSignal<TreeNode[]>([])
-  const [requestTabs, setRequestTabs] = createSignal<RequestTab[]>([])
-  const [activeTabId, setActiveTabId] = createSignal<string | null>(null)
+  // 以下使用 createCachedSignal 的信号会自动缓存，新增状态只需改声明处
+  const [treeData, setTreeData] = cache.createCachedSignal<TreeNode[]>("treeData", [])
+  const [requestTabs, setRequestTabs] = cache.createCachedSignal<RequestTab[]>("requestTabs", [])
+  const [activeTabId, setActiveTabId] = cache.createCachedSignal<string | null>("activeTabId", null)
+  const [responseData, setResponseData] = cache.createCachedSignal<ResponseData | null>("responseData", null)
+  const [unsavedRequests, setUnsavedRequests] = cache.createCachedSignal<Record<string, UnsavedRequestData>>("unsavedRequests", {})
   // 空的端点数据默认值
   const emptyEndpoint: EndpointData = {
     id: "", name: "", method: "GET" as HTTPMethod, path: "",
     bodyType: "none" as BodyType, bodyContent: "", contentType: "",
     timeout: 30000, followRedirects: true, baseUrl: "",
   }
-  // 使用 createStore 替代 createSignal，实现细粒度响应式更新
-  // 避免每次输入都创建新对象引用导致 EndpointDetail 组件被重新挂载（丢失焦点）
-  const [endpointData, setEndpointData] = createStore<EndpointData>({ ...emptyEndpoint })
-  const [responseData, setResponseData] = createSignal<ResponseData | null>(null)
+  // 使用 createCachedStore 替代 createStore，自动缓存且保持细粒度响应式
+  const [endpointData, setEndpointData] = cache.createCachedStore<EndpointData>("endpointData", { ...emptyEndpoint })
   const [sending, setSending] = createSignal(false)
-  const [unsavedRequests, setUnsavedRequests] = createSignal<Record<string, UnsavedRequestData>>({})
   const [saveDialogOpen, setSaveDialogOpen] = createSignal(false)
   const [saveName, setSaveName] = createSignal("")
   const [selectedSaveLocation, setSelectedSaveLocation] = createSignal("")
@@ -99,6 +102,25 @@ export function ApiManagement(props: ApiManagementProps) {
   const [createFolderParentType, setCreateFolderParentType] = createSignal<"module" | "folder">("module")
   const [createModuleOpen, setCreateModuleOpen] = createSignal(false)
   const [newModuleName, setNewModuleName] = createSignal("")
+
+  // ---- 加载项目树数据 ----
+  const loadTree = async () => {
+    try {
+      const tree = await ProjectService.GetProjectTree(props.projectId)
+      setTreeData((tree || []).map(mapModule))
+    } catch (e) {
+      console.error("加载项目树失败", e)
+    }
+  }
+
+  // ---- 初始化：优先恢复缓存，否则加载树数据 ----
+  onMount(async () => {
+    if (!cache.loadAll()) {
+      await loadTree()
+    }
+  })
+  // 组件卸载时自动保存所有注册的缓存状态
+  cache.autoSaveAll()
 
   // ---- 打开创建文件夹对话框 ----
   const openCreateFolder = (parentId: string | undefined, type: "module" | "folder") => {
@@ -146,18 +168,6 @@ export function ApiManagement(props: ApiManagementProps) {
       console.error("创建模块失败", e)
     }
   }
-
-  // ---- 加载项目树数据 ----
-  const loadTree = async () => {
-    try {
-      const tree = await ProjectService.GetProjectTree(props.projectId)
-      setTreeData((tree || []).map(mapModule))
-    } catch (e) {
-      console.error("加载项目树失败", e)
-    }
-  }
-
-  onMount(loadTree)
 
   // ---- 树映射函数 ----
   const mapModule = (m: ModuleTree): TreeNode => ({

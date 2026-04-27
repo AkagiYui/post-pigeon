@@ -1,13 +1,14 @@
 // 请求历史页面组件
 import { useParams } from "@tanstack/solid-router"
 import { Clock, Trash2 } from "lucide-solid"
-import { createEffect, createSignal, For, onMount, Show } from "solid-js"
+import { createSignal, For, onMount, Show } from "solid-js"
 
 import type { RequestHistory } from "@/../bindings/post-pigeon/internal/models"
 import { RequestHistoryService } from "@/../bindings/post-pigeon/internal/services"
 import { Button } from "@/components/ui/button"
 import { SplitPane } from "@/components/ui/split-pane"
 import { t } from "@/hooks/useI18n"
+import { useRouteCache } from "@/hooks/useRouteCache"
 import { METHOD_COLORS } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
@@ -20,10 +21,13 @@ const PAGE_SIZE = 50
  */
 export function RequestHistoryPage() {
   const params = useParams({ from: "/project/$id/history" })
-  const [historyList, setHistoryList] = createSignal<RequestHistory[]>([])
-  const [selectedId, setSelectedId] = createSignal<string | null>(null)
+  // ---- 路由状态缓存（自动保存/恢复） ----
+  const cache = useRouteCache("history")
+
+  const [historyList, setHistoryList] = cache.createCachedSignal<RequestHistory[]>("historyList", [])
+  const [selectedId, setSelectedId] = cache.createCachedSignal<string | null>("selectedId", null)
   const [loading, setLoading] = createSignal(true)
-  const [hasMore, setHasMore] = createSignal(true)
+  const [hasMore, setHasMore] = cache.createCachedSignal<boolean>("hasMore", true)
 
   // 加载请求历史
   const loadHistory = async (reset = false) => {
@@ -49,19 +53,14 @@ export function RequestHistoryPage() {
     }
   }
 
-  // 初始加载
+  // 初始加载：优先恢复缓存，否则首次请求后端数据
   onMount(() => {
-    loadHistory(true)
-  })
-
-  // 监听路由参数变化
-  createEffect(() => {
-    const projectId = params().id
-    if (projectId) {
+    if (!cache.loadAll()) {
       loadHistory(true)
-      setSelectedId(null)
     }
   })
+  // 组件卸载时自动保存所有注册的缓存状态
+  cache.autoSaveAll()
 
   // 删除历史记录
   const handleDelete = async (id: string, e: Event) => {

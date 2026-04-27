@@ -2,13 +2,14 @@
 // 使用左右分栏标签页，包含基本设置和环境设置
 import { useParams, useRouter } from "@tanstack/solid-router"
 import { Cog, Globe } from "lucide-solid"
-import { createEffect, createSignal, on } from "solid-js"
+import { createSignal, onMount } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SideTabs } from "@/components/ui/tabs"
 import { t } from "@/hooks/useI18n"
+import { useRouteCache } from "@/hooks/useRouteCache"
 import { setProjectNames } from "@/stores/app"
 
 import { ProjectEnvironmentSettings } from "./ProjectEnvironmentSettings"
@@ -28,31 +29,34 @@ export function ProjectSettingsPage() {
   const router = useRouter()
   const projectId = () => params().id
 
-  const [activeTab, setActiveTab] = createSignal("basic")
-  const [name, setName] = createSignal("")
-  const [description, setDescription] = createSignal("")
+  // ---- 路由状态缓存（自动保存/恢复） ----
+  const cache = useRouteCache("settings")
+
+  const [activeTab, setActiveTab] = cache.createCachedSignal("activeTab", "basic")
+  const [name, setName] = cache.createCachedSignal("name", "")
+  const [description, setDescription] = cache.createCachedSignal("description", "")
   const [saving, setSaving] = createSignal(false)
   const [error, setError] = createSignal("")
 
-  // 加载项目数据
-  createEffect(on(
-    projectId,
-    async (id) => {
-      if (!id) return
+  // 初始加载：优先恢复缓存，否则从后端获取
+  onMount(async () => {
+    if (!cache.loadAll()) {
       try {
+        const id = projectId()
+        if (!id) return
         const project = await ProjectService.GetProject(id)
         if (project) {
           setName(project.name || "")
           setDescription(project.description || "")
         }
-        setError("")
       } catch (e) {
         console.error("加载项目信息失败", e)
         setError("加载项目信息失败")
       }
-    },
-    { defer: true },
-  ))
+    }
+  })
+  // 组件卸载时自动保存所有注册的缓存状态
+  cache.autoSaveAll()
 
   /** 保存项目设置 */
   const handleSave = async () => {
