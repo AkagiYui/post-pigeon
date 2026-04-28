@@ -66,6 +66,10 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
     try {
       setCreating(true)
       const newEnv = await EnvironmentService.CreateEnvironment(props.projectId, newEnvName().trim())
+      if (!newEnv) {
+        console.error("创建环境失败：返回空结果")
+        return
+      }
       setNewEnvName("")
       setSelectedEnvId(newEnv.id)
       await loadEnvironments()
