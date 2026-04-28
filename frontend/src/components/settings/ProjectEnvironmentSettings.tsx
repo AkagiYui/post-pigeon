@@ -1,10 +1,10 @@
 // 项目环境设置组件
-// 在项目设置中管理环境（创建、编辑、删除）及环境变量
-import { Plus, Trash2 } from "lucide-solid"
+// 在项目设置中管理环境（创建、编辑、删除）及每个环境下的模块前置 URL 和环境变量
+import { Link2, Plus, Trash2 } from "lucide-solid"
 import { createEffect, createSignal, For, on, Show } from "solid-js"
 
-import type { Environment, EnvironmentVariable } from "@/../bindings/post-pigeon/internal/models/models"
-import { EnvironmentService } from "@/../bindings/post-pigeon/internal/services"
+import type { Environment, EnvironmentVariable, Module } from "@/../bindings/post-pigeon/internal/models/models"
+import { EnvironmentService, ModuleService } from "@/../bindings/post-pigeon/internal/services"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"
@@ -14,6 +14,8 @@ import { setProjectEnvironmentsList } from "@/stores/app"
 export interface ProjectEnvironmentSettingsProps {
   /** 项目 ID */
   projectId: string | null
+  /** 路由缓存工厂函数，用于持久化状态 */
+  createCachedSignal?: <T>(key: string, initial: T) => [() => T, (v: T) => void]
 }
 
 /**
@@ -23,11 +25,13 @@ export interface ProjectEnvironmentSettingsProps {
 export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProps) {
   const [environments, setEnvironments] = createSignal<Environment[]>([])
   const [loading, setLoading] = createSignal(false)
-  const [selectedEnvId, setSelectedEnvId] = createSignal<string | null>(null)
+  // 使用路由缓存持久化当前选中的环境，切换页面后仍能恢复
+  const useCachedSignal = props.createCachedSignal || createSignal
+  const [selectedEnvId, setSelectedEnvId] = useCachedSignal<string | null>("selectedEnvId", null)
   const [newEnvName, setNewEnvName] = createSignal("")
   const [creating, setCreating] = createSignal(false)
 
-  // 加载环境列表
+  // 加载环境列表，若当前选中的环境不存在则回退到第一个
   const loadEnvironments = async () => {
     if (!props.projectId) return
     try {
@@ -36,6 +40,13 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
       setEnvironments(envs || [])
       // 同步到全局 store，使顶栏环境选择器也能使用最新数据
       setProjectEnvironmentsList(props.projectId, envs || [])
+      // 如果当前选中的环境 ID 不在列表中（首次加载、缓存恢复、或被删除），则回退到第一个
+      if (envs && envs.length > 0) {
+        const stillExists = envs.some(e => e.id === selectedEnvId())
+        if (!stillExists) {
+          setSelectedEnvId(envs[0].id)
+        }
+      }
     } catch (e) {
       console.error("加载环境列表失败", e)
     } finally {
@@ -49,13 +60,14 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
     () => { loadEnvironments() },
   ))
 
-  // 创建新环境
+  // 创建新环境，创建后自动选中
   const handleCreate = async () => {
     if (!props.projectId || !newEnvName().trim()) return
     try {
       setCreating(true)
-      await EnvironmentService.CreateEnvironment(props.projectId, newEnvName().trim())
+      const newEnv = await EnvironmentService.CreateEnvironment(props.projectId, newEnvName().trim())
       setNewEnvName("")
+      setSelectedEnvId(newEnv.id)
       await loadEnvironments()
     } catch (e) {
       console.error("创建环境失败", e)
@@ -129,7 +141,7 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
         </div>
       </div>
 
-      {/* 右侧：环境变量编辑 */}
+      {/* 右侧：环境详情编辑（环境名称 + 模块前置 URL + 环境变量） */}
       <div class="flex-1 overflow-y-auto">
         <Show
           when={selectedEnvId()}
@@ -139,7 +151,165 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
             </div>
           }
         >
-          <EnvironmentVariablesEditor environmentId={selectedEnvId()!} />
+          <EnvironmentDetailEditor
+            projectId={props.projectId!}
+            environmentId={selectedEnvId()!}
+          />
+        </Show>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * EnvironmentDetailEditor 环境详情编辑器
+ * 包含环境名称、模块前置 URL 和环境变量三个部分
+ */
+function EnvironmentDetailEditor(props: { projectId: string; environmentId: string }) {
+  const [envName, setEnvName] = createSignal("")
+
+  // 加载环境名称
+  const loadEnvName = async () => {
+    try {
+      const env = await EnvironmentService.GetEnvironment(props.environmentId)
+      if (env) setEnvName(env.name || "")
+    } catch (e) {
+      console.error("加载环境名称失败", e)
+    }
+  }
+
+  createEffect(on(() => props.environmentId, () => { loadEnvName() }))
+
+  return (
+    <div class="space-y-4">
+      {/* 环境名称 */}
+      <div>
+        <label class="block text-sm font-medium text-foreground mb-1">{t("environment.name")}</label>
+        <Input
+          value={envName()}
+          onInput={(e) => {
+            const newName = e.currentTarget.value
+            setEnvName(newName)
+            EnvironmentService.UpdateEnvironment(props.environmentId, newName).catch(console.error)
+          }}
+          placeholder={t("environment.name")}
+        />
+      </div>
+
+      {/* 模块前置 URL 区域 */}
+      <ModuleBaseUrlsEditor
+        projectId={props.projectId}
+        environmentId={props.environmentId}
+      />
+
+      {/* 分隔线 */}
+      <hr class="border-border" />
+
+      {/* 环境变量区域 */}
+      <EnvironmentVariablesEditor environmentId={props.environmentId} />
+    </div>
+  )
+}
+
+/**
+ * ModuleBaseUrlsEditor 模块前置 URL 编辑器
+ * 展示项目下所有模块，为每个模块设置在当前环境下的前置 URL，失焦自动保存
+ */
+function ModuleBaseUrlsEditor(props: { projectId: string; environmentId: string }) {
+  const [modules, setModules] = createSignal<Module[]>([])
+  // 存储每个模块在当前环境下的 base URL，key 为 moduleId
+  const [baseUrls, setBaseUrls] = createSignal<Record<string, string>>({})
+  const [loading, setLoading] = createSignal(false)
+  const [savingModuleId, setSavingModuleId] = createSignal<string | null>(null)
+
+  // 加载所有模块及其在当前环境下的前置 URL
+  const loadData = async () => {
+    try {
+      setLoading(true)
+      // 先获取项目下所有模块
+      const moduleList = await ModuleService.ListModules(props.projectId)
+      setModules(moduleList || [])
+
+      if (!moduleList || moduleList.length === 0) {
+        setBaseUrls({})
+        return
+      }
+
+      // 并行查询每个模块在当前环境下的前置 URL
+      const resultPairs = await Promise.all(
+        moduleList.map(async (m) => {
+          const urls = await ModuleService.GetModuleBaseURLs(m.id)
+          const matched = urls.find(u => u.environmentId === props.environmentId)
+          return { moduleId: m.id, baseUrl: matched?.baseUrl ?? "" }
+        }),
+      )
+
+      // 构建 moduleId -> baseUrl 映射
+      const urlMap: Record<string, string> = {}
+      for (const { moduleId, baseUrl } of resultPairs) {
+        urlMap[moduleId] = baseUrl
+      }
+      setBaseUrls(urlMap)
+    } catch (e) {
+      console.error("加载模块前置 URL 失败", e)
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  // 环境切换时重新加载
+  createEffect(on(
+    () => props.environmentId,
+    () => { loadData() },
+  ))
+
+  // 更新某个模块的 base URL（失焦时自动保存）
+  const handleBlur = async (moduleId: string) => {
+    const url = baseUrls()[moduleId] || ""
+    try {
+      setSavingModuleId(moduleId)
+      await ModuleService.SetModuleBaseURL(moduleId, props.environmentId, url)
+    } catch (e) {
+      console.error("保存模块前置 URL 失败", e)
+    } finally {
+      setSavingModuleId(null)
+    }
+  }
+
+  return (
+    <div>
+      <div class="flex items-center gap-1.5 mb-2">
+        <Link2 class="h-4 w-4 text-muted-foreground" />
+        <label class="text-sm font-medium text-foreground">{t("environment.baseUrl")}</label>
+        {loading() && <span class="text-xs text-muted-foreground ml-1">加载中...</span>}
+      </div>
+      <div class="space-y-1.5">
+        <For each={modules()}>
+          {(mod) => (
+            <div class="flex items-center gap-2">
+              <span class="text-sm text-foreground w-28 shrink-0 truncate" title={mod.name}>
+                {mod.name}
+              </span>
+              <div class="flex-1 relative">
+                <Input
+                  size="sm"
+                  value={baseUrls()[mod.id] || ""}
+                  onInput={(e) => setBaseUrls(prev => ({ ...prev, [mod.id]: e.currentTarget.value }))}
+                  onBlur={() => handleBlur(mod.id)}
+                  placeholder="https://api.example.com"
+                />
+                {/* 保存中的加载指示器 */}
+                <Show when={savingModuleId() === mod.id}>
+                  <div class="absolute right-2 top-1/2 -translate-y-1/2">
+                    <span class="text-xs text-muted-foreground">保存中...</span>
+                  </div>
+                </Show>
+              </div>
+            </div>
+          )}
+        </For>
+        <Show when={modules().length === 0 && !loading()}>
+          <p class="text-xs text-muted-foreground pl-1">{t("common.noData")}</p>
         </Show>
       </div>
     </div>
@@ -153,14 +323,12 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
 function EnvironmentVariablesEditor(props: { environmentId: string }) {
   const [variables, setVariables] = createSignal<EnvironmentVariable[]>([])
   const [saving, setSaving] = createSignal(false)
-  const [envName, setEnvName] = createSignal("")
 
-  // 加载环境详情（包含变量）
+  // 加载环境变量
   const loadVariables = async () => {
     try {
       const env = await EnvironmentService.GetEnvironment(props.environmentId)
       if (env) {
-        setEnvName(env.name || "")
         setVariables(env.variables || [])
       }
     } catch (e) {
@@ -208,21 +376,6 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
 
   return (
     <div class="space-y-3">
-      {/* 环境名称 */}
-      <div>
-        <label class="block text-sm font-medium text-foreground mb-1">{t("environment.name")}</label>
-        <div class="flex items-center gap-2">
-          <Input
-            value={envName()}
-            onInput={(e) => {
-              const newName = e.currentTarget.value
-              setEnvName(newName)
-              EnvironmentService.UpdateEnvironment(props.environmentId, newName).catch(console.error)
-            }}
-          />
-        </div>
-      </div>
-
       {/* 环境变量列表 */}
       <div>
         <div class="flex items-center justify-between mb-1">

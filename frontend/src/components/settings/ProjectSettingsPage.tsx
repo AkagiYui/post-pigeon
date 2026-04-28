@@ -154,8 +154,11 @@ export function ProjectSettingsPage() {
                 )
               case "environment":
                 return (
-                  <div class="p-4 h-full">
-                    <ProjectEnvironmentSettings projectId={projectId()} />
+                  <div class="h-full">
+                    <ProjectEnvironmentSettings
+                      projectId={projectId()}
+                      createCachedSignal={cache.createCachedSignal}
+                    />
                   </div>
                 )
               default:
