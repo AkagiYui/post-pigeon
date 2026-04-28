@@ -210,7 +210,7 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
       </div>
 
       {/* 右侧：环境详情编辑（环境名称 + 模块前置 URL + 环境变量） */}
-      <div class="flex-1 overflow-y-auto px-1">
+      <div class="flex-1 overflow-y-auto overflow-x-hidden px-1">
         <Show
           when={selectedEnvId()}
           fallback={
@@ -413,15 +413,15 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
   const [pendingDeleteId, setPendingDeleteId] = createSignal<string | null>(null)
   let deleteTimeout: ReturnType<typeof setTimeout> | null = null
 
-  // 列宽状态（不持久化），默认三等分剩余空间
+  // 列宽值（用作 CSS flex-grow，拖拽时 1:1 跟手）
   const [columnWidths, setColumnWidths] = createSignal<Record<string, number>>({
-    key: 200,
-    value: 200,
-    description: 200,
+    key: 1,
+    value: 1,
+    description: 1,
   })
   // 当前正在调整大小的列
   const [resizingCol, setResizingCol] = createSignal<string | null>(null)
-  // 各列最小宽度
+  // 各列最小宽度（也对应最小 flex-grow 值）
   const COLUMN_MIN_WIDTHS: Record<string, number> = { key: 80, value: 80, description: 80 }
 
   onCleanup(() => {
@@ -611,17 +611,17 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
     return variables.find(v => v.id === id) ?? null
   })
 
-  // 列拖拽调整大小的处理
+  // 列拖拽调整宽度（存像素值用作 CSS flex-grow，鼠标 1:1 跟手）
   const handleResizeStart = (col: string, e: MouseEvent) => {
     e.preventDefault()
     const startX = e.clientX
-    const startWidth = columnWidths()[col] || 200
+    const startWidth = columnWidths()[col]
     setResizingCol(col)
 
     const onMouseMove = (moveE: MouseEvent) => {
       const delta = moveE.clientX - startX
-      const newWidth = Math.max(COLUMN_MIN_WIDTHS[col] || 80, startWidth + delta)
-      setColumnWidths(prev => ({ ...prev, [col]: newWidth }))
+      const newWidth = Math.max(COLUMN_MIN_WIDTHS[col], startWidth + delta)
+      setColumnWidths(prev => ({ ...prev, [col]: Math.round(newWidth) }))
     }
 
     const onMouseUp = () => {
@@ -660,6 +660,7 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
           <ResizableHeader
             label={t("environment.variable.key")}
             width={columnWidths().key}
+            minWidth={COLUMN_MIN_WIDTHS.key}
             isResizing={resizingCol() === "key"}
             onResizeStart={(e) => handleResizeStart("key", e)}
           />
@@ -667,6 +668,7 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
           <ResizableHeader
             label={t("environment.variable.value")}
             width={columnWidths().value}
+            minWidth={COLUMN_MIN_WIDTHS.value}
             isResizing={resizingCol() === "value"}
             onResizeStart={(e) => handleResizeStart("value", e)}
           />
@@ -674,6 +676,7 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
           <ResizableHeader
             label={t("environment.variable.description")}
             width={columnWidths().description}
+            minWidth={COLUMN_MIN_WIDTHS.description}
             isResizing={resizingCol() === "description"}
             onResizeStart={(e) => handleResizeStart("description", e)}
           />
@@ -706,14 +709,10 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
           key_={draftKey()}
           value={draftValue()}
           description={draftDescription()}
-          enabled={draftEnabled()}
-          isSecret={draftIsSecret()}
           columnWidths={columnWidths()}
           onKeyChange={setDraftKey}
           onValueChange={setDraftValue}
           onDescriptionChange={setDraftDescription}
-          onEnabledChange={setDraftEnabled}
-          onIsSecretChange={setDraftIsSecret}
           onKeyBlur={promoteDraft}
         />
 
@@ -737,20 +736,22 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
 
 /**
  * ResizableHeader 可拖拽调整宽度的表头单元格
+ * 存存储像素值用作 CSS flex-grow，按比例分配空间，min-width 保证不被挤没
  */
 function ResizableHeader(props: {
   label: string
   width: number
+  minWidth: number
   isResizing: boolean
   onResizeStart: (e: MouseEvent) => void
 }) {
   return (
     <div
-      class="relative shrink-0 overflow-hidden"
-      style={{ width: `${props.width}px` }}
+      class="relative overflow-hidden"
+      style={`flex: ${props.width} 1 0%; min-width: ${props.minWidth}px`}
     >
       <span class="truncate block">{props.label}</span>
-      {/* 拖拽调整宽度的手柄 */}
+      {/* 拖拽调整权重的手柄 */}
       <div
         class={cn(
           "absolute right-0 top-0 bottom-0 w-1.5 cursor-col-resize transition-colors",
@@ -784,7 +785,7 @@ function SortableVariableRow(props: {
     <div
       use:sortable={sortable}
       class={cn(
-        "flex items-center gap-2 px-3 py-1.5 border-b border-border/50 transition-colors",
+        "flex items-center gap-2 px-3 py-1.5 border-b border-border/50 transition-colors overflow-hidden",
         sortable.isActiveDraggable
           ? "bg-accent-muted/50 shadow-sm z-10"
           : "bg-surface",
@@ -815,8 +816,11 @@ function SortableVariableRow(props: {
       </div>
 
       {/* 变量名 */}
-      <div class="shrink-0" style={{ width: `${props.columnWidths.key}px` }}>
-        <div class="relative">
+      <div
+        class="overflow-hidden"
+        style={`flex: ${props.columnWidths.key} 1 0%; min-width: 80px`}
+      >
+        <div class="relative group">
           <Input
             size="sm"
             value={props.variable.key}
@@ -826,20 +830,21 @@ function SortableVariableRow(props: {
           />
           {/* 输入框内部右侧图标区域 */}
           <div class="absolute right-1.5 top-1/2 -translate-y-1/2 flex items-center gap-0.5">
-            {/* 同名变量警告 — 在输入框内部 */}
+            {/* 同名变量警告 — 始终在输入框内部显示 */}
             <Show when={props.isDuplicate}>
               <Tooltip content={t("environment.variable.duplicateWarning")}>
                 <TriangleAlert class="h-3.5 w-3.5 text-amber-500 shrink-0" />
               </Tooltip>
             </Show>
-            {/* 钥匙图标 — 切换秘密变量 */}
+            {/* 钥匙图标 — 仅鼠标悬停输入框时显示 */}
             <Tooltip content={props.variable.isSecret ? "点击取消秘密变量" : "点击设为秘密变量"}>
               <button
                 class={cn(
-                  "p-0.5 rounded transition-colors",
+                  "p-0.5 rounded transition-all",
+                  "opacity-0 group-hover:opacity-100",
                   props.variable.isSecret
-                    ? "text-amber-500 hover:text-amber-600"
-                    : "text-muted-foreground/30 hover:text-muted-foreground",
+                    ? "opacity-100 text-amber-500 hover:text-amber-600"
+                    : "text-muted-foreground hover:text-foreground",
                 )}
                 onClick={() => props.onUpdate("isSecret", !props.variable.isSecret)}
               >
@@ -851,7 +856,10 @@ function SortableVariableRow(props: {
       </div>
 
       {/* 变量值 */}
-      <div class="shrink-0" style={{ width: `${props.columnWidths.value}px` }}>
+      <div
+        class="overflow-hidden"
+        style={`flex: ${props.columnWidths.value} 1 0%; min-width: 80px`}
+      >
         <div class="relative">
           <Input
             size="sm"
@@ -879,7 +887,10 @@ function SortableVariableRow(props: {
       </div>
 
       {/* 描述 */}
-      <div class="shrink-0" style={{ width: `${props.columnWidths.description}px` }}>
+      <div
+        class="overflow-hidden"
+        style={`flex: ${props.columnWidths.description} 1 0%; min-width: 80px`}
+      >
         <Input
           size="sm"
           value={props.variable.description || ""}
@@ -919,91 +930,53 @@ function DraftVariableRow(props: {
   key_: string
   value: string
   description: string
-  enabled: boolean
-  isSecret: boolean
   columnWidths: Record<string, number>
   onKeyChange: (v: string) => void
   onValueChange: (v: string) => void
   onDescriptionChange: (v: string) => void
-  onEnabledChange: (v: boolean) => void
-  onIsSecretChange: (v: boolean) => void
   onKeyBlur: () => void
 }) {
-  // 控制密码是否显示明文
-  const [showValue, setShowValue] = createSignal(false)
-
   return (
-    <div class="flex items-center gap-2 px-3 py-1.5 bg-surface">
+    <div class="flex items-center gap-2 px-3 py-1.5 bg-surface overflow-hidden">
       {/* 拖拽锚点占位（不可拖拽） */}
       <div class="w-6 shrink-0" />
 
-      {/* 开关 — 禁用状态，不可点击 */}
-      <div class="w-10 shrink-0 flex justify-center">
-        <VariableToggle
-          enabled={props.enabled}
-          onChange={props.onEnabledChange}
-          disabled
+      {/* 开关 — 空行隐藏 */}
+      <div class="w-10 shrink-0" />
+
+      {/* 变量名 — 空行隐藏钥匙图标 */}
+      <div
+        class="overflow-hidden"
+        style={`flex: ${props.columnWidths.key} 1 0%; min-width: 80px`}
+      >
+        <Input
+          size="sm"
+          value={props.key_}
+          onInput={(e) => props.onKeyChange(e.currentTarget.value)}
+          onBlur={() => props.onKeyBlur()}
+          placeholder={t("environment.variable.key")}
         />
       </div>
 
-      {/* 变量名 */}
-      <div class="shrink-0" style={{ width: `${props.columnWidths.key}px` }}>
-        <div class="relative">
-          <Input
-            size="sm"
-            value={props.key_}
-            onInput={(e) => props.onKeyChange(e.currentTarget.value)}
-            onBlur={() => props.onKeyBlur()}
-            placeholder={t("environment.variable.key")}
-            class="pr-8"
-          />
-          {/* 钥匙图标 — 切换秘密变量 */}
-          <Tooltip content={props.isSecret ? "点击取消秘密变量" : "点击设为秘密变量"}>
-            <button
-              class={cn(
-                "absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded transition-colors",
-                props.isSecret
-                  ? "text-amber-500 hover:text-amber-600"
-                  : "text-muted-foreground/30 hover:text-muted-foreground",
-              )}
-              onClick={() => props.onIsSecretChange(!props.isSecret)}
-            >
-              <Key class="h-3.5 w-3.5" />
-            </button>
-          </Tooltip>
-        </div>
-      </div>
-
-      {/* 变量值 */}
-      <div class="shrink-0" style={{ width: `${props.columnWidths.value}px` }}>
-        <div class="relative">
-          <Input
-            size="sm"
-            type={props.isSecret && !showValue() ? "password" : "text"}
-            value={props.value}
-            onInput={(e) => props.onValueChange(e.currentTarget.value)}
-            placeholder={t("environment.variable.value")}
-            class={props.isSecret ? "pr-8" : ""}
-          />
-          {/* 秘密变量时显示眼睛图标切换明文 */}
-          <Show when={props.isSecret}>
-            <button
-              class="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
-              onClick={() => setShowValue(p => !p)}
-              title={showValue() ? "隐藏" : "显示"}
-            >
-              {showValue() ? (
-                <EyeOff class="h-3.5 w-3.5" />
-              ) : (
-                <Eye class="h-3.5 w-3.5" />
-              )}
-            </button>
-          </Show>
-        </div>
+      {/* 变量值 — 空行显示普通输入 */}
+      <div
+        class="overflow-hidden"
+        style={`flex: ${props.columnWidths.value} 1 0%; min-width: 80px`}
+      >
+        <Input
+          size="sm"
+          type="text"
+          value={props.value}
+          onInput={(e) => props.onValueChange(e.currentTarget.value)}
+          placeholder={t("environment.variable.value")}
+        />
       </div>
 
       {/* 描述 */}
-      <div class="shrink-0" style={{ width: `${props.columnWidths.description}px` }}>
+      <div
+        class="overflow-hidden"
+        style={`flex: ${props.columnWidths.description} 1 0%; min-width: 80px`}
+      >
         <Input
           size="sm"
           value={props.description}
