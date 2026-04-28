@@ -77,6 +77,7 @@ export function ApiManagement(props: ApiManagementProps) {
   const [requestTabs, setRequestTabs] = cache.createCachedSignal<RequestTab[]>("requestTabs", [])
   const [activeTabId, setActiveTabId] = cache.createCachedSignal<string | null>("activeTabId", null)
   const [responseData, setResponseData] = cache.createCachedSignal<ResponseData | null>("responseData", null)
+  const [expandedIds, setExpandedIds] = cache.createCachedSignal<string[]>("expandedIds", [])
   const [unsavedRequests, setUnsavedRequests] = cache.createCachedSignal<Record<string, UnsavedRequestData>>("unsavedRequests", {})
   // 空的端点数据默认值
   const emptyEndpoint: EndpointData = {
@@ -493,6 +494,7 @@ export function ApiManagement(props: ApiManagementProps) {
             onSelect={handleSelectNode} onCollapse={() => setSidebarCollapsed(true)}
             onCreateModule={openCreateModule}
             onCreateEndpoint={() => createUnsavedTab()} onCreateFolder={openCreateFolder}
+            expandedIds={expandedIds()} onExpandedChange={setExpandedIds}
           />
         </div>}
         right={<div class="h-full">

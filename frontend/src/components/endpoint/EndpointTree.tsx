@@ -39,6 +39,10 @@ export interface EndpointTreeProps {
   onSearch?: (query: string) => void
   /** 收起面板回调 */
   onCollapse?: () => void
+  /** 外部控制的展开节点 ID 列表（配合 onExpandedChange 使用，用于路由状态缓存） */
+  expandedIds?: string[]
+  /** 展开状态变化回调 */
+  onExpandedChange?: (ids: string[]) => void
   /** 自定义类名 */
   class?: string
 }
@@ -48,7 +52,20 @@ export interface EndpointTreeProps {
  */
 export function EndpointTree(props: EndpointTreeProps) {
   const [searchQuery, setSearchQuery] = createSignal("")
-  const [expandedIds, setExpandedIds] = createSignal<Set<string>>(new Set())
+  // 使用 string[] 而非 Set<string>，便于与外部缓存系统（序列化为 JSON）交互
+  const [internalExpandedIds, setInternalExpandedIds] = createSignal<string[]>([])
+
+  // 统一获取展开 ID 列表：优先使用外部 prop，否则使用内部状态
+  const getExpandedList = () => props.expandedIds ?? internalExpandedIds()
+
+  // 统一更新展开 ID 列表：有外部回调则调用外部，否则更新内部状态
+  const updateExpandedList = (fn: (prev: string[]) => string[]) => {
+    if (props.onExpandedChange) {
+      props.onExpandedChange(fn(props.expandedIds ?? []))
+    } else {
+      setInternalExpandedIds(fn)
+    }
+  }
 
   // 当树数据加载时，自动展开第一个模块节点
   createEffect(() => {
@@ -56,22 +73,18 @@ export function EndpointTree(props: EndpointTreeProps) {
     if (data.length > 0) {
       const firstModule = data[0]
       if (firstModule.type === "module") {
-        setExpandedIds(prev => {
-          if (prev.has(firstModule.id)) return prev
-          const next = new Set(prev)
-          next.add(firstModule.id)
-          return next
+        updateExpandedList(prev => {
+          if (prev.includes(firstModule.id)) return prev
+          return [...prev, firstModule.id]
         })
       }
     }
   })
 
   const toggleExpand = (id: string) => {
-    setExpandedIds(prev => {
-      const next = new Set(prev)
-      if (next.has(id)) next.delete(id)
-      else next.add(id)
-      return next
+    updateExpandedList(prev => {
+      if (prev.includes(id)) return prev.filter(i => i !== id)
+      return [...prev, id]
     })
   }
 
@@ -88,9 +101,9 @@ export function EndpointTree(props: EndpointTreeProps) {
   }
 
   // 搜索模式下自动展开所有父节点以显示匹配结果；非搜索模式使用手动展开状态
-  const effectiveExpandedIds = () => {
+  const effectiveExpandedIds = (): Set<string> => {
     const query = searchQuery()
-    if (!query) return expandedIds()
+    if (!query) return new Set(getExpandedList())
     const ids = new Set<string>()
     const collectIds = (nodes: TreeNode[]) => {
       for (const node of nodes) {
