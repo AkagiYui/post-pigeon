@@ -38,6 +38,8 @@ type EnvironmentVariable struct {
 	Enabled bool `gorm:"not null;default:true" json:"enabled"`
 	// SortOrder 排序序号，用于拖拽排序
 	SortOrder int `gorm:"not null;default:0" json:"sortOrder"`
+	// IsSecret 是否为秘密变量，秘密变量的值在前端默认显示为密码
+	IsSecret bool `gorm:"not null;default:false" json:"isSecret"`
 }
 
 // BeforeCreate 创建前自动生成 UUID
