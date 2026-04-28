@@ -199,7 +199,7 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
       </div>
 
       {/* 右侧：环境详情编辑（环境名称 + 模块前置 URL + 环境变量） */}
-      <div class="flex-1 overflow-y-auto">
+      <div class="flex-1 overflow-y-auto px-1">
         <Show
           when={selectedEnvId()}
           fallback={
