@@ -188,6 +188,8 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 					Key:           v.Key,
 					Value:         v.Value,
 					Description:   v.Description,
+					Enabled:       v.Enabled,
+					SortOrder:     v.SortOrder,
 				}
 				if err := tx.Create(&newVar).Error; err != nil {
 					return err

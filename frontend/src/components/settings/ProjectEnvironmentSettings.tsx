@@ -1,12 +1,22 @@
 // 项目环境设置组件
 // 在项目设置中管理环境（创建、编辑、删除）及每个环境下的模块前置 URL 和环境变量
-import { Link2, Plus, Trash2, X } from "lucide-solid"
-import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js"
+import {
+  createSortable,
+  DragDropProvider,
+  DragDropSensors,
+  type DragEvent,
+  SortableProvider,
+  transformStyle,
+} from "@thisbeyond/solid-dnd"
+import { CircleMinus, CircleX, GripVertical, Link2, Plus, Trash2, TriangleAlert, X } from "lucide-solid"
+import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js"
 
-import type { Environment, EnvironmentVariable, Module } from "@/../bindings/post-pigeon/internal/models/models"
+import type { Environment, Module } from "@/../bindings/post-pigeon/internal/models/models"
+import { EnvironmentVariable } from "@/../bindings/post-pigeon/internal/models/models"
 import { EnvironmentService, ModuleService } from "@/../bindings/post-pigeon/internal/services"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
 import { setProjectEnvironmentsList } from "@/stores/app"
@@ -374,20 +384,50 @@ function ModuleBaseUrlsEditor(props: { projectId: string; environmentId: string 
 }
 
 /**
- * EnvironmentVariablesEditor 环境变量编辑器
- * 管理单个环境的变量列表（键值对）
+ * EnvironmentVariablesEditor 环境变量编辑器（表格模式）
+ *
+ * 特性：
+ * - 表格形式展示，一行一个环境变量
+ * - 拖拽锚点排序（使用 solid-dnd）
+ * - 开关切换启用/禁用
+ * - 同名变量警告（启用状态下，非最后一个生效的同名变量显示警告）
+ * - 两步确认删除（点击变红叉，3 秒内再点确认删除）
+ * - 末尾始终有一个空行供快速输入新变量
+ * - 修改后显示未保存提示
  */
 function EnvironmentVariablesEditor(props: { environmentId: string }) {
+  // 从服务器加载的原始变量（用于脏检测对比）
+  const [savedVariables, setSavedVariables] = createSignal<EnvironmentVariable[]>([])
+  // 当前编辑中的变量列表
   const [variables, setVariables] = createSignal<EnvironmentVariable[]>([])
+  // 草稿行（末尾空行）的独立状态，避免输入时 DOM 重新渲染导致焦点丢失
+  const [draftKey, setDraftKey] = createSignal("")
+  const [draftValue, setDraftValue] = createSignal("")
+  const [draftDescription, setDraftDescription] = createSignal("")
+  const [draftEnabled, setDraftEnabled] = createSignal(true)
+  // 保存状态
   const [saving, setSaving] = createSignal(false)
+  // 待确认删除的变量 ID（两步确认）
+  const [pendingDeleteId, setPendingDeleteId] = createSignal<string | null>(null)
+  let deleteTimeout: ReturnType<typeof setTimeout> | null = null
+
+  onCleanup(() => {
+    if (deleteTimeout) clearTimeout(deleteTimeout)
+  })
 
   // 加载环境变量
   const loadVariables = async () => {
     try {
-      const env = await EnvironmentService.GetEnvironment(props.environmentId)
-      if (env) {
-        setVariables(env.variables || [])
-      }
+      const vars = await EnvironmentService.GetEnvironmentVariables(props.environmentId)
+      const list = vars || []
+      setVariables(list)
+      // 深拷贝保存原始快照，用于脏检测
+      setSavedVariables(JSON.parse(JSON.stringify(list)))
+      // 清空草稿行
+      setDraftKey("")
+      setDraftValue("")
+      setDraftDescription("")
+      setDraftEnabled(true)
     } catch (e) {
       console.error("加载环境变量失败", e)
     }
@@ -398,30 +438,124 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
     () => { loadVariables() },
   ))
 
-  // 添加新变量
-  const addVariable = () => {
-    setVariables(prev => [
-      ...prev,
-      { environmentId: props.environmentId, key: "", value: "", description: "" } as EnvironmentVariable,
-    ])
+  // 脏检测：比较当前变量 + 草稿行是否与已保存的不同
+  const hasUnsavedChanges = createMemo(() => {
+    const saved = savedVariables()
+    const current = variables()
+
+    // 如果数量不同（排除空 key 的差异），视为有变化
+    // 比较当前变量列表与已保存列表
+    if (current.length !== saved.length) return true
+
+    for (let i = 0; i < current.length; i++) {
+      const c = current[i]
+      const s = saved[i]
+      if (
+        c.id !== s.id ||
+        c.key !== s.key ||
+        c.value !== s.value ||
+        c.description !== s.description ||
+        c.enabled !== s.enabled ||
+        c.sortOrder !== s.sortOrder
+      ) return true
+    }
+
+    // 检查草稿行是否有内容
+    if (draftKey().trim() !== "" || draftValue().trim() !== "" || draftDescription().trim() !== "") return true
+
+    return false
+  })
+
+  // 同名变量警告映射：对于每个 key，只有最后一个启用的变量不警告
+  const duplicateKeys = createMemo(() => {
+    const vars = variables()
+    // 按 key 分组启用的变量，记录索引
+    const keyToIndices = new Map<string, number[]>()
+    for (let i = 0; i < vars.length; i++) {
+      if (!vars[i].enabled) continue
+      const k = vars[i].key.trim()
+      if (!k) continue
+      if (!keyToIndices.has(k)) keyToIndices.set(k, [])
+      keyToIndices.get(k)!.push(i)
+    }
+    // 返回需要显示警告的索引集合（每个 key 组除最后一个外的所有索引）
+    const warnIndices = new Set<number>()
+    for (const indices of keyToIndices.values()) {
+      if (indices.length > 1) {
+        for (let j = 0; j < indices.length - 1; j++) {
+          warnIndices.add(indices[j])
+        }
+      }
+    }
+    return warnIndices
+  })
+
+  // 将草稿行提升为正式变量（在失焦时触发）
+  const promoteDraft = () => {
+    const key = draftKey().trim()
+    if (!key) return
+    const newVar = new EnvironmentVariable({
+      environmentId: props.environmentId,
+      key,
+      value: draftValue(),
+      description: draftDescription(),
+      enabled: draftEnabled(),
+      sortOrder: variables().length,
+    })
+    setVariables(prev => [...prev, newVar])
+    // 清空草稿行
+    setDraftKey("")
+    setDraftValue("")
+    setDraftDescription("")
+    setDraftEnabled(true)
   }
 
   // 更新变量字段
-  const updateVariable = (index: number, field: keyof EnvironmentVariable, value: string) => {
+  const updateVariable = (index: number, field: keyof EnvironmentVariable, value: string | boolean) => {
     setVariables(prev => prev.map((v, i) => i === index ? { ...v, [field]: value } : v))
   }
 
-  // 删除变量
-  const removeVariable = (index: number) => {
-    setVariables(prev => prev.filter((_, i) => i !== index))
+  // 两步确认删除
+  const handleDeleteConfirm = (varId: string) => {
+    if (pendingDeleteId() === varId) {
+      // 第二次点击，执行删除
+      if (deleteTimeout) {
+        clearTimeout(deleteTimeout)
+        deleteTimeout = null
+      }
+      setPendingDeleteId(null)
+      setVariables(prev => prev.filter(v => v.id !== varId))
+    } else {
+      // 第一次点击，进入待确认状态
+      if (deleteTimeout) clearTimeout(deleteTimeout)
+      setPendingDeleteId(varId)
+      deleteTimeout = setTimeout(() => {
+        setPendingDeleteId(null)
+        deleteTimeout = null
+      }, 3000)
+    }
   }
 
   // 保存变量
   const handleSave = async () => {
     try {
       setSaving(true)
-      // 过滤掉键为空的变量
-      const validVars = variables().filter(v => v.key.trim() !== "")
+      // 收集当前变量 + 草稿行（如果有内容）
+      const currentVars = [...variables()]
+      if (draftKey().trim() !== "") {
+        currentVars.push(new EnvironmentVariable({
+          environmentId: props.environmentId,
+          key: draftKey().trim(),
+          value: draftValue(),
+          description: draftDescription(),
+          enabled: draftEnabled(),
+          sortOrder: currentVars.length,
+        }))
+      }
+      // 过滤掉空 key 的变量，按当前顺序更新 sortOrder
+      const validVars = currentVars
+        .filter(v => v.key.trim() !== "")
+        .map((v, i) => ({ ...v, sortOrder: i }))
       await EnvironmentService.SaveEnvironmentVariables(props.environmentId, validVars as any)
       await loadVariables()
     } catch (e) {
@@ -431,61 +565,304 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
     }
   }
 
+  // 拖拽结束后重新排列变量
+  const handleDragEnd = (event: DragEvent) => {
+    const { draggable, droppable } = event
+    if (!droppable || draggable.id === droppable.id) return
+
+    const currentVars = variables()
+    const oldIndex = currentVars.findIndex(v => v.id === draggable.id)
+    const newIndex = currentVars.findIndex(v => v.id === droppable.id)
+    if (oldIndex === -1 || newIndex === -1) return
+
+    const reordered = [...currentVars]
+    const [moved] = reordered.splice(oldIndex, 1)
+    reordered.splice(newIndex, 0, moved)
+    setVariables(reordered)
+  }
+
+  // 当前拖拽的变量 ID
+  const [activeDragId, setActiveDragId] = createSignal<string | null>(null)
+  const activeDragVar = createMemo(() => {
+    const id = activeDragId()
+    if (!id) return null
+    return variables().find(v => v.id === id) ?? null
+  })
+
   return (
     <div class="space-y-3">
-      {/* 环境变量列表 */}
-      <div>
-        <div class="flex items-center justify-between mb-1">
-          <label class="text-sm font-medium text-foreground">{t("environment.variables")}</label>
-          <Button variant="outline" size="sm" onClick={addVariable}>
-            <Plus class="h-3.5 w-3.5" />
-          </Button>
+      {/* 表头 + 未保存提示 */}
+      <div class="flex items-center justify-between">
+        <label class="text-sm font-medium text-foreground">{t("environment.variables")}</label>
+        <Show when={hasUnsavedChanges()}>
+          <span class="text-xs text-amber-500 font-medium">{t("environment.variable.unsavedChanges")}</span>
+        </Show>
+      </div>
+
+      {/* 表格容器 */}
+      <div class="border border-border rounded-md overflow-hidden">
+        {/* 表头行 */}
+        <div class="flex items-center gap-2 px-3 py-2 bg-muted/50 border-b border-border text-xs text-muted-foreground font-medium">
+          {/* 拖拽锚点列 */}
+          <div class="w-6 shrink-0" />
+          {/* 开关列 */}
+          <div class="w-10 shrink-0 text-center">{t("common.enabled")}</div>
+          {/* 变量名列 */}
+          <div class="flex-1 min-w-0">{t("environment.variable.key")}</div>
+          {/* 变量值列 */}
+          <div class="flex-1 min-w-0">{t("environment.variable.value")}</div>
+          {/* 描述列 */}
+          <div class="flex-1 min-w-0">{t("environment.variable.description")}</div>
+          {/* 删除按钮列 */}
+          <div class="w-8 shrink-0" />
         </div>
-        <div class="space-y-2">
-          <For each={variables()}>
-            {(variable, index) => (
-              <div class="flex items-start gap-2 p-2 rounded-md border border-border">
-                <div class="flex-1 space-y-1">
-                  <Input
-                    value={variable.key}
-                    onInput={(e) => updateVariable(index(), "key", e.currentTarget.value)}
-                    placeholder="变量名"
-                    size="sm"
-                  />
-                  <Input
-                    value={variable.value}
-                    onInput={(e) => updateVariable(index(), "value", e.currentTarget.value)}
-                    placeholder="变量值"
-                    size="sm"
-                  />
-                  <Input
-                    value={variable.description || ""}
-                    onInput={(e) => updateVariable(index(), "description", e.currentTarget.value)}
-                    placeholder="描述（可选）"
-                    size="sm"
-                  />
-                </div>
-                <button
-                  class="p-1 rounded hover:bg-muted text-muted-foreground hover:text-red-500 transition-colors mt-1"
-                  onClick={() => removeVariable(index())}
-                >
-                  <Trash2 class="h-3.5 w-3.5" />
-                </button>
-              </div>
-            )}
-          </For>
-          <Show when={variables().length === 0}>
-            <p class="text-sm text-muted-foreground text-center py-4">{t("common.noData")}</p>
-          </Show>
-        </div>
+
+        {/* 变量行（可拖拽排序） */}
+        <DragDropProvider onDragStart={(e) => setActiveDragId(e.draggable.id as string)} onDragEnd={handleDragEnd}>
+          <DragDropSensors />
+          <SortableProvider ids={variables().map(v => v.id)}>
+            <For each={variables()}>
+              {(variable, index) => (
+                <SortableVariableRow
+                  variable={variable}
+                  index={index()}
+                  isDuplicate={duplicateKeys().has(index())}
+                  isPendingDelete={pendingDeleteId() === variable.id}
+                  onUpdate={(field, value) => updateVariable(index(), field, value)}
+                  onDelete={() => handleDeleteConfirm(variable.id)}
+                />
+              )}
+            </For>
+          </SortableProvider>
+        </DragDropProvider>
+
+        {/* 草稿行（末尾空行，不参与拖拽排序） */}
+        <DraftVariableRow
+          key_={draftKey()}
+          value={draftValue()}
+          description={draftDescription()}
+          enabled={draftEnabled()}
+          onKeyChange={setDraftKey}
+          onValueChange={setDraftValue}
+          onDescriptionChange={setDraftDescription}
+          onEnabledChange={setDraftEnabled}
+          onKeyBlur={promoteDraft}
+        />
+
+        {/* 无数据时的提示 */}
+        <Show when={variables().length === 0}>
+          <div class="px-3 py-6 text-center text-sm text-muted-foreground">
+            {t("common.noData")}
+          </div>
+        </Show>
       </div>
 
       {/* 保存按钮 */}
       <div class="flex justify-end pt-1">
-        <Button variant="default" size="sm" onClick={handleSave} disabled={saving()}>
+        <Button variant="default" size="sm" onClick={handleSave} disabled={saving() || !hasUnsavedChanges()}>
           {saving() ? "保存中..." : t("common.save")}
         </Button>
       </div>
     </div>
+  )
+}
+
+/**
+ * SortableVariableRow 可拖拽排序的变量行
+ */
+function SortableVariableRow(props: {
+  variable: EnvironmentVariable
+  index: number
+  isDuplicate: boolean
+  isPendingDelete: boolean
+  onUpdate: (field: keyof EnvironmentVariable, value: string | boolean) => void
+  onDelete: () => void
+}) {
+  const sortable = createSortable(props.variable.id)
+
+  return (
+    <div
+      use:sortable={sortable}
+      class={cn(
+        "flex items-center gap-2 px-3 py-1.5 border-b border-border/50 transition-colors",
+        sortable.isActiveDraggable
+          ? "bg-accent-muted/50 shadow-sm z-10"
+          : "bg-surface",
+      )}
+      style={{
+        transition: sortable.isActiveDraggable
+          ? "none"
+          : "transform 150ms ease",
+        ...transformStyle(sortable.transform),
+      }}
+    >
+      {/* 拖拽锚点 */}
+      <div
+        class="flex items-center justify-center w-6 h-6 rounded shrink-0
+                   text-muted-foreground/40 hover:text-muted-foreground
+                   cursor-grab active:cursor-grabbing transition-colors"
+        {...sortable.dragActivators}
+      >
+        <GripVertical class="h-3.5 w-3.5" />
+      </div>
+
+      {/* 开关 */}
+      <div class="w-10 shrink-0 flex justify-center">
+        <VariableToggle
+          enabled={props.variable.enabled}
+          onChange={(v) => props.onUpdate("enabled", v)}
+        />
+      </div>
+
+      {/* 变量名 */}
+      <div class="flex-1 min-w-0 relative">
+        <div class="flex items-center gap-1">
+          <Input
+            size="sm"
+            value={props.variable.key}
+            onInput={(e) => props.onUpdate("key", e.currentTarget.value)}
+            placeholder={t("environment.variable.key")}
+            class="flex-1"
+          />
+          {/* 同名变量警告 */}
+          <Show when={props.isDuplicate}>
+            <Tooltip content={t("environment.variable.duplicateWarning")}>
+              <TriangleAlert class="h-3.5 w-3.5 text-amber-500 shrink-0" />
+            </Tooltip>
+          </Show>
+        </div>
+      </div>
+
+      {/* 变量值 */}
+      <div class="flex-1 min-w-0">
+        <Input
+          size="sm"
+          value={props.variable.value}
+          onInput={(e) => props.onUpdate("value", e.currentTarget.value)}
+          placeholder={t("environment.variable.value")}
+        />
+      </div>
+
+      {/* 描述 */}
+      <div class="flex-1 min-w-0">
+        <Input
+          size="sm"
+          value={props.variable.description || ""}
+          onInput={(e) => props.onUpdate("description", e.currentTarget.value)}
+          placeholder={t("environment.variable.description")}
+        />
+      </div>
+
+      {/* 删除按钮（两步确认） */}
+      <div class="w-8 shrink-0 flex justify-center">
+        <button
+          class={cn(
+            "p-0.5 rounded transition-all",
+            props.isPendingDelete
+              ? "text-red-500"
+              : "text-muted-foreground/40 hover:text-muted-foreground",
+          )}
+          onClick={props.onDelete}
+          title={props.isPendingDelete ? "确认删除" : "删除"}
+        >
+          {props.isPendingDelete ? (
+            <CircleX class="h-4 w-4" />
+          ) : (
+            <CircleMinus class="h-4 w-4" />
+          )}
+        </button>
+      </div>
+    </div>
+  )
+}
+
+/**
+ * DraftVariableRow 草稿行（末尾空行）
+ * 独立于变量列表，避免输入时因 DOM 重排导致焦点丢失
+ */
+function DraftVariableRow(props: {
+  key_: string
+  value: string
+  description: string
+  enabled: boolean
+  onKeyChange: (v: string) => void
+  onValueChange: (v: string) => void
+  onDescriptionChange: (v: string) => void
+  onEnabledChange: (v: boolean) => void
+  onKeyBlur: () => void
+}) {
+  return (
+    <div class="flex items-center gap-2 px-3 py-1.5 bg-surface">
+      {/* 拖拽锚点占位（不可拖拽） */}
+      <div class="w-6 shrink-0" />
+
+      {/* 开关 */}
+      <div class="w-10 shrink-0 flex justify-center">
+        <VariableToggle
+          enabled={props.enabled}
+          onChange={props.onEnabledChange}
+        />
+      </div>
+
+      {/* 变量名 */}
+      <div class="flex-1 min-w-0">
+        <Input
+          size="sm"
+          value={props.key_}
+          onInput={(e) => props.onKeyChange(e.currentTarget.value)}
+          onBlur={() => props.onKeyBlur()}
+          placeholder={t("environment.variable.key")}
+        />
+      </div>
+
+      {/* 变量值 */}
+      <div class="flex-1 min-w-0">
+        <Input
+          size="sm"
+          value={props.value}
+          onInput={(e) => props.onValueChange(e.currentTarget.value)}
+          placeholder={t("environment.variable.value")}
+        />
+      </div>
+
+      {/* 描述 */}
+      <div class="flex-1 min-w-0">
+        <Input
+          size="sm"
+          value={props.description}
+          onInput={(e) => props.onDescriptionChange(e.currentTarget.value)}
+          placeholder={t("environment.variable.description")}
+        />
+      </div>
+
+      {/* 草稿行无删除按钮 */}
+      <div class="w-8 shrink-0" />
+    </div>
+  )
+}
+
+/**
+ * VariableToggle 开关切换组件
+ * 使用纯 CSS 实现的无障碍 toggle switch
+ */
+function VariableToggle(props: {
+  enabled: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <label class="relative inline-flex items-center cursor-pointer">
+      <input
+        type="checkbox"
+        class="sr-only peer"
+        checked={props.enabled}
+        onChange={(e) => props.onChange(e.currentTarget.checked)}
+      />
+      <div class="w-8 h-4.5 bg-muted rounded-full peer-checked:bg-accent
+                  peer-focus-visible:ring-2 peer-focus-visible:ring-accent/30
+                  transition-colors
+                  after:content-[''] after:absolute after:top-0.5 after:left-0.5
+                  after:bg-white after:rounded-full after:h-3.5 after:w-3.5
+                  after:transition-transform peer-checked:after:translate-x-3.5" />
+    </label>
   )
 }

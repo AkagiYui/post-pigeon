@@ -34,6 +34,10 @@ type EnvironmentVariable struct {
 	Key           string `gorm:"not null" json:"key"`
 	Value         string `json:"value"`
 	Description   string `json:"description"`
+	// Enabled 是否启用，默认启用
+	Enabled bool `gorm:"not null;default:true" json:"enabled"`
+	// SortOrder 排序序号，用于拖拽排序
+	SortOrder int `gorm:"not null;default:0" json:"sortOrder"`
 }
 
 // BeforeCreate 创建前自动生成 UUID

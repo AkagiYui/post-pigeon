@@ -28,10 +28,12 @@ func (s *EnvironmentService) ListEnvironments(projectID string) ([]models.Enviro
 	return envs, nil
 }
 
-// GetEnvironment 获取环境详情（包含变量）
+// GetEnvironment 获取环境详情（包含变量，按排序序号排列）
 func (s *EnvironmentService) GetEnvironment(id string) (*models.Environment, error) {
 	var env models.Environment
-	err := s.db.Preload("Variables").Where("id = ?", id).First(&env).Error
+	err := s.db.Preload("Variables", func(db *gorm.DB) *gorm.DB {
+		return db.Order("sort_order ASC")
+	}).Where("id = ?", id).First(&env).Error
 	if err != nil {
 		return nil, fmt.Errorf("获取环境失败: %w", err)
 	}
@@ -88,10 +90,11 @@ func (s *EnvironmentService) SaveEnvironmentVariables(environmentID string, vari
 		if err := tx.Where("environment_id = ?", environmentID).Delete(&models.EnvironmentVariable{}).Error; err != nil {
 			return err
 		}
-		// 创建新变量
+		// 创建新变量，按传入顺序设置排序序号
 		for i := range variables {
 			variables[i].ID = ""
 			variables[i].EnvironmentID = environmentID
+			variables[i].SortOrder = i // 按传入顺序设置排序序号
 			if err := tx.Create(&variables[i]).Error; err != nil {
 				return err
 			}
@@ -104,7 +107,7 @@ func (s *EnvironmentService) SaveEnvironmentVariables(environmentID string, vari
 // GetEnvironmentVariables 获取环境的所有变量
 func (s *EnvironmentService) GetEnvironmentVariables(environmentID string) ([]models.EnvironmentVariable, error) {
 	var variables []models.EnvironmentVariable
-	err := s.db.Where("environment_id = ?", environmentID).Order("created_at ASC").Find(&variables).Error
+	err := s.db.Where("environment_id = ?", environmentID).Order("sort_order ASC").Find(&variables).Error
 	if err != nil {
 		return nil, fmt.Errorf("获取环境变量失败: %w", err)
 	}
@@ -119,10 +122,12 @@ func (s *EnvironmentService) ResolveVariables(environmentID string, input string
 		return input, err
 	}
 
-	// 构建变量映射
+	// 构建变量映射（跳过禁用的变量）
 	varMap := make(map[string]string)
 	for _, v := range variables {
-		varMap[v.Key] = v.Value
+		if v.Enabled {
+			varMap[v.Key] = v.Value
+		}
 	}
 
 	// 简单的模板替换
