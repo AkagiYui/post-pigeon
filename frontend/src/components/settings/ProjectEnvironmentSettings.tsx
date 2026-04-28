@@ -1,7 +1,7 @@
 // 项目环境设置组件
 // 在项目设置中管理环境（创建、编辑、删除）及每个环境下的模块前置 URL 和环境变量
-import { Link2, Plus, Trash2 } from "lucide-solid"
-import { createEffect, createSignal, For, on, Show } from "solid-js"
+import { Link2, Plus, Trash2, X } from "lucide-solid"
+import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js"
 
 import type { Environment, EnvironmentVariable, Module } from "@/../bindings/post-pigeon/internal/models/models"
 import { EnvironmentService, ModuleService } from "@/../bindings/post-pigeon/internal/services"
@@ -30,6 +30,16 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
   const [selectedEnvId, setSelectedEnvId] = useCachedSignal<string | null>("selectedEnvId", null)
   const [newEnvName, setNewEnvName] = createSignal("")
   const [creating, setCreating] = createSignal(false)
+  // 待确认删除的环境 ID（两步确认：先点 X 变垃圾桶，再点才删除）
+  const [pendingDeleteEnvId, setPendingDeleteEnvId] = createSignal<string | null>(null)
+  let deleteTimeout: ReturnType<typeof setTimeout> | null = null
+
+  // 组件卸载时清理定时器
+  onCleanup(() => {
+    if (deleteTimeout) {
+      clearTimeout(deleteTimeout)
+    }
+  })
 
   // 加载环境列表，若当前选中的环境不存在则回退到第一个
   const loadEnvironments = async () => {
@@ -80,13 +90,47 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
     }
   }
 
-  // 删除环境
+  // 两步确认删除：第一次点击显示垃圾桶图标，3 秒内再次点击则执行删除
+  const handleDeleteConfirm = (envId: string) => {
+    if (pendingDeleteEnvId() === envId) {
+      // 第二次点击（3 秒内），执行删除
+      if (deleteTimeout) {
+        clearTimeout(deleteTimeout)
+        deleteTimeout = null
+      }
+      setPendingDeleteEnvId(null)
+      handleDelete(envId)
+    } else {
+      // 第一次点击，进入待确认状态
+      if (deleteTimeout) {
+        clearTimeout(deleteTimeout)
+      }
+      setPendingDeleteEnvId(envId)
+      // 3 秒后自动重置待确认状态
+      deleteTimeout = setTimeout(() => {
+        setPendingDeleteEnvId(null)
+        deleteTimeout = null
+      }, 3000)
+    }
+  }
+
+  // 删除环境，如果删除的是当前选中的环境则自动选择上一个
   const handleDelete = async (envId: string) => {
     try {
-      await EnvironmentService.DeleteEnvironment(envId)
+      // 如果删除的是当前选中的环境，先切换到上一个环境
       if (selectedEnvId() === envId) {
-        setSelectedEnvId(null)
+        const envs = environments()
+        const currentIndex = envs.findIndex(e => e.id === envId)
+        if (currentIndex > 0) {
+          setSelectedEnvId(envs[currentIndex - 1].id)
+        } else if (envs.length > 1) {
+          // 如果是第一个环境，则选择下一个
+          setSelectedEnvId(envs[1].id)
+        } else {
+          setSelectedEnvId(null)
+        }
       }
+      await EnvironmentService.DeleteEnvironment(envId)
       await loadEnvironments()
     } catch (e) {
       console.error("删除环境失败", e)
@@ -127,14 +171,23 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
               >
                 <span class="flex-1 truncate">{env.name}</span>
                 <button
-                  class="opacity-0 group-hover:opacity-100 p-0.5 rounded hover:bg-muted/80 transition-opacity"
+                  class={cn(
+                    "p-0.5 rounded hover:bg-muted/80 transition-all",
+                    pendingDeleteEnvId() === env.id
+                      ? "opacity-100"
+                      : "opacity-0 group-hover:opacity-100",
+                  )}
                   onClick={(e) => {
                     e.stopPropagation()
-                    handleDelete(env.id)
+                    handleDeleteConfirm(env.id)
                   }}
-                  title="删除"
+                  title={pendingDeleteEnvId() === env.id ? "确认删除" : "删除"}
                 >
-                  <Trash2 class="h-3.5 w-3.5 text-red-500" />
+                  {pendingDeleteEnvId() === env.id ? (
+                    <Trash2 class="h-3.5 w-3.5 text-red-500" />
+                  ) : (
+                    <X class="h-3.5 w-3.5 text-muted-foreground" />
+                  )}
                 </button>
               </div>
             )}
