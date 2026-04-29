@@ -1,6 +1,6 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
-import { ChevronDown, ChevronRight, Ellipsis, FileText, Folder, FolderOpen, FolderPlus, PanelLeftClose, Plus, Search } from "lucide-solid"
+import { ChevronDown, ChevronRight, Ellipsis, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PanelLeftClose, Plus, Search } from "lucide-solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
@@ -75,18 +75,21 @@ export function EndpointTree(props: EndpointTreeProps) {
     }
   }
 
-  // 当树数据加载时，自动展开第一个模块节点
+  // 首次加载树数据时，自动展开第一个模块节点（仅初始化一次，避免后续 data 变化覆盖用户的手动操作）
+  let initialized = false
   createEffect(() => {
     const data = props.data
-    if (data.length > 0) {
-      const firstModule = data[0]
-      if (firstModule.type === "module") {
-        updateExpandedList(prev => {
-          if (prev.includes(firstModule.id)) return prev
-          return [...prev, firstModule.id]
-        })
-      }
+    // 数据尚未加载时不做处理，等数据到达后再初始化
+    if (data.length === 0) return
+    if (initialized) return
+    const firstModule = data[0]
+    if (firstModule.type === "module") {
+      updateExpandedList(prev => {
+        if (prev.includes(firstModule.id)) return prev
+        return [...prev, firstModule.id]
+      })
     }
+    initialized = true
   })
 
   const toggleExpand = (id: string) => {
@@ -302,7 +305,8 @@ function TreeNodeItem(props: {
           )}
           style={{ "padding-left": `${props.level * 16 + 8}px` }}
           onClick={() => {
-            if (hasChildren()) {
+            // 模块和文件夹点击切换展开/收起（即使无子节点，图标也会变化）
+            if (props.node.type !== "endpoint") {
               props.onToggle(props.node.id)
             }
             if (props.node.type === "endpoint") {
@@ -310,19 +314,24 @@ function TreeNodeItem(props: {
             }
           }}
         >
-          {/* 展开/折叠图标 */}
-          <Show when={hasChildren()}>
+          {/* 展开/折叠图标（接口类型是叶子节点，不显示；其余类型即使无子节点也保持视觉一致性） */}
+          <Show when={props.node.type !== "endpoint"}>
             <span class="shrink-0">
               {isExpanded()
                 ? <ChevronDown class="h-3.5 w-3.5 text-muted-foreground" />
                 : <ChevronRight class="h-3.5 w-3.5 text-muted-foreground" />}
             </span>
           </Show>
-          <Show when={!hasChildren()}>
+          <Show when={props.node.type === "endpoint"}>
             <span class="w-3.5 shrink-0" />
           </Show>
 
           {/* 图标 */}
+          <Show when={props.node.type === "module"}>
+            {isExpanded()
+              ? <PackageOpen class="h-3.5 w-3.5 text-sky-500 shrink-0" />
+              : <Package class="h-3.5 w-3.5 text-sky-500 shrink-0" />}
+          </Show>
           <Show when={props.node.type === "folder"}>
             {isExpanded()
               ? <FolderOpen class="h-3.5 w-3.5 text-amber-500 shrink-0" />
