@@ -1,6 +1,6 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
-import { ChevronDown, ChevronRight, Ellipsis, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PanelLeftClose, Plus, Search } from "lucide-solid"
+import { Ellipsis, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PanelLeftClose, Plus, Search } from "lucide-solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
@@ -316,14 +316,10 @@ function TreeNodeItem(props: {
         >
           {/* 展开/折叠图标（接口类型是叶子节点，不显示；其余类型即使无子节点也保持视觉一致性） */}
           <Show when={props.node.type !== "endpoint"}>
-            <span class="shrink-0">
-              {isExpanded()
-                ? <ChevronDown class="h-3.5 w-3.5 text-muted-foreground" />
-                : <ChevronRight class="h-3.5 w-3.5 text-muted-foreground" />}
-            </span>
+            <span class="shrink-0" />
           </Show>
           <Show when={props.node.type === "endpoint"}>
-            <span class="w-3.5 shrink-0" />
+            <span class="shrink-0" />
           </Show>
 
           {/* 图标 */}
