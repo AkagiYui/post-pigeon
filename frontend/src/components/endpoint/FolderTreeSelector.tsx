@@ -118,7 +118,7 @@ function FolderTreeNodeItem(props: {
         class={cn(
           "flex items-center gap-1.5 py-1.5 pr-2 cursor-pointer transition-colors text-sm",
           isSelected()
-            ? "bg-accent text-accent-foreground"
+            ? "bg-accent-muted text-accent"
             : "hover:bg-muted text-foreground",
         )}
         style={{ "padding-left": `${props.level * 16 + 8}px` }}
