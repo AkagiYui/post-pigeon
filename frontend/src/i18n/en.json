@@ -33,6 +33,7 @@
     "endpoint.saveToProjectTitle": "Save Request to Project",
     "endpoint.selectModule": "Select Module",
     "endpoint.selectFolder": "Select Folder",
+    "endpoint.noModuleOrFolder": "No modules or folders, create one first",
     "endpoint.delete": "Delete",
     "endpoint.send": "Send",
     "endpoint.search": "Search endpoints...",

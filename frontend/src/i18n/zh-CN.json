@@ -33,6 +33,7 @@
     "endpoint.saveToProjectTitle": "保存请求到项目",
     "endpoint.selectModule": "选择模块",
     "endpoint.selectFolder": "选择文件夹",
+    "endpoint.noModuleOrFolder": "暂无模块或文件夹，请先创建",
     "endpoint.delete": "删除",
     "endpoint.send": "发送",
     "endpoint.search": "搜索接口...",

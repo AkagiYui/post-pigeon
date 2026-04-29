@@ -19,6 +19,7 @@ import {
 import { SendRequestData } from "@/../bindings/post-pigeon/internal/services"
 import { type EndpointData, EndpointDetail, type ResponseData } from "@/components/endpoint/EndpointDetail"
 import { EndpointTree, type TreeNode } from "@/components/endpoint/EndpointTree"
+import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -228,25 +229,21 @@ export function ApiManagement(props: ApiManagementProps) {
     return false
   }
 
-  // ---- 构建保存位置选项 ----
-  const buildSaveLocationOptions = (nodes: TreeNode[], level = 0): { value: string; label: string }[] => {
-    const result: { value: string; label: string }[] = []
-    for (const node of nodes) {
-      if (node.type === "module" || node.type === "folder") {
-        const indent = "  ".repeat(level)
-        const prefix = node.type === "module" ? "📦 " : "  📁 "
-        result.push({ value: `${node.type}:${node.id}`, label: `${indent}${prefix}${node.name}` })
-        if (node.children) result.push(...buildSaveLocationOptions(node.children, level + 1))
-      }
-    }
-    return result
+  // ---- 解析保存位置（通过选中的节点 ID 查找所属模块和文件夹） ----
+  const resolveSaveLocation = (nodeId: string): { moduleId: string; folderId: string | undefined } => {
+    // 先检查是否为模块节点
+    const isModule = treeData().some(n => n.id === nodeId && n.type === "module")
+    if (isModule) return { moduleId: nodeId, folderId: undefined }
+    // 否则是文件夹节点，查找其所属模块
+    const moduleId = findModuleIdByNodeId(treeData(), nodeId)
+    return { moduleId: moduleId || "", folderId: nodeId }
   }
 
-  const resolveSaveLocation = (locationValue: string): { moduleId: string; folderId: string | undefined } => {
-    const [type, id] = locationValue.split(":")
-    if (type === "module") return { moduleId: id, folderId: undefined }
-    const moduleId = findModuleIdByNodeId(treeData(), id)
-    return { moduleId: moduleId || "", folderId: id }
+  // ---- 获取第一个可用的模块 ID（默认选中） ----
+  const getDefaultSaveLocation = (): string => {
+    const data = treeData()
+    if (data.length > 0 && data[0].type === "module") return data[0].id
+    return ""
   }
 
   // ---- 创建未保存请求 ----
@@ -374,8 +371,8 @@ export function ApiManagement(props: ApiManagementProps) {
     if (!ct) return
     if (!ct.saved) {
       setSaveName(endpointData.name !== t("endpoint.newRequest") ? endpointData.name : "")
-      const opts = buildSaveLocationOptions(treeData())
-      if (opts.length > 0) setSelectedSaveLocation(opts[0].value)
+      // 默认选中第一个模块
+      setSelectedSaveLocation(getDefaultSaveLocation())
       setSaveDialogOpen(true)
     } else {
       handleSaveSavedEndpoint()
@@ -442,8 +439,8 @@ export function ApiManagement(props: ApiManagementProps) {
       const ep = endpointData
       if (ep.id) {
         setSaveName(ep.name !== t("endpoint.newRequest") ? ep.name : "")
-        const opts = buildSaveLocationOptions(treeData())
-        if (opts.length > 0) setSelectedSaveLocation(opts[0].value)
+        // 默认选中第一个模块
+        setSelectedSaveLocation(getDefaultSaveLocation())
         setSaveDialogOpen(true)
       }
     } else {
@@ -481,7 +478,6 @@ export function ApiManagement(props: ApiManagementProps) {
 
   // ---- 计算属性 ----
   const isActiveTabUnsaved = () => { const t = requestTabs().find(t => t.id === activeTabId()); return t ? !t.saved : false }
-  const saveLocationOptions = () => buildSaveLocationOptions(treeData())
 
   return (
     <>
@@ -524,18 +520,20 @@ export function ApiManagement(props: ApiManagementProps) {
 
       {/* 保存到项目对话框 */}
       <Dialog open={saveDialogOpen()} onClose={() => setSaveDialogOpen(false)} title={t("endpoint.saveToProjectTitle")} closeOnEsc closeOnOverlayClick>
-        <div class="p-6 space-y-4">
-          <div><label class="block text-sm font-medium mb-1.5">{t("endpoint.name")}</label>
+        <div class="px-6 py-4 flex flex-col h-[70vh] gap-4">
+          <div class="shrink-0"><label class="block text-sm font-medium mb-1.5">{t("endpoint.name")}</label>
             <Input value={saveName()} onInput={e => setSaveName(e.currentTarget.value)} placeholder="GET /users" onKeyDown={e => e.key === "Enter" && handleSaveToProject()} />
           </div>
-          <div><label class="block text-sm font-medium mb-1.5">{t("endpoint.selectModule")}</label>
-            <select class="w-full rounded-md border border-border bg-input text-foreground px-3 py-1.5 text-sm focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
-              value={selectedSaveLocation()} onChange={e => setSelectedSaveLocation(e.currentTarget.value)}>
-              <For each={saveLocationOptions()}>{option => <option value={option.value}>{option.label}</option>}</For>
-            </select>
-            <p class="text-xs text-muted-foreground mt-1">{t("endpoint.saveLocationHint")}</p>
+          <div class="flex-1 min-h-0 flex flex-col"><label class="block text-sm font-medium mb-1.5 shrink-0">{t("endpoint.selectFolder")}</label>
+            <FolderTreeSelector
+              data={treeData()}
+              selectedId={selectedSaveLocation()}
+              onSelect={(node) => setSelectedSaveLocation(node.id)}
+              class="flex-1 min-h-0"
+            />
+            <p class="text-xs text-muted-foreground mt-1 shrink-0">{t("endpoint.saveLocationHint")}</p>
           </div>
-          <div class="flex justify-end gap-2 pt-2">
+          <div class="flex justify-end gap-2 pt-2 shrink-0">
             <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>{t("common.cancel")}</Button>
             <Button onClick={handleSaveToProject} disabled={!saveName().trim() || saving()}>{saving() ? t("common.saving") : t("endpoint.save")}</Button>
           </div>
