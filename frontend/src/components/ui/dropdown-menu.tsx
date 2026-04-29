@@ -38,6 +38,91 @@ export interface DropdownMenuProps {
   class?: string
 }
 
+/** 菜单宽度估算值，用于视口边界检测 */
+const ESTIMATED_MENU_WIDTH = 200
+/** 菜单项高度估算值 */
+const ESTIMATED_ITEM_HEIGHT = 34
+/** 分隔线高度估算值 */
+const ESTIMATED_SEPARATOR_HEIGHT = 9
+/** 菜单上下内边距 */
+const MENU_PADDING_Y = 8
+/** 菜单与视口边缘的最小间距 */
+const VIEWPORT_MARGIN = 8
+/** 菜单与触发元素的间距 */
+const TRIGGER_GAP = 4
+
+/** 锚点实际弹出方向 */
+type AnchorDirection = "bottom" | "top"
+
+/** 估算菜单高度（递归计算菜单项和分隔线） */
+function estimateMenuHeight(items: MenuItem[]): number {
+  let itemCount = 0
+  let separatorCount = 0
+  const walk = (list: MenuItem[]) => {
+    for (const item of list) {
+      if (item.separator) {
+        separatorCount++
+      } else {
+        itemCount++
+        if (item.children?.length) walk(item.children)
+      }
+    }
+  }
+  walk(items)
+  const estimated = itemCount * ESTIMATED_ITEM_HEIGHT + separatorCount * ESTIMATED_SEPARATOR_HEIGHT + MENU_PADDING_Y
+  return Math.min(estimated, window.innerHeight * 0.8)
+}
+
+/** 将鼠标坐标限制在视口范围内 */
+function clampToViewport(x: number, y: number, menuWidth: number, menuHeight: number) {
+  const vw = window.innerWidth
+  const vh = window.innerHeight
+  return {
+    x: Math.min(Math.max(x, VIEWPORT_MARGIN), vw - menuWidth - VIEWPORT_MARGIN),
+    y: Math.min(Math.max(y, VIEWPORT_MARGIN), vh - menuHeight - VIEWPORT_MARGIN),
+  }
+}
+
+/** 计算锚点定位时的最佳位置（自动翻转） */
+function calcAnchorPosition(
+  triggerEl: HTMLElement,
+  items: MenuItem[],
+  preferredDir: AnchorDirection,
+): { x: number; y: number; direction: AnchorDirection } {
+  const rect = triggerEl.getBoundingClientRect()
+  const menuHeight = estimateMenuHeight(items)
+  const vh = window.innerHeight
+  const vw = window.innerWidth
+  const centerX = rect.left + rect.width / 2
+
+  const spaceBelow = vh - rect.bottom - VIEWPORT_MARGIN
+  const spaceAbove = rect.top - VIEWPORT_MARGIN
+
+  // 根据可用空间选择弹出方向
+  let direction: AnchorDirection = preferredDir
+  if (preferredDir === "bottom" && spaceBelow < menuHeight && spaceAbove > spaceBelow) {
+    direction = "top"
+  } else if (preferredDir === "top" && spaceAbove < menuHeight && spaceBelow > spaceAbove) {
+    direction = "bottom"
+  }
+
+  // 根据方向计算 Y 坐标
+  const y = direction === "bottom"
+    ? rect.bottom + TRIGGER_GAP
+    : rect.top - menuHeight - TRIGGER_GAP
+
+  // 水平方向：确保菜单不超出视口左右边界
+  const halfWidth = ESTIMATED_MENU_WIDTH / 2
+  let x = centerX
+  if (x - halfWidth < VIEWPORT_MARGIN) {
+    x = VIEWPORT_MARGIN + halfWidth
+  } else if (x + halfWidth > vw - VIEWPORT_MARGIN) {
+    x = vw - VIEWPORT_MARGIN - halfWidth
+  }
+
+  return { x, y, direction }
+}
+
 /**
  * DropdownMenu 通用下拉菜单组件
  *
@@ -45,45 +130,52 @@ export interface DropdownMenuProps {
  * trigger="click" + placement="cursor": 点击按钮弹出，菜单出现在点击位置（如 "..." 操作菜单）
  * trigger="contextmenu" + placement="cursor": 右键弹出，菜单出现在鼠标位置（如 ContextMenu）
  *
+ * 支持视口边界检测：当锚点方向空间不足时自动翻转方向，鼠标定位时自动限制在视口内，
+ * 确保菜单始终完全可见。
+ *
  * 通过 e.stopPropagation() 阻止事件冒泡，避免嵌套菜单同时弹出。
  */
 export function DropdownMenu(props: DropdownMenuProps) {
   const [local] = splitProps(props, ["children", "items", "trigger", "placement", "class"])
   const [visible, setVisible] = createSignal(false)
   const [position, setPosition] = createSignal({ x: 0, y: 0 })
+  // 锚点定位时的实际弹出方向（可能因空间不足而翻转）
+  const [anchorDir, setAnchorDir] = createSignal<AnchorDirection>("bottom")
   let triggerRef: HTMLDivElement | undefined
 
   const close = () => setVisible(false)
 
-  // 计算基于触发元素的锚点位置（底部居中）
-  const calcAnchorPosition = () => {
-    if (!triggerRef) return { x: 0, y: 0 }
-    const rect = triggerRef.getBoundingClientRect()
-    return { x: rect.left + rect.width / 2, y: rect.bottom + 4 }
-  }
-
-  // 点击触发处理
+  // 点击触发处理：根据 placement 计算位置并应用视口调整
   const handleClick = (e: MouseEvent) => {
     e.stopPropagation() // 阻止冒泡，避免触发父级点击事件（如树节点切换）
     if (local.items.length === 0) return
-    setPosition(
-      local.placement === "anchor-bottom"
-        ? calcAnchorPosition()
-        : { x: e.clientX, y: e.clientY },
-    )
+
+    if (local.placement === "anchor-bottom") {
+      if (!triggerRef) return
+      const { x, y, direction } = calcAnchorPosition(triggerRef, local.items, "bottom")
+      setAnchorDir(direction)
+      setPosition({ x, y })
+    } else {
+      // cursor 定位：限制在视口内
+      const menuHeight = estimateMenuHeight(local.items)
+      const adjusted = clampToViewport(e.clientX, e.clientY, ESTIMATED_MENU_WIDTH, menuHeight)
+      setPosition(adjusted)
+    }
     setVisible(true)
   }
 
-  // 右键触发处理
+  // 右键触发处理：鼠标坐标 + 视口边界限制
   const handleContextMenu = (e: MouseEvent) => {
     e.preventDefault()
     e.stopPropagation() // 阻止冒泡到父级 ContextMenu，避免多层菜单同时弹出
     if (local.items.length === 0) return
-    setPosition({ x: e.clientX, y: e.clientY })
+    const menuHeight = estimateMenuHeight(local.items)
+    const adjusted = clampToViewport(e.clientX, e.clientY, ESTIMATED_MENU_WIDTH, menuHeight)
+    setPosition(adjusted)
     setVisible(true)
   }
 
-  // anchor 定位需要水平居中偏移
+  // 锚点定位需要水平居中偏移
   const getTransform = () => {
     if (local.placement === "anchor-bottom") return "translateX(-50%)"
     return undefined
@@ -169,19 +261,41 @@ function DropdownMenuItems(props: { items: MenuItem[]; onClose: () => void }) {
   )
 }
 
-/** 子菜单渲染 */
+/** 子菜单渲染（含视口边界检测，自动左右翻转） */
 function SubMenu(props: { item: MenuItem; onClose: () => void }) {
   const [open, setOpen] = createSignal(false)
   const [pos, setPos] = createSignal({ x: 0, y: 0 })
 
+  const handleMouseEnter = (e: MouseEvent) => {
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    const items = props.item.children || []
+    const menuHeight = estimateMenuHeight(items)
+    const vw = window.innerWidth
+    const vh = window.innerHeight
+
+    // 尝试右侧弹出
+    let x = rect.right
+    let y = rect.top
+
+    // 水平方向：右侧空间不够则翻转到左侧
+    if (x + ESTIMATED_MENU_WIDTH > vw - VIEWPORT_MARGIN) {
+      x = rect.left - ESTIMATED_MENU_WIDTH
+    }
+
+    // 垂直方向：限制在视口内
+    if (y + menuHeight > vh - VIEWPORT_MARGIN) {
+      y = vh - menuHeight - VIEWPORT_MARGIN
+    }
+    y = Math.max(VIEWPORT_MARGIN, y)
+
+    setPos({ x, y })
+    setOpen(true)
+  }
+
   return (
     <div
       class="relative"
-      onMouseEnter={(e) => {
-        setOpen(true)
-        const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
-        setPos({ x: rect.right, y: rect.top })
-      }}
+      onMouseEnter={handleMouseEnter}
       onMouseLeave={() => setOpen(false)}
     >
       <div class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none hover:bg-accent-muted hover:text-accent">
