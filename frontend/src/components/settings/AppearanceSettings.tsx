@@ -5,32 +5,32 @@ import { t } from "@/hooks/useI18n"
 import { changeThemeAccent, changeThemeMode, changeUIScale, themeAccent, themeMode, UI_SCALE_CONFIG, uiScale } from "@/hooks/useTheme"
 import { type ThemeAccent, type ThemeMode } from "@/lib/types"
 
-/** 主题模式选项 */
-const modeOptions = [
-  { value: "system", label: t("settings.theme.system") },
-  { value: "light", label: t("settings.theme.light") },
-  { value: "dark", label: t("settings.theme.dark") },
-]
-
-/** 主题色选项 */
-const accentOptions = [
-  { value: "teal", label: t("settings.theme.teal") },
-  { value: "blue", label: t("settings.theme.blue") },
-  { value: "violet", label: t("settings.theme.violet") },
-  { value: "rose", label: t("settings.theme.rose") },
-  { value: "orange", label: t("settings.theme.orange") },
-]
-
 /**
  * AppearanceSettings 外观设置
  */
 export function AppearanceSettings() {
+  // 主题模式选项（放在组件内确保 t() 响应语言切换）
+  const modeOptions = () => [
+    { value: "system" as const, label: t("settings.theme.system") },
+    { value: "light" as const, label: t("settings.theme.light") },
+    { value: "dark" as const, label: t("settings.theme.dark") },
+  ]
+
+  // 主题色选项（放在组件内确保 t() 响应语言切换）
+  const accentOptions = () => [
+    { value: "teal" as const, label: t("settings.theme.teal") },
+    { value: "blue" as const, label: t("settings.theme.blue") },
+    { value: "violet" as const, label: t("settings.theme.violet") },
+    { value: "rose" as const, label: t("settings.theme.rose") },
+    { value: "orange" as const, label: t("settings.theme.orange") },
+  ]
+
   return (
     <div class="space-y-6">
       {/* 主题模式 */}
       <SettingItem label={t("settings.theme.mode")}>
         <Select
-          options={modeOptions}
+          options={modeOptions()}
           value={themeMode()}
           onChange={(v) => changeThemeMode(v as ThemeMode)}
           class="w-32"
@@ -40,7 +40,7 @@ export function AppearanceSettings() {
       {/* 主题色 */}
       <SettingItem label={t("settings.theme.accent")}>
         <div class="flex gap-2">
-          {accentOptions.map(opt => (
+          {accentOptions().map(opt => (
             <button
               class="w-8 h-8 rounded-full border-2 transition-all hover:scale-110"
               style={{
