@@ -230,11 +230,43 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
 }
 
 /**
+ * EditorSaveRef 子编辑器暴露给父级的保存接口
+ */
+interface EditorSaveRef {
+  save: () => Promise<void>
+  hasUnsavedChanges: () => boolean
+}
+
+/**
  * EnvironmentDetailEditor 环境详情编辑器
  * 包含环境名称、模块前置 URL 和环境变量三个部分
+ * 使用统一保存按钮，只保存有脏数据的部分
  */
 function EnvironmentDetailEditor(props: { projectId: string; environmentId: string }) {
   const [envName, setEnvName] = createSignal("")
+  const [saving, setSaving] = createSignal(false)
+
+  // 子编辑器的 ref，用于访问其 save 和 hasUnsavedChanges
+  const baseUrlsRef: EditorSaveRef = { save: async () => {}, hasUnsavedChanges: () => false }
+  const envVarsRef: EditorSaveRef = { save: async () => {}, hasUnsavedChanges: () => false }
+
+  // 计算是否有任意脏数据
+  const hasUnsavedChanges = () => baseUrlsRef.hasUnsavedChanges() || envVarsRef.hasUnsavedChanges()
+
+  // 统一保存：只保存有脏数据的部分
+  const handleSave = async () => {
+    try {
+      setSaving(true)
+      const promises: Promise<void>[] = []
+      if (baseUrlsRef.hasUnsavedChanges()) promises.push(baseUrlsRef.save())
+      if (envVarsRef.hasUnsavedChanges()) promises.push(envVarsRef.save())
+      await Promise.all(promises)
+    } catch (e) {
+      console.error("保存环境设置失败", e)
+    } finally {
+      setSaving(false)
+    }
+  }
 
   // 加载环境名称
   const loadEnvName = async () => {
@@ -266,6 +298,7 @@ function EnvironmentDetailEditor(props: { projectId: string; environmentId: stri
 
       {/* 模块前置 URL 区域 */}
       <ModuleBaseUrlsEditor
+        ref={baseUrlsRef}
         projectId={props.projectId}
         environmentId={props.environmentId}
       />
@@ -274,21 +307,60 @@ function EnvironmentDetailEditor(props: { projectId: string; environmentId: stri
       <hr class="border-border" />
 
       {/* 环境变量区域 */}
-      <EnvironmentVariablesEditor environmentId={props.environmentId} />
+      <EnvironmentVariablesEditor
+        ref={envVarsRef}
+        environmentId={props.environmentId}
+      />
+
+      {/* 统一保存按钮 */}
+      <div class="flex justify-end pt-2">
+        <Button variant="default" size="sm" onClick={handleSave} disabled={saving() || !hasUnsavedChanges()}>
+          {saving() ? t("common.saving") : t("common.save")}
+        </Button>
+      </div>
     </div>
   )
 }
 
 /**
  * ModuleBaseUrlsEditor 模块前置 URL 编辑器
- * 展示项目下所有模块，为每个模块设置在当前环境下的前置 URL，失焦自动保存
+ * 展示项目下所有模块，为每个模块设置在当前环境下的前置 URL
+ * 通过 ref 暴露 save() 和 hasUnsavedChanges() 供父级统一保存
  */
-function ModuleBaseUrlsEditor(props: { projectId: string; environmentId: string }) {
+function ModuleBaseUrlsEditor(props: { ref: EditorSaveRef; projectId: string; environmentId: string }) {
   const [modules, setModules] = createSignal<Module[]>([])
   // 存储每个模块在当前环境下的 base URL，key 为 moduleId
   const [baseUrls, setBaseUrls] = createSignal<Record<string, string>>({})
+  // 保存加载时的原始数据，用于判断是否有未保存的更改
+  const [originalBaseUrls, setOriginalBaseUrls] = createSignal<Record<string, string>>({})
   const [loading, setLoading] = createSignal(false)
-  const [savingModuleId, setSavingModuleId] = createSignal<string | null>(null)
+
+  // 判断是否有未保存的更改
+  const hasUnsavedChanges = () => {
+    const current = baseUrls()
+    const original = originalBaseUrls()
+    const allKeys = new Set([...Object.keys(current), ...Object.keys(original)])
+    for (const key of allKeys) {
+      if ((current[key] || "") !== (original[key] || "")) return true
+    }
+    return false
+  }
+
+  // 保存所有前置 URL
+  const handleSave = async () => {
+    const urlMap = baseUrls()
+    await Promise.all(
+      Object.entries(urlMap).map(([moduleId, url]) =>
+        ModuleService.SetModuleBaseURL(moduleId, props.environmentId, url),
+      ),
+    )
+    // 保存成功后更新原始快照
+    setOriginalBaseUrls({ ...urlMap })
+  }
+
+  // 将接口暴露给父级
+  props.ref.save = handleSave
+  props.ref.hasUnsavedChanges = hasUnsavedChanges
 
   // 加载所有模块及其在当前环境下的前置 URL
   const loadData = async () => {
@@ -300,6 +372,7 @@ function ModuleBaseUrlsEditor(props: { projectId: string; environmentId: string 
 
       if (!moduleList || moduleList.length === 0) {
         setBaseUrls({})
+        setOriginalBaseUrls({})
         return
       }
 
@@ -318,6 +391,7 @@ function ModuleBaseUrlsEditor(props: { projectId: string; environmentId: string 
         urlMap[moduleId] = baseUrl
       }
       setBaseUrls(urlMap)
+      setOriginalBaseUrls({ ...urlMap })
     } catch (e) {
       console.error("加载模块前置 URL 失败", e)
     } finally {
@@ -330,19 +404,6 @@ function ModuleBaseUrlsEditor(props: { projectId: string; environmentId: string 
     () => props.environmentId,
     () => { loadData() },
   ))
-
-  // 更新某个模块的 base URL（失焦时自动保存）
-  const handleBlur = async (moduleId: string) => {
-    const url = baseUrls()[moduleId] || ""
-    try {
-      setSavingModuleId(moduleId)
-      await ModuleService.SetModuleBaseURL(moduleId, props.environmentId, url)
-    } catch (e) {
-      console.error("保存模块前置 URL 失败", e)
-    } finally {
-      setSavingModuleId(null)
-    }
-  }
 
   return (
     <div>
@@ -358,20 +419,13 @@ function ModuleBaseUrlsEditor(props: { projectId: string; environmentId: string 
               <span class="text-sm text-foreground w-28 shrink-0 truncate" title={mod.name}>
                 {mod.name}
               </span>
-              <div class="flex-1 relative">
+              <div class="flex-1">
                 <Input
                   size="sm"
                   value={baseUrls()[mod.id] || ""}
                   onInput={(e) => setBaseUrls(prev => ({ ...prev, [mod.id]: e.currentTarget.value }))}
-                  onBlur={() => handleBlur(mod.id)}
                   placeholder="https://api.example.com"
                 />
-                {/* 保存中的加载指示器 */}
-                <Show when={savingModuleId() === mod.id}>
-                  <div class="absolute right-2 top-1/2 -translate-y-1/2">
-                    <span class="text-xs text-muted-foreground">{t("common.saving")}</span>
-                  </div>
-                </Show>
               </div>
             </div>
           )}
@@ -387,6 +441,8 @@ function ModuleBaseUrlsEditor(props: { projectId: string; environmentId: string 
 /**
  * EnvironmentVariablesEditor 环境变量编辑器（表格模式）
  *
+ * 通过 ref 暴露 save() 和 hasUnsavedChanges() 供父级统一保存。
+ *
  * 特性：
  * - 表格形式展示，一行一个环境变量
  * - 拖拽锚点排序（使用 solid-dnd）
@@ -396,7 +452,7 @@ function ModuleBaseUrlsEditor(props: { projectId: string; environmentId: string 
  * - 末尾始终有一个空行供快速输入新变量
  * - 修改后显示未保存提示
  */
-function EnvironmentVariablesEditor(props: { environmentId: string }) {
+function EnvironmentVariablesEditor(props: { ref: EditorSaveRef; environmentId: string }) {
   // 从服务器加载的原始变量（用于脏检测对比）
   const [savedVariables, setSavedVariables] = createSignal<EnvironmentVariable[]>([])
   // 当前编辑中的变量列表（使用 createStore 保持对象引用稳定，避免输入时丢失焦点）
@@ -407,8 +463,6 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
   const [draftDescription, setDraftDescription] = createSignal("")
   const [draftEnabled, setDraftEnabled] = createSignal(true)
   const [draftIsSecret, setDraftIsSecret] = createSignal(false)
-  // 保存状态
-  const [saving, setSaving] = createSignal(false)
   // 待确认删除的变量 ID（两步确认）
   const [pendingDeleteId, setPendingDeleteId] = createSignal<string | null>(null)
   let deleteTimeout: ReturnType<typeof setTimeout> | null = null
@@ -556,36 +610,33 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
     }
   }
 
-  // 保存变量
+  // 保存变量（由父级统一调用）
   const handleSave = async () => {
-    try {
-      setSaving(true)
-      // 收集当前变量 + 草稿行（如果有内容）
-      const currentVars = [...variables]
-      if (draftKey().trim() !== "") {
-        currentVars.push({
-          id: "",
-          environmentId: props.environmentId,
-          key: draftKey().trim(),
-          value: draftValue(),
-          description: draftDescription(),
-          enabled: draftEnabled(),
-          isSecret: draftIsSecret(),
-          sortOrder: currentVars.length,
-        })
-      }
-      // 过滤掉空 key 的变量，按当前顺序更新 sortOrder
-      const validVars = currentVars
-        .filter(v => v.key.trim() !== "")
-        .map((v, i) => ({ ...v, sortOrder: i }))
-      await EnvironmentService.SaveEnvironmentVariables(props.environmentId, validVars as any)
-      await loadVariables()
-    } catch (e) {
-      console.error("保存环境变量失败", e)
-    } finally {
-      setSaving(false)
+    // 收集当前变量 + 草稿行（如果有内容）
+    const currentVars = [...variables]
+    if (draftKey().trim() !== "") {
+      currentVars.push({
+        id: "",
+        environmentId: props.environmentId,
+        key: draftKey().trim(),
+        value: draftValue(),
+        description: draftDescription(),
+        enabled: draftEnabled(),
+        isSecret: draftIsSecret(),
+        sortOrder: currentVars.length,
+      })
     }
+    // 过滤掉空 key 的变量，按当前顺序更新 sortOrder
+    const validVars = currentVars
+      .filter(v => v.key.trim() !== "")
+      .map((v, i) => ({ ...v, sortOrder: i }))
+    await EnvironmentService.SaveEnvironmentVariables(props.environmentId, validVars as any)
+    await loadVariables()
   }
+
+  // 将接口暴露给父级
+  props.ref.save = handleSave
+  props.ref.hasUnsavedChanges = () => hasUnsavedChanges()
 
   // 拖拽结束后重新排列变量
   const handleDragEnd = (event: DragEvent) => {
@@ -724,12 +775,6 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
         </Show>
       </div>
 
-      {/* 保存按钮 */}
-      <div class="flex justify-end pt-1">
-        <Button variant="default" size="sm" onClick={handleSave} disabled={saving() || !hasUnsavedChanges()}>
-          {saving() ? t("common.saving") : t("common.save")}
-        </Button>
-      </div>
     </div>
   )
 }
