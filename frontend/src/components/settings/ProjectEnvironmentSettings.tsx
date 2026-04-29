@@ -776,12 +776,7 @@ function EnvironmentVariablesEditor(props: { ref: EditorSaveRef; environmentId: 
           onKeyBlur={promoteDraft}
         />
 
-        {/* 无数据时的提示 */}
-        <Show when={variables.length === 0}>
-          <div class="px-3 py-6 text-center text-sm text-muted-foreground">
-            {t("common.noData")}
-          </div>
-        </Show>
+        {/* 无数据时不显示提示，仅保留草稿行供输入 */}
       </div>
 
     </div>
