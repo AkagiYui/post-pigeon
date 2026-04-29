@@ -1,13 +1,13 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
-import { Ellipsis, FileText, Folder, FolderOpen, Package, PackageOpen, PackagePlus, PanelLeftClose, Plus, Search } from "lucide-solid"
+import { Ellipsis, FilePlus, FilePlusCorner, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Plus, Search } from "lucide-solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ContextMenu, type MenuItem } from "@/components/ui/context-menu"
+import { DropdownMenu } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
-import { Popover } from "@/components/ui/popover"
 import { t } from "@/hooks/useI18n"
 import { type HTTPMethod } from "@/lib/types"
 import { cn } from "@/lib/utils"
@@ -142,39 +142,34 @@ export function EndpointTree(props: EndpointTreeProps) {
             class="pl-7"
           />
         </div>
-        <Popover
-          trigger={
-            <Button variant="ghost" size="icon-sm">
-              <Plus class="h-3.5 w-3.5" />
-            </Button>
-          }
-          placement="bottom"
-          class="p-0! min-w-45 rounded-md"
+        <DropdownMenu
+          trigger="click"
+          placement="anchor-bottom"
+          items={[
+            {
+              key: "new-module",
+              label: t("module.create"),
+              icon: <PackagePlus class="h-4 w-4 text-sky-500 shrink-0" />,
+              onClick: () => props.onCreateModule?.(),
+            },
+            {
+              key: "new-folder",
+              label: t("folder.create"),
+              icon: <FolderPlus class="h-4 w-4 text-amber-500 shrink-0" />,
+              onClick: () => props.onCreateFolder?.(undefined, "module"),
+            },
+            {
+              key: "new-endpoint",
+              label: t("endpoint.create"),
+              icon: <FilePlusCorner class="h-4 w-4 text-blue-500 shrink-0" />,
+              onClick: () => props.onCreateEndpoint?.(undefined, "module"),
+            },
+          ]}
         >
-          <div class="flex flex-col py-1">
-            <div
-              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
-              onClick={() => props.onCreateModule?.()}
-            >
-              <PackagePlus class="h-4 w-4 text-sky-500 shrink-0" />
-              <span>{t("module.create")}</span>
-            </div>
-            <div
-              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
-              onClick={() => props.onCreateFolder?.(undefined, "module")}
-            >
-              <Folder class="h-4 w-4 text-amber-500 shrink-0" />
-              <span>{t("folder.create")}</span>
-            </div>
-            <div
-              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
-              onClick={() => props.onCreateEndpoint?.(undefined, "module")}
-            >
-              <FileText class="h-4 w-4 text-blue-500 shrink-0" />
-              <span>{t("endpoint.create")}</span>
-            </div>
-          </div>
-        </Popover>
+          <Button variant="ghost" size="icon-sm">
+            <Plus class="h-3.5 w-3.5" />
+          </Button>
+        </DropdownMenu>
         <Button variant="ghost" size="icon-sm" onClick={props.onCollapse}>
           <PanelLeftClose class="h-3.5 w-3.5" />
         </Button>
@@ -280,20 +275,13 @@ function TreeNodeItem(props: {
   const isSelected = () => props.selectedId === props.node.id
   const hasChildren = () => (props.node.children?.length || 0) > 0
 
-  // 三点菜单的打开状态和位置（基于点击坐标，与右键菜单位置逻辑一致）
-  const [menuOpen, setMenuOpen] = createSignal(false)
-  const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
-
-  const handleMenuClick = (e: MouseEvent) => {
-    e.stopPropagation()
-    setMenuPos({ x: e.clientX, y: e.clientY })
-    setMenuOpen(true)
-  }
-
-  const handleMenuAction = (action: () => void) => {
-    action()
-    setMenuOpen(false)
-  }
+  // 三点操作菜单项（重命名、复制、删除、移动）
+  const actionMenuItems = (): MenuItem[] => [
+    { key: "rename", label: t("common.rename"), onClick: () => props.onRename?.(props.node) },
+    { key: "copy", label: t("common.copy"), onClick: () => props.onCopy?.(props.node) },
+    { key: "delete", label: t("common.delete"), onClick: () => props.onDelete?.(props.node) },
+    { key: "move", label: t("common.move"), onClick: () => props.onMove?.(props.node) },
+  ]
 
   return (
     <ContextMenu items={createMenuItems(props.node, props.onCreateEndpoint, props.onCreateFolder)}>
@@ -345,51 +333,17 @@ function TreeNodeItem(props: {
 
           {/* 更多操作按钮（悬停显示） */}
           <div class="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
-            <Button variant="ghost" size="icon-sm" class="h-5 w-5" onClick={handleMenuClick}>
-              <Ellipsis class="h-3 w-3" />
-            </Button>
+            <DropdownMenu
+              trigger="click"
+              placement="cursor"
+              items={actionMenuItems()}
+            >
+              <Button variant="ghost" size="icon-sm" class="h-5 w-5">
+                <Ellipsis class="h-3 w-3" />
+              </Button>
+            </DropdownMenu>
           </div>
         </div>
-
-        {/* 三点弹出菜单（与右键菜单相同的位置逻辑和样式） */}
-        <Show when={menuOpen()}>
-          {/* 遮罩层，点击关闭 */}
-          <div
-            class="fixed inset-0 z-40"
-            onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }}
-            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false) }}
-          />
-          <div
-            class="fixed z-50 min-w-45 bg-surface border border-border rounded-md shadow-lg py-1"
-            style={{ left: `${menuPos().x}px`, top: `${menuPos().y}px` }}
-            onClick={(e) => e.stopPropagation()}
-          >
-            <div
-              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
-              onClick={() => handleMenuAction(() => props.onRename?.(props.node))}
-            >
-              {t("common.rename")}
-            </div>
-            <div
-              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
-              onClick={() => handleMenuAction(() => props.onCopy?.(props.node))}
-            >
-              {t("common.copy")}
-            </div>
-            <div
-              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
-              onClick={() => handleMenuAction(() => props.onDelete?.(props.node))}
-            >
-              {t("common.delete")}
-            </div>
-            <div
-              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
-              onClick={() => handleMenuAction(() => props.onMove?.(props.node))}
-            >
-              {t("common.move")}
-            </div>
-          </div>
-        </Show>
 
         {/* 子节点 */}
         <Show when={hasChildren() && isExpanded()}>
