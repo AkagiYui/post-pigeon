@@ -42,13 +42,15 @@ export function Tabs(props: TabsProps) {
   return (
     <div class={cn("flex flex-col h-full", local.class)}>
       {/* 标签栏 */}
-      <div class="flex items-center border-b border-border shrink-0">
+      <div class="flex items-center shrink-0 relative">
+        {/* 底部分割线 */}
+        <div class="absolute bottom-0 left-0 right-0 h-px bg-border" />
         <div class="flex items-center overflow-x-auto no-scrollbar flex-1">
           <For each={local.tabs}>
             {(tab) => (
               <button
                 class={cn(
-                  "flex items-center gap-1 px-3 py-1.5 text-sm border-b-2 -mb-px transition-colors whitespace-nowrap select-none",
+                  "flex items-center gap-1 px-3 py-1.5 text-sm border-b-2 transition-colors whitespace-nowrap select-none relative z-10",
                   local.value === tab.key
                     ? "border-accent text-accent font-medium"
                     : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
