@@ -1,7 +1,7 @@
 // DropdownMenu 通用下拉菜单组件
 // 支持 click 和 contextmenu 两种触发方式，cursor 和 anchor 两种定位策略
 // ContextMenu 右键菜单基于此组件封装
-import { createSignal, For, type JSX, Show, splitProps } from "solid-js"
+import { createEffect, createSignal, For, type JSX, onCleanup, Show, splitProps } from "solid-js"
 
 import { cn } from "@/lib/utils"
 
@@ -50,6 +50,9 @@ const MENU_PADDING_Y = 8
 const VIEWPORT_MARGIN = 8
 /** 菜单与触发元素的间距 */
 const TRIGGER_GAP = 4
+
+/** 模块级 ESC 关闭回调栈，支持嵌套菜单逐级关闭 */
+const escStack: (() => void)[] = []
 
 /** 锚点实际弹出方向 */
 type AnchorDirection = "bottom" | "top"
@@ -144,6 +147,32 @@ export function DropdownMenu(props: DropdownMenuProps) {
   let triggerRef: HTMLDivElement | undefined
 
   const close = () => setVisible(false)
+
+  // 监听 ESC 键：从栈顶弹出最深层菜单的关闭回调
+  createEffect(() => {
+    if (visible()) {
+      const closeFn = close
+      escStack.push(closeFn)
+
+      const handleKeyDown = (e: KeyboardEvent) => {
+        if (e.key === "Escape") {
+          e.preventDefault()
+          e.stopPropagation()
+          // 弹出栈顶（最深层子菜单）的关闭回调
+          if (escStack.length > 0) {
+            escStack[escStack.length - 1]()
+          }
+        }
+      }
+      document.addEventListener("keydown", handleKeyDown)
+
+      onCleanup(() => {
+        document.removeEventListener("keydown", handleKeyDown)
+        const idx = escStack.indexOf(closeFn)
+        if (idx >= 0) escStack.splice(idx, 1)
+      })
+    }
+  })
 
   // 点击触发处理：根据 placement 计算位置并应用视口调整
   const handleClick = (e: MouseEvent) => {
@@ -265,6 +294,18 @@ function DropdownMenuItems(props: { items: MenuItem[]; onClose: () => void }) {
 function SubMenu(props: { item: MenuItem; onClose: () => void }) {
   const [open, setOpen] = createSignal(false)
   const [pos, setPos] = createSignal({ x: 0, y: 0 })
+
+  // 子菜单打开时入栈 ESC 回调，关闭时自动出栈
+  createEffect(() => {
+    if (open()) {
+      const closeFn = () => setOpen(false)
+      escStack.push(closeFn)
+      onCleanup(() => {
+        const idx = escStack.indexOf(closeFn)
+        if (idx >= 0) escStack.splice(idx, 1)
+      })
+    }
+  })
 
   const handleMouseEnter = (e: MouseEvent) => {
     const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
