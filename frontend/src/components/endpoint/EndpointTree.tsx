@@ -1,6 +1,6 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
-import { Ellipsis, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PanelLeftClose, Plus, Search } from "lucide-solid"
+import { Ellipsis, FileText, Folder, FolderOpen, Package, PackageOpen, PackagePlus, PanelLeftClose, Plus, Search } from "lucide-solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
@@ -149,29 +149,30 @@ export function EndpointTree(props: EndpointTreeProps) {
             </Button>
           }
           placement="bottom"
+          class="p-0! min-w-45 rounded-md"
         >
-          <div class="flex flex-col gap-1 min-w-32">
-            <button
-              class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-accent-muted hover:text-accent transition-colors text-left"
+          <div class="flex flex-col py-1">
+            <div
+              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
               onClick={() => props.onCreateModule?.()}
             >
-              <FolderPlus class="h-4 w-4 text-amber-500 shrink-0" />
+              <PackagePlus class="h-4 w-4 text-sky-500 shrink-0" />
               <span>{t("module.create")}</span>
-            </button>
-            <button
-              class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-accent-muted hover:text-accent transition-colors text-left"
+            </div>
+            <div
+              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
               onClick={() => props.onCreateFolder?.(undefined, "module")}
             >
               <Folder class="h-4 w-4 text-amber-500 shrink-0" />
               <span>{t("folder.create")}</span>
-            </button>
-            <button
-              class="flex items-center gap-2 px-3 py-1.5 text-sm rounded-md hover:bg-accent-muted hover:text-accent transition-colors text-left"
+            </div>
+            <div
+              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
               onClick={() => props.onCreateEndpoint?.(undefined, "module")}
             >
               <FileText class="h-4 w-4 text-blue-500 shrink-0" />
               <span>{t("endpoint.create")}</span>
-            </button>
+            </div>
           </div>
         </Popover>
         <Button variant="ghost" size="icon-sm" onClick={props.onCollapse}>
