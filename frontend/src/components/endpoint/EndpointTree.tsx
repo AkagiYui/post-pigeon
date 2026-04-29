@@ -1,6 +1,6 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
-import { ChevronDown, ChevronRight, FileText, Folder, FolderOpen, FolderPlus, PanelLeftClose, Plus, Search } from "lucide-solid"
+import { ChevronDown, ChevronRight, Ellipsis, FileText, Folder, FolderOpen, FolderPlus, PanelLeftClose, Plus, Search } from "lucide-solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
@@ -39,6 +39,14 @@ export interface EndpointTreeProps {
   onSearch?: (query: string) => void
   /** 收起面板回调 */
   onCollapse?: () => void
+  /** 重命名回调 */
+  onRename?: (node: TreeNode) => void
+  /** 复制回调 */
+  onCopy?: (node: TreeNode) => void
+  /** 删除回调 */
+  onDelete?: (node: TreeNode) => void
+  /** 移动回调 */
+  onMove?: (node: TreeNode) => void
   /** 外部控制的展开节点 ID 列表（配合 onExpandedChange 使用，用于路由状态缓存） */
   expandedIds?: string[]
   /** 展开状态变化回调 */
@@ -181,6 +189,10 @@ export function EndpointTree(props: EndpointTreeProps) {
               onToggle={toggleExpand}
               onCreateEndpoint={props.onCreateEndpoint}
               onCreateFolder={props.onCreateFolder}
+              onRename={props.onRename}
+              onCopy={props.onCopy}
+              onDelete={props.onDelete}
+              onMove={props.onMove}
             />
           )}
         </For>
@@ -255,10 +267,29 @@ function TreeNodeItem(props: {
   onToggle: (id: string) => void
   onCreateEndpoint?: EndpointTreeProps["onCreateEndpoint"]
   onCreateFolder?: EndpointTreeProps["onCreateFolder"]
+  onRename?: EndpointTreeProps["onRename"]
+  onCopy?: EndpointTreeProps["onCopy"]
+  onDelete?: EndpointTreeProps["onDelete"]
+  onMove?: EndpointTreeProps["onMove"]
 }) {
   const isExpanded = () => props.expandedIds.has(props.node.id)
   const isSelected = () => props.selectedId === props.node.id
   const hasChildren = () => (props.node.children?.length || 0) > 0
+
+  // 三点菜单的打开状态和位置（基于点击坐标，与右键菜单位置逻辑一致）
+  const [menuOpen, setMenuOpen] = createSignal(false)
+  const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
+
+  const handleMenuClick = (e: MouseEvent) => {
+    e.stopPropagation()
+    setMenuPos({ x: e.clientX, y: e.clientY })
+    setMenuOpen(true)
+  }
+
+  const handleMenuAction = (action: () => void) => {
+    action()
+    setMenuOpen(false)
+  }
 
   return (
     <ContextMenu items={createMenuItems(props.node, props.onCreateEndpoint, props.onCreateFolder)}>
@@ -266,7 +297,7 @@ function TreeNodeItem(props: {
         {/* 节点行 */}
         <div
           class={cn(
-            "flex items-center gap-1 py-1 pr-2 cursor-pointer transition-colors text-sm",
+            "flex items-center gap-1 py-1 pr-1 cursor-pointer transition-colors text-sm group",
             isSelected() ? "bg-accent-muted text-accent" : "hover:bg-muted text-foreground",
           )}
           style={{ "padding-left": `${props.level * 16 + 8}px` }}
@@ -305,7 +336,54 @@ function TreeNodeItem(props: {
 
           {/* 名称 */}
           <span class="truncate flex-1">{props.node.name}</span>
+
+          {/* 更多操作按钮（悬停显示） */}
+          <div class="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+            <Button variant="ghost" size="icon-sm" class="h-5 w-5" onClick={handleMenuClick}>
+              <Ellipsis class="h-3 w-3" />
+            </Button>
+          </div>
         </div>
+
+        {/* 三点弹出菜单（与右键菜单相同的位置逻辑和样式） */}
+        <Show when={menuOpen()}>
+          {/* 遮罩层，点击关闭 */}
+          <div
+            class="fixed inset-0 z-40"
+            onClick={(e) => { e.stopPropagation(); setMenuOpen(false) }}
+            onContextMenu={(e) => { e.preventDefault(); e.stopPropagation(); setMenuOpen(false) }}
+          />
+          <div
+            class="fixed z-50 min-w-45 bg-surface border border-border rounded-md shadow-lg py-1"
+            style={{ left: `${menuPos().x}px`, top: `${menuPos().y}px` }}
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div
+              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
+              onClick={() => handleMenuAction(() => props.onRename?.(props.node))}
+            >
+              {t("common.rename")}
+            </div>
+            <div
+              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
+              onClick={() => handleMenuAction(() => props.onCopy?.(props.node))}
+            >
+              {t("common.copy")}
+            </div>
+            <div
+              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
+              onClick={() => handleMenuAction(() => props.onDelete?.(props.node))}
+            >
+              {t("common.delete")}
+            </div>
+            <div
+              class="flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none text-foreground hover:bg-accent-muted hover:text-accent"
+              onClick={() => handleMenuAction(() => props.onMove?.(props.node))}
+            >
+              {t("common.move")}
+            </div>
+          </div>
+        </Show>
 
         {/* 子节点 */}
         <Show when={hasChildren() && isExpanded()}>
@@ -320,6 +398,10 @@ function TreeNodeItem(props: {
                 onToggle={props.onToggle}
                 onCreateEndpoint={props.onCreateEndpoint}
                 onCreateFolder={props.onCreateFolder}
+                onRename={props.onRename}
+                onCopy={props.onCopy}
+                onDelete={props.onDelete}
+                onMove={props.onMove}
               />
             )}
           </For>
