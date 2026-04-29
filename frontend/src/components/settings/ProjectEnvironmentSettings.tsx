@@ -222,6 +222,7 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
           <EnvironmentDetailEditor
             projectId={props.projectId!}
             environmentId={selectedEnvId()!}
+            onEnvSaved={loadEnvironments}
           />
         </Show>
       </div>
@@ -242,25 +243,35 @@ interface EditorSaveRef {
  * 包含环境名称、模块前置 URL 和环境变量三个部分
  * 使用统一保存按钮，只保存有脏数据的部分
  */
-function EnvironmentDetailEditor(props: { projectId: string; environmentId: string }) {
+function EnvironmentDetailEditor(props: { projectId: string; environmentId: string; onEnvSaved?: () => Promise<void> }) {
   const [envName, setEnvName] = createSignal("")
+  const [originalEnvName, setOriginalEnvName] = createSignal("")
   const [saving, setSaving] = createSignal(false)
 
   // 子编辑器的 ref，用于访问其 save 和 hasUnsavedChanges
   const baseUrlsRef: EditorSaveRef = { save: async () => {}, hasUnsavedChanges: () => false }
   const envVarsRef: EditorSaveRef = { save: async () => {}, hasUnsavedChanges: () => false }
 
-  // 计算是否有任意脏数据
-  const hasUnsavedChanges = () => baseUrlsRef.hasUnsavedChanges() || envVarsRef.hasUnsavedChanges()
+  // 计算是否有任意脏数据（环境名称 + 前置 URL + 环境变量）
+  const hasUnsavedChanges = () =>
+    envName() !== originalEnvName() ||
+    baseUrlsRef.hasUnsavedChanges() ||
+    envVarsRef.hasUnsavedChanges()
 
   // 统一保存：只保存有脏数据的部分
   const handleSave = async () => {
     try {
       setSaving(true)
       const promises: Promise<void>[] = []
+      if (envName() !== originalEnvName()) {
+        promises.push(EnvironmentService.UpdateEnvironment(props.environmentId, envName()))
+      }
       if (baseUrlsRef.hasUnsavedChanges()) promises.push(baseUrlsRef.save())
       if (envVarsRef.hasUnsavedChanges()) promises.push(envVarsRef.save())
       await Promise.all(promises)
+      // 保存成功后更新原始快照，并刷新父级环境列表（更新左侧列表和顶栏选择器）
+      setOriginalEnvName(envName())
+      await props.onEnvSaved?.()
     } catch (e) {
       console.error("保存环境设置失败", e)
     } finally {
@@ -272,7 +283,9 @@ function EnvironmentDetailEditor(props: { projectId: string; environmentId: stri
   const loadEnvName = async () => {
     try {
       const env = await EnvironmentService.GetEnvironment(props.environmentId)
-      if (env) setEnvName(env.name || "")
+      const name = env?.name ?? ""
+      setEnvName(name)
+      setOriginalEnvName(name)
     } catch (e) {
       console.error("加载环境名称失败", e)
     }
@@ -287,11 +300,7 @@ function EnvironmentDetailEditor(props: { projectId: string; environmentId: stri
         <label class="block text-sm font-medium text-foreground mb-1">{t("environment.name")}</label>
         <Input
           value={envName()}
-          onInput={(e) => {
-            const newName = e.currentTarget.value
-            setEnvName(newName)
-            EnvironmentService.UpdateEnvironment(props.environmentId, newName).catch(console.error)
-          }}
+          onInput={(e) => setEnvName(e.currentTarget.value)}
           placeholder={t("environment.name")}
         />
       </div>
