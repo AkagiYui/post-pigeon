@@ -32,7 +32,7 @@ const methodOptions = [
   { value: "OPTIONS", label: "OPTIONS" },
 ]
 
-/** HTTP 方法颜色映射（文字颜色 + 半透明背景） */
+/** HTTP 方法颜色映射（按钮：文字颜色 + 半透明背景） */
 const methodColors: Record<string, string> = {
   GET: "text-green-600 dark:text-green-400 bg-green-500/10",
   POST: "text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-400/10",
@@ -41,6 +41,17 @@ const methodColors: Record<string, string> = {
   PATCH: "text-purple-600 dark:text-purple-400 bg-purple-500/10 dark:bg-purple-400/10",
   HEAD: "text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 dark:bg-cyan-400/10",
   OPTIONS: "text-gray-600 dark:text-gray-400 bg-gray-500/10 dark:bg-gray-400/10",
+}
+
+/** HTTP 方法文字颜色（下拉菜单：仅文字色，无背景） */
+const methodTextColors: Record<string, string> = {
+  GET: "text-green-600 dark:text-green-400",
+  POST: "text-amber-600 dark:text-amber-400",
+  PUT: "text-blue-600 dark:text-blue-400",
+  DELETE: "text-red-600 dark:text-red-400",
+  PATCH: "text-purple-600 dark:text-purple-400",
+  HEAD: "text-cyan-600 dark:text-cyan-400",
+  OPTIONS: "text-gray-600 dark:text-gray-400",
 }
 
 /** 请求设置标签 */
@@ -156,10 +167,11 @@ export function EndpointDetail(props: EndpointDetailProps) {
           <div class="relative flex">
             <button
               class={cn(
-                "flex items-center gap-0.5 text-xs font-semibold px-2 rounded-l whitespace-nowrap",
+                "flex items-center gap-0.5 text-xs px-2 rounded-l whitespace-nowrap",
                 "transition-colors",
                 methodColors[ep().method] || "text-foreground",
               )}
+              style="font-weight: 600"
               onClick={() => setMethodOpen(!methodOpen())}
             >
               {ep().method}
@@ -183,7 +195,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                         setMethodOpen(false)
                       }}
                     >
-                      {opt.label}
+                      <span class={cn("font-bold", methodTextColors[opt.value])}>{opt.label}</span>
                     </div>
                   )}
                 </For>
