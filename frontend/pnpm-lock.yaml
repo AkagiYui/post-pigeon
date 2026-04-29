@@ -41,6 +41,9 @@ importers:
       '@codemirror/view':
         specifier: ^6.41.1
         version: 6.41.1
+      '@fontsource/noto-color-emoji':
+        specifier: ^5.2.10
+        version: 5.2.10
       '@kobalte/core':
         specifier: ^0.13.11
         version: 0.13.11(solid-js@1.9.12)
@@ -463,6 +466,9 @@ packages:
 
   '@floating-ui/utils@0.2.11':
     resolution: {integrity: sha512-RiB/yIh78pcIxl6lLMG0CgBXAZ2Y0eVHqMPYugu+9U0AeT6YBeiJpf7lbdJNIugFP5SIjwNRgo4DhR1Qxi26Gg==}
+
+  '@fontsource/noto-color-emoji@5.2.10':
+    resolution: {integrity: sha512-sHu7Z2zkdmPbcNlNgqyQGJEis6fE3eBY8ZXzaUe5ixci2uCQ3g8cX5hJM+5P45JxTEhdbiU/4k3chQmDxe5puQ==}
 
   '@humanfs/core@0.19.2':
     resolution: {integrity: sha512-UhXNm+CFMWcbChXywFwkmhqjs3PRCmcSa/hfBgLIb7oQ5HNb1wS0icWsGtSAUNgefHeI+eBrA8I1fxmbHsGdvA==}
@@ -2164,6 +2170,8 @@ snapshots:
       '@floating-ui/utils': 0.2.11
 
   '@floating-ui/utils@0.2.11': {}
+
+  '@fontsource/noto-color-emoji@5.2.10': {}
 
   '@humanfs/core@0.19.2':
     dependencies:
