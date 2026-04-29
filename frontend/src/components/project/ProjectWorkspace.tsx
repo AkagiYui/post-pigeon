@@ -66,7 +66,7 @@ export function ProjectWorkspace() {
         when={project()}
         fallback={
           <div class="flex items-center justify-center h-full">
-            <p class="text-muted-foreground">项目不存在</p>
+            <p class="text-muted-foreground">{t("project.notFound")}</p>
           </div>
         }
       >

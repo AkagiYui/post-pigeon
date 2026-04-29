@@ -56,7 +56,7 @@ export function ResponsePanel(props: ResponsePanelProps) {
         {/* 响应体内容 */}
         <div class="flex-1 overflow-auto p-3">
           <pre class="text-sm font-mono whitespace-pre-wrap break-all text-foreground">
-            {props.response.body || "(empty)"}
+            {props.response.body || t("response.empty")}
           </pre>
         </div>
       </Show>
@@ -65,8 +65,8 @@ export function ResponsePanel(props: ResponsePanelProps) {
         <div class="overflow-auto">
           <Table
             columns={[
-              { header: "Name", field: "name" },
-              { header: "Value", field: "value" },
+              { header: t("common.name"), field: "name" },
+              { header: t("common.value"), field: "value" },
             ]}
             data={Object.entries(props.response.headers || {}).map(([name, values]) => ({
               name,
@@ -81,11 +81,11 @@ export function ResponsePanel(props: ResponsePanelProps) {
         <div class="overflow-auto">
           <Table
             columns={[
-              { header: "Name", field: "name" },
-              { header: "Value", field: "value" },
-              { header: "Domain", field: "domain" },
-              { header: "Path", field: "path" },
-              { header: "Expires", field: "expires" },
+              { header: t("common.name"), field: "name" },
+              { header: t("common.value"), field: "value" },
+              { header: t("cookie.domain"), field: "domain" },
+              { header: t("cookie.path"), field: "path" },
+              { header: t("cookie.expires"), field: "expires" },
             ]}
             data={(props.response.cookies || []) as any[]}
             compact

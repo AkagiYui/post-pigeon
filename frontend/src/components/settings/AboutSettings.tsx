@@ -23,7 +23,7 @@ export function AboutSettings() {
 
   // 格式化构建时间为本地时间字符串
   const formatBuildTime = (timeStr: string) => {
-    if (!timeStr) return "dev"
+    if (!timeStr) return t("common.dev")
     try {
       const date = new Date(timeStr)
       return date.toLocaleString("zh-CN", {
@@ -49,19 +49,19 @@ export function AboutSettings() {
         </div>
         <div>
           <h3 class="text-lg font-semibold">{t("app.name")}</h3>
-          <p class="text-sm text-muted-foreground">A lightweight API testing tool</p>
+          <p class="text-sm text-muted-foreground">{t("settings.about.description")}</p>
         </div>
       </div>
 
       {/* 版本信息 */}
-      <InfoRow label={t("settings.about.version")} value={appInfo()?.version ?? "unknown"} />
+      <InfoRow label={t("settings.about.version")} value={appInfo()?.version ?? t("common.unknown")} />
       <div class="flex items-center justify-between">
         <span class="text-sm text-muted-foreground">{t("settings.about.buildHash")}</span>
-        <BuildHashValue hash={appInfo()?.buildHash ?? "unknown"} />
+        <BuildHashValue hash={appInfo()?.buildHash ?? t("common.unknown")} />
       </div>
       <InfoRow
         label={t("settings.about.buildTime")}
-        value={formatBuildTime(appInfo()?.buildTime ?? "unknown")}
+        value={formatBuildTime(appInfo()?.buildTime ?? t("common.unknown"))}
       />
 
       <div class="border-t border-border my-4" />

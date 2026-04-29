@@ -51,7 +51,7 @@ export function ProjectSettingsPage() {
         }
       } catch (e) {
         console.error("加载项目信息失败", e)
-        setError("加载项目信息失败")
+        setError(t("project.loadFailed"))
       }
     }
   })
@@ -63,7 +63,7 @@ export function ProjectSettingsPage() {
     const id = projectId()
     if (!id) return
     if (!name().trim()) {
-      setError("项目名称不能为空")
+      setError(t("project.nameRequired"))
       return
     }
 
@@ -77,7 +77,7 @@ export function ProjectSettingsPage() {
       router.navigate({ to: "/project/$id", params: { id } })
     } catch (e) {
       console.error("保存项目设置失败", e)
-      setError("保存项目设置失败")
+      setError(t("project.saveFailed"))
     } finally {
       setSaving(false)
     }
@@ -147,7 +147,7 @@ export function ProjectSettingsPage() {
                         {t("common.cancel")}
                       </Button>
                       <Button variant="default" onClick={handleSave} disabled={saving()}>
-                        {saving() ? "保存中..." : t("common.save")}
+                        {saving() ? t("common.saving") : t("common.save")}
                       </Button>
                     </div>
                   </div>

@@ -405,7 +405,7 @@ export function ApiManagement(props: ApiManagementProps) {
     setSaving(true)
     try {
       const { moduleId, folderId } = resolveSaveLocation(selectedSaveLocation())
-      if (!moduleId) { console.error("未选择模块"); return }
+      if (!moduleId) { console.error(t("module.notSelected")); return }
       const created = await EndpointService.CreateFullEndpoint(moduleId, folderId ?? null, {
         id: "", name, method: ep.method, path: ep.path,
         bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
@@ -500,7 +500,7 @@ export function ApiManagement(props: ApiManagementProps) {
         right={<div class="h-full">
           <Show when={requestTabs().length > 0}
             fallback={<div class="flex flex-col items-center justify-center h-full text-muted-foreground gap-4">
-              <span>从左侧选择一个接口，或者</span>
+              <span>{t("endpoint.selectPrompt")}</span>
               <Button onClick={createUnsavedTab} variant="outline">+ {t("endpoint.newRequest")}</Button>
             </div>}
           >
@@ -533,11 +533,11 @@ export function ApiManagement(props: ApiManagementProps) {
               value={selectedSaveLocation()} onChange={e => setSelectedSaveLocation(e.currentTarget.value)}>
               <For each={saveLocationOptions()}>{option => <option value={option.value}>{option.label}</option>}</For>
             </select>
-            <p class="text-xs text-muted-foreground mt-1">选择保存到哪个模块或文件夹</p>
+            <p class="text-xs text-muted-foreground mt-1">{t("endpoint.saveLocationHint")}</p>
           </div>
           <div class="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>{t("common.cancel")}</Button>
-            <Button onClick={handleSaveToProject} disabled={!saveName().trim() || saving()}>{saving() ? "保存中..." : t("endpoint.save")}</Button>
+            <Button onClick={handleSaveToProject} disabled={!saveName().trim() || saving()}>{saving() ? t("common.saving") : t("endpoint.save")}</Button>
           </div>
         </div>
       </Dialog>
@@ -560,7 +560,7 @@ export function ApiManagement(props: ApiManagementProps) {
           <p class="text-sm text-muted-foreground">{t("endpoint.confirmDelete", { name: endpointData.name || "" })}</p>
           <div class="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>{t("common.cancel")}</Button>
-            <Button onClick={handleConfirmDelete} disabled={deleting()}>{deleting() ? "删除中..." : t("common.confirm")}</Button>
+            <Button onClick={handleConfirmDelete} disabled={deleting()}>{deleting() ? t("common.deleting") : t("common.confirm")}</Button>
           </div>
         </div>
       </Dialog>

@@ -21,7 +21,7 @@ export function AuthEditor() {
   return (
     <div class="p-3 space-y-4">
       <div class="flex items-center gap-3">
-        <label class="text-sm font-medium w-20 shrink-0">Type</label>
+        <label class="text-sm font-medium w-20 shrink-0">{t("common.type")}</label>
         <Select
           options={authTypeOptions}
           value={authType()}
@@ -46,7 +46,7 @@ export function AuthEditor() {
       <Show when={authType() === "bearer"}>
         <div class="flex items-center gap-3">
           <label class="text-sm w-20 shrink-0">{t("endpoint.auth.token")}</label>
-          <Input value={token()} onInput={(e) => setToken(e.currentTarget.value)} placeholder="Bearer token" class="flex-1" />
+          <Input value={token()} onInput={(e) => setToken(e.currentTarget.value)} placeholder={t("common.bearerToken")} class="flex-1" />
         </div>
       </Show>
     </div>

@@ -105,7 +105,7 @@ export function BodyEditor(props: BodyEditorProps) {
           <Textarea
             value={bodyContent()}
             onInput={(e) => setBodyContent(e.currentTarget.value)}
-            placeholder={props.bodyType === "json" ? '{\n  "key": "value"\n}' : "Request body..."}
+            placeholder={props.bodyType === "json" ? t("endpoint.placeholder.jsonBody") : t("endpoint.placeholder.requestBody")}
             class="h-full font-mono text-sm"
           />
         </Show>
@@ -133,9 +133,9 @@ export function BodyEditor(props: BodyEditorProps) {
                 ),
               },
               ...(props.bodyType === "form-data" ? [{
-                header: "Type", render: (row: FieldRow) => (
+                header: t("common.type"), render: (row: FieldRow) => (
                   <Select
-                    options={[{ value: "text", label: "Text" }, { value: "file", label: "File" }]}
+                    options={[{ value: "text", label: t("common.text") }, { value: "file", label: t("common.file") }]}
                     value={row.fieldType}
                     onChange={(v) => updateField(row.id, "fieldType", v)}
                     size="sm"

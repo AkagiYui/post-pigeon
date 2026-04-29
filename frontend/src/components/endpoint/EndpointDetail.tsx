@@ -34,21 +34,25 @@ const methodOptions = [
 ]
 
 /** 请求设置标签 */
-const requestTabs = [
-  { key: "params", label: "Params" },
-  { key: "body", label: "Body" },
-  { key: "headers", label: "Headers" },
-  { key: "auth", label: "Auth" },
-  { key: "settings", label: "设置" },
-]
+function getRequestTabs() {
+  return [
+    { key: "params", label: t("endpoint.params") },
+    { key: "body", label: t("endpoint.body") },
+    { key: "headers", label: t("endpoint.headers") },
+    { key: "auth", label: t("endpoint.auth") },
+    { key: "settings", label: t("endpoint.settings") },
+  ]
+}
 
 /** 响应标签 */
-const responseTabs = [
-  { key: "body", label: "Body" },
-  { key: "headers", label: "Headers" },
-  { key: "cookies", label: "Cookies" },
-  { key: "actualRequest", label: "实际请求" },
-]
+function getResponseTabs() {
+  return [
+    { key: "body", label: t("response.body") },
+    { key: "headers", label: t("response.headers") },
+    { key: "cookies", label: t("response.cookies") },
+    { key: "actualRequest", label: t("response.actualRequest") },
+  ]
+}
 
 export interface EndpointData {
   id: string
@@ -165,7 +169,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
         <Tooltip content="Ctrl+Enter">
           <Button size="sm" onClick={props.onSend} disabled={props.sending}>
             <Send class="h-3.5 w-3.5" />
-            {props.sending ? "发送中..." : t("endpoint.send")}
+            {props.sending ? t("common.sending") : t("endpoint.send")}
           </Button>
         </Tooltip>
         <Button variant={props.isUnsaved ? "default" : "outline"} size="sm" onClick={props.onSave}>
@@ -180,7 +184,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
       {/* 中部：请求设置 */}
       <div class="flex-1 overflow-hidden border-b border-border">
         <Tabs
-          tabs={requestTabs}
+          tabs={getRequestTabs()}
           value={activeRequestTab()}
           onChange={setActiveRequestTab}
         >
@@ -203,12 +207,12 @@ export function EndpointDetail(props: EndpointDetailProps) {
           when={props.response}
           fallback={
             <div class="flex items-center justify-center h-full text-muted-foreground text-sm">
-              {t("endpoint.send")} 查看响应
+              {t("endpoint.sendToViewResponse")}
             </div>
           }
         >
           <Tabs
-            tabs={responseTabs}
+            tabs={getResponseTabs()}
             value={activeResponseTab()}
             onChange={setActiveResponseTab}
             extra={

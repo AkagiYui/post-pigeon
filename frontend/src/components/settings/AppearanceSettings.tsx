@@ -7,18 +7,18 @@ import { type ThemeAccent, type ThemeMode } from "@/lib/types"
 
 /** 主题模式选项 */
 const modeOptions = [
-  { value: "system", label: "跟随系统" },
-  { value: "light", label: "浅色" },
-  { value: "dark", label: "深色" },
+  { value: "system", label: t("settings.theme.system") },
+  { value: "light", label: t("settings.theme.light") },
+  { value: "dark", label: t("settings.theme.dark") },
 ]
 
 /** 主题色选项 */
 const accentOptions = [
-  { value: "teal", label: "青色" },
-  { value: "blue", label: "蓝色" },
-  { value: "violet", label: "紫色" },
-  { value: "rose", label: "玫瑰色" },
-  { value: "orange", label: "橙色" },
+  { value: "teal", label: t("settings.theme.teal") },
+  { value: "blue", label: t("settings.theme.blue") },
+  { value: "violet", label: t("settings.theme.violet") },
+  { value: "rose", label: t("settings.theme.rose") },
+  { value: "orange", label: t("settings.theme.orange") },
 ]
 
 /**

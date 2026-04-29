@@ -138,7 +138,7 @@ export function TitleBar(props: TitleBarProps) {
           <button
             class="scroll-tab-btn -ml-1"
             onClick={() => scrollTabs("left")}
-            title="向左滚动"
+            title={t("nav.scrollLeft")}
           >
             <ChevronLeft class="h-3.5 w-3.5" />
           </button>
@@ -195,7 +195,7 @@ export function TitleBar(props: TitleBarProps) {
           <button
             class="scroll-tab-btn -mr-1"
             onClick={() => scrollTabs("right")}
-            title="向右滚动"
+            title={t("nav.scrollRight")}
           >
             <ChevronRight class="h-3.5 w-3.5" />
           </button>
@@ -266,7 +266,7 @@ export function TitleBar(props: TitleBarProps) {
           <button
             class="winctrl-btn"
             onClick={() => Window.Minimise()}
-            title="最小化"
+            title={t("window.minimize")}
           >
             <Minus class="h-4 w-4" />
           </button>
@@ -277,7 +277,7 @@ export function TitleBar(props: TitleBarProps) {
               // 切换后更新最大化状态
               Window.IsMaximised().then(setIsMaximised)
             }}
-            title={isMaximised() ? "还原" : "最大化"}
+            title={isMaximised() ? t("window.restore") : t("window.maximize")}
           >
             <Show when={isMaximised()} fallback={<Square class="h-3.5 w-3.5" />}>
               <SquareX class="h-3.5 w-3.5" />
@@ -286,7 +286,7 @@ export function TitleBar(props: TitleBarProps) {
           <button
             class="winctrl-btn winctrl-close"
             onClick={() => Window.Close()}
-            title="关闭"
+            title={t("window.close")}
           >
             <X class="h-4 w-4" />
           </button>

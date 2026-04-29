@@ -192,7 +192,7 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
                     e.stopPropagation()
                     handleDeleteConfirm(env.id)
                   }}
-                  title={pendingDeleteEnvId() === env.id ? "确认删除" : "删除"}
+                  title={pendingDeleteEnvId() === env.id ? t("common.confirmDelete") : t("common.delete")}
                 >
                   {pendingDeleteEnvId() === env.id ? (
                     <Trash2 class="h-3.5 w-3.5 text-red-500" />
@@ -215,7 +215,7 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
           when={selectedEnvId()}
           fallback={
             <div class="flex items-center justify-center h-full text-sm text-muted-foreground">
-              请选择一个环境进行编辑
+              {t("environment.selectToEdit")}
             </div>
           }
         >
@@ -349,7 +349,7 @@ function ModuleBaseUrlsEditor(props: { projectId: string; environmentId: string 
       <div class="flex items-center gap-1.5 mb-2">
         <Link2 class="h-4 w-4 text-muted-foreground" />
         <label class="text-sm font-medium text-foreground">{t("environment.baseUrl")}</label>
-        {loading() && <span class="text-xs text-muted-foreground ml-1">加载中...</span>}
+        {loading() && <span class="text-xs text-muted-foreground ml-1">{t("common.loading")}</span>}
       </div>
       <div class="space-y-1.5">
         <For each={modules()}>
@@ -369,7 +369,7 @@ function ModuleBaseUrlsEditor(props: { projectId: string; environmentId: string 
                 {/* 保存中的加载指示器 */}
                 <Show when={savingModuleId() === mod.id}>
                   <div class="absolute right-2 top-1/2 -translate-y-1/2">
-                    <span class="text-xs text-muted-foreground">保存中...</span>
+                    <span class="text-xs text-muted-foreground">{t("common.saving")}</span>
                   </div>
                 </Show>
               </div>
@@ -727,7 +727,7 @@ function EnvironmentVariablesEditor(props: { environmentId: string }) {
       {/* 保存按钮 */}
       <div class="flex justify-end pt-1">
         <Button variant="default" size="sm" onClick={handleSave} disabled={saving() || !hasUnsavedChanges()}>
-          {saving() ? "保存中..." : t("common.save")}
+          {saving() ? t("common.saving") : t("common.save")}
         </Button>
       </div>
     </div>
@@ -837,7 +837,7 @@ function SortableVariableRow(props: {
               </Tooltip>
             </Show>
             {/* 钥匙图标 — 仅鼠标悬停输入框时显示 */}
-            <Tooltip content={props.variable.isSecret ? "点击取消秘密变量" : "点击设为秘密变量"}>
+            <Tooltip content={props.variable.isSecret ? t("environment.variable.unsetSecret") : t("environment.variable.setSecret")}>
               <button
                 class={cn(
                   "p-0.5 rounded transition-all",
@@ -874,7 +874,7 @@ function SortableVariableRow(props: {
             <button
               class="absolute right-1.5 top-1/2 -translate-y-1/2 p-0.5 rounded text-muted-foreground hover:text-foreground transition-colors"
               onClick={() => setShowValue(p => !p)}
-              title={showValue() ? "隐藏" : "显示"}
+              title={showValue() ? t("common.hide") : t("common.show")}
             >
               {showValue() ? (
                 <EyeOff class="h-3.5 w-3.5" />
@@ -909,7 +909,7 @@ function SortableVariableRow(props: {
               : "text-muted-foreground/40 hover:text-muted-foreground",
           )}
           onClick={props.onDelete}
-          title={props.isPendingDelete ? "确认删除" : "删除"}
+          title={props.isPendingDelete ? t("common.confirmDelete") : t("common.delete")}
         >
           {props.isPendingDelete ? (
             <CircleX class="h-4 w-4" />

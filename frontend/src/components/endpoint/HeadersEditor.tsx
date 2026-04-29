@@ -50,12 +50,12 @@ export function HeadersEditor() {
             ),
           },
           {
-            header: "Name", render: (row) => (
+            header: t("common.name"), render: (row) => (
               <Input size="sm" value={row.name} onInput={(e) => updateHeader(row.id, "name", e.currentTarget.value)} />
             ),
           },
           {
-            header: "Value", render: (row) => (
+            header: t("common.value"), render: (row) => (
               <Input size="sm" value={row.value} onInput={(e) => updateHeader(row.id, "value", e.currentTarget.value)} />
             ),
           },

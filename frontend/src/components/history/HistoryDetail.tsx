@@ -193,8 +193,8 @@ export function HistoryDetail(props: HistoryDetailProps) {
                                 <div class="p-3">
                                   <Table
                                     columns={[
-                                      { header: "Name", field: "name" },
-                                      { header: "Value", field: "value" },
+                                      { header: t("common.name"), field: "name" },
+                                      { header: t("common.value"), field: "value" },
                                     ]}
                                     data={parseJsonToRecords(detail()!.responseHeaders)}
                                     compact
@@ -262,8 +262,8 @@ export function HistoryDetail(props: HistoryDetailProps) {
                                 <div class="p-3">
                                   <Table
                                     columns={[
-                                      { header: "Name", field: "name" },
-                                      { header: "Value", field: "value" },
+                                      { header: t("common.name"), field: "name" },
+                                      { header: t("common.value"), field: "value" },
                                     ]}
                                     data={parseJsonToRecords(detail()!.requestHeaders)}
                                     compact

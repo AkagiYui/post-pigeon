@@ -4,9 +4,9 @@ import { changeLanguage, t, userLanguageChoice } from "@/hooks/useI18n"
 
 /** 语言选项 */
 const languageOptions = [
-  { value: "system", label: "跟随系统 / System" },
-  { value: "zh-CN", label: "简体中文" },
-  { value: "en", label: "English" },
+  { value: "system", label: t("settings.language.system") },
+  { value: "zh-CN", label: t("settings.language.zhCN") },
+  { value: "en", label: t("settings.language.en") },
 ]
 
 /**
