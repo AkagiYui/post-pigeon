@@ -42,6 +42,7 @@ export function SettingsModal(props: SettingsModalProps) {
       width="840px"
       height="85vh"
       closeOnEsc
+      closeOnOverlayClick
     >
       <SideTabs
         tabs={tabs()}
