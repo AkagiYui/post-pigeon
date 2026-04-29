@@ -91,7 +91,9 @@ export function ApiManagement(props: ApiManagementProps) {
   const [sending, setSending] = createSignal(false)
   const [saveDialogOpen, setSaveDialogOpen] = createSignal(false)
   const [saveName, setSaveName] = createSignal("")
-  const [selectedSaveLocation, setSelectedSaveLocation] = createSignal("")
+  const [selectedSaveLocation, setSelectedSaveLocation] = cache.createCachedSignal<string>("selectedSaveLocation", "")
+  // 保存对话框中文件夹树的展开状态（用 string[] 序列化，运行时转为 Set）
+  const [saveFolderExpandedIds, setSaveFolderExpandedIds] = cache.createCachedSignal<string[]>("saveFolderExpandedIds", [])
   const [saving, setSaving] = createSignal(false)
   const [closeConfirmOpen, setCloseConfirmOpen] = createSignal(false)
   const [pendingCloseTabId, setPendingCloseTabId] = createSignal<string | null>(null)
@@ -239,11 +241,61 @@ export function ApiManagement(props: ApiManagementProps) {
     return { moduleId: moduleId || "", folderId: nodeId }
   }
 
-  // ---- 获取第一个可用的模块 ID（默认选中） ----
-  const getDefaultSaveLocation = (): string => {
+  // ---- 获取有效的保存位置（优先使用缓存值，无效时回退到第一个模块） ----
+  const getEffectiveSaveLocation = (): string => {
     const data = treeData()
-    if (data.length > 0 && data[0].type === "module") return data[0].id
+    if (data.length === 0) return ""
+    const cached = selectedSaveLocation()
+    // 检查缓存的节点是否仍然存在于树中
+    if (cached && findNodeInTree(data, cached)) return cached
+    // 回退到第一个模块
+    if (data[0].type === "module") return data[0].id
     return ""
+  }
+
+  /** 在树中递归查找指定 ID 的节点 */
+  const findNodeInTree = (nodes: TreeNode[], targetId: string): boolean => {
+    for (const node of nodes) {
+      if (node.id === targetId) return true
+      if (node.children && findNodeInTree(node.children, targetId)) return true
+    }
+    return false
+  }
+
+  /** 查找指定节点在树中的所有祖先 ID（从根到父节点，不包含自身） */
+  const findAncestorIds = (nodes: TreeNode[], targetId: string, ancestors: string[] = []): string[] | null => {
+    for (const node of nodes) {
+      if (node.id === targetId) return ancestors
+      if (node.children) {
+        const result = findAncestorIds(node.children, targetId, [...ancestors, node.id])
+        if (result) return result
+      }
+    }
+    return null
+  }
+
+  /** 将 string[] 转为 Set<string>，用于 FolderTreeSelector */
+  const saveExpandedSet = () => new Set(saveFolderExpandedIds())
+
+  /** 将 Set<string> 转为 string[] 并保存 */
+  const handleSaveExpandedChange = (ids: Set<string>) => {
+    setSaveFolderExpandedIds([...ids])
+  }
+
+  /** 确保指定节点的所有祖先 ID 都在展开集合中 */
+  const ensureAncestorsExpanded = (nodeId: string) => {
+    if (!nodeId) return
+    const ancestors = findAncestorIds(treeData(), nodeId)
+    if (!ancestors || ancestors.length === 0) return
+    const current = new Set(saveFolderExpandedIds())
+    let changed = false
+    for (const id of ancestors) {
+      if (!current.has(id)) {
+        current.add(id)
+        changed = true
+      }
+    }
+    if (changed) setSaveFolderExpandedIds([...current])
   }
 
   // ---- 创建未保存请求 ----
@@ -371,8 +423,11 @@ export function ApiManagement(props: ApiManagementProps) {
     if (!ct) return
     if (!ct.saved) {
       setSaveName(endpointData.name !== t("endpoint.newRequest") ? endpointData.name : "")
-      // 默认选中第一个模块
-      setSelectedSaveLocation(getDefaultSaveLocation())
+      // 优先使用上次记住的位置，无效则回退到第一个模块
+      const location = getEffectiveSaveLocation()
+      setSelectedSaveLocation(location)
+      // 确保选中节点的所有祖先都已展开，让用户能看到选中的位置
+      ensureAncestorsExpanded(location)
       setSaveDialogOpen(true)
     } else {
       handleSaveSavedEndpoint()
@@ -439,8 +494,11 @@ export function ApiManagement(props: ApiManagementProps) {
       const ep = endpointData
       if (ep.id) {
         setSaveName(ep.name !== t("endpoint.newRequest") ? ep.name : "")
-        // 默认选中第一个模块
-        setSelectedSaveLocation(getDefaultSaveLocation())
+        // 优先使用上次记住的位置，无效则回退到第一个模块
+        const location = getEffectiveSaveLocation()
+        setSelectedSaveLocation(location)
+        // 确保选中节点的所有祖先都已展开
+        ensureAncestorsExpanded(location)
         setSaveDialogOpen(true)
       }
     } else {
@@ -529,6 +587,8 @@ export function ApiManagement(props: ApiManagementProps) {
               data={treeData()}
               selectedId={selectedSaveLocation()}
               onSelect={(node) => setSelectedSaveLocation(node.id)}
+              expandedIds={saveExpandedSet()}
+              onExpandedChange={handleSaveExpandedChange}
               class="flex-1 min-h-0"
             />
             <p class="text-xs text-muted-foreground mt-1 shrink-0">{t("endpoint.saveLocationHint")}</p>

@@ -1,7 +1,7 @@
 // 文件夹树形选择器组件
 // 用于保存接口时选择目标模块或文件夹，仅展示模块和文件夹节点
 import { Folder, FolderOpen, Package, PackageOpen } from "lucide-solid"
-import { createEffect, createSignal, For, Show } from "solid-js"
+import { createSignal, For, Show } from "solid-js"
 
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
@@ -15,6 +15,10 @@ export interface FolderTreeSelectorProps {
   selectedId?: string
   /** 选中回调，返回被选中的节点 */
   onSelect?: (node: TreeNode) => void
+  /** 外部控制的展开节点 ID 集合 */
+  expandedIds?: Set<string>
+  /** 展开状态变化回调 */
+  onExpandedChange?: (ids: Set<string>) => void
   /** 自定义类名 */
   class?: string
 }
@@ -24,24 +28,21 @@ export interface FolderTreeSelectorProps {
  * 仅展示模块和文件夹，用于保存接口时选择目标位置
  */
 export function FolderTreeSelector(props: FolderTreeSelectorProps) {
-  // 展开状态（仅内部管理）
-  const [expandedIds, setExpandedIds] = createSignal<Set<string>>(new Set())
+  // 展开状态：优先使用外部 prop，否则使用内部状态
+  const [internalExpandedIds, setInternalExpandedIds] = createSignal<Set<string>>(new Set())
+
+  const getExpandedIds = () => props.expandedIds ?? internalExpandedIds()
+
+  const setExpandedIds = (fn: (prev: Set<string>) => Set<string>) => {
+    if (props.onExpandedChange) {
+      props.onExpandedChange(fn(props.expandedIds ?? new Set()))
+    } else {
+      setInternalExpandedIds(fn)
+    }
+  }
 
   // 过滤出仅包含模块和文件夹的节点（去除 endpoint）
   const folderOnlyData = (): TreeNode[] => filterFoldersOnly(props.data)
-
-  // 首次加载时自动展开第一个模块（使用 createEffect 避免在 JSX 中调用 void 函数）
-  let initialized = false
-  createEffect(() => {
-    const data = folderOnlyData()
-    if (data.length === 0) return
-    if (initialized) return
-    const firstModule = data[0]
-    if (firstModule.type === "module") {
-      setExpandedIds(prev => new Set([...prev, firstModule.id]))
-    }
-    initialized = true
-  })
 
   const toggleExpand = (id: string) => {
     setExpandedIds(prev => {
@@ -76,7 +77,7 @@ export function FolderTreeSelector(props: FolderTreeSelectorProps) {
               node={node}
               level={0}
               selectedId={props.selectedId}
-              expandedIds={expandedIds()}
+              expandedIds={getExpandedIds()}
               onSelect={props.onSelect}
               onToggle={toggleExpand}
             />
