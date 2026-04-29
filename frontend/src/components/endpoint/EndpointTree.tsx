@@ -1,6 +1,6 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
-import { Ellipsis, FilePlus, FilePlusCorner, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Plus, Search } from "lucide-solid"
+import { ArrowUpDown, Copy, Ellipsis, FilePlusCorner, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Pencil, Plus, Search, Trash2 } from "lucide-solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
@@ -211,11 +211,13 @@ function createMenuItems(
       {
         key: "new-endpoint",
         label: t("endpoint.create"),
+        icon: <FilePlusCorner class="h-4 w-4 text-blue-500 shrink-0" />,
         onClick: () => onCreateEndpoint?.(node.id, "module"),
       },
       {
         key: "new-folder",
         label: t("folder.create"),
+        icon: <FolderPlus class="h-4 w-4 text-amber-500 shrink-0" />,
         onClick: () => onCreateFolder?.(node.id, "module"),
       },
     ]
@@ -225,11 +227,13 @@ function createMenuItems(
       {
         key: "new-endpoint",
         label: t("endpoint.create"),
+        icon: <FilePlusCorner class="h-4 w-4 text-blue-500 shrink-0" />,
         onClick: () => onCreateEndpoint?.(node.id, "folder"),
       },
       {
         key: "new-folder",
         label: t("folder.create"),
+        icon: <FolderPlus class="h-4 w-4 text-amber-500 shrink-0" />,
         onClick: () => onCreateFolder?.(node.id, "folder"),
       },
     ]
@@ -277,10 +281,10 @@ function TreeNodeItem(props: {
 
   // 三点操作菜单项（重命名、复制、删除、移动）
   const actionMenuItems = (): MenuItem[] => [
-    { key: "rename", label: t("common.rename"), onClick: () => props.onRename?.(props.node) },
-    { key: "copy", label: t("common.copy"), onClick: () => props.onCopy?.(props.node) },
-    { key: "delete", label: t("common.delete"), onClick: () => props.onDelete?.(props.node) },
-    { key: "move", label: t("common.move"), onClick: () => props.onMove?.(props.node) },
+    { key: "rename", label: t("common.rename"), icon: <Pencil class="h-4 w-4 shrink-0" />, onClick: () => props.onRename?.(props.node) },
+    { key: "copy", label: t("common.copy"), icon: <Copy class="h-4 w-4 shrink-0" />, onClick: () => props.onCopy?.(props.node) },
+    { key: "delete", label: t("common.delete"), icon: <Trash2 class="h-4 w-4 shrink-0" />, onClick: () => props.onDelete?.(props.node) },
+    { key: "move", label: t("common.move"), icon: <ArrowUpDown class="h-4 w-4 shrink-0" />, onClick: () => props.onMove?.(props.node) },
   ]
 
   return (
