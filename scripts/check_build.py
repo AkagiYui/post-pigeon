@@ -7,11 +7,13 @@
 
 用法：
   python3 scripts/check_build.py '<JSON 格式的 commits 数组>'
-  echo '<JSON>' | python3 scripts/check_build.py
+  python3 scripts/check_build.py          # 从 COMMITS_JSON 环境变量读取
 
-在 GitHub Actions 中：
+在 GitHub Actions 中（推荐，避免 shell 特殊字符导致语法错误）：
   - name: 检查 commit 是否需要构建
-    run: python3 scripts/check_build.py '${{ toJSON(github.event.commits) }}'
+    env:
+      COMMITS_JSON: ${{ toJSON(github.event.commits) }}
+    run: python3 scripts/check_build.py
 """
 
 import json
@@ -31,9 +33,11 @@ def should_build(commits: list[dict]) -> bool:
 
 
 def main() -> int:
-    # 从命令行参数或 stdin 读取 JSON
+    # 从命令行参数、环境变量或 stdin 读取 JSON
     if len(sys.argv) > 1:
         commits = json.loads(sys.argv[1])
+    elif os.environ.get("COMMITS_JSON"):
+        commits = json.loads(os.environ["COMMITS_JSON"])
     else:
         commits = json.load(sys.stdin)
 

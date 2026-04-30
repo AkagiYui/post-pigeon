@@ -20,7 +20,9 @@ jobs:
 
       - name: 检查是否需要构建
         id: check
-        run: python3 scripts/check_build.py '${{ toJson(github.event.commits) }}'
+        env:
+          COMMITS_JSON: ${{ toJson(github.event.commits) }}
+        run: python3 scripts/check_build.py
 
   build:
     needs: check-commits
