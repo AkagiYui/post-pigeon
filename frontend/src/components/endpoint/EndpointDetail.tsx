@@ -32,15 +32,15 @@ const methodOptions = [
   { value: "OPTIONS", label: "OPTIONS" },
 ]
 
-/** HTTP 方法颜色映射（按钮：文字颜色 + 半透明背景） */
+/** HTTP 方法颜色映射（按钮：文字颜色 + 半透明背景 + hover 加深效果） */
 const methodColors: Record<string, string> = {
-  GET: "text-green-600 dark:text-green-400 bg-green-500/10",
-  POST: "text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-400/10",
-  PUT: "text-blue-600 dark:text-blue-400 bg-blue-500/10 dark:bg-blue-400/10",
-  DELETE: "text-red-600 dark:text-red-400 bg-red-500/10 dark:bg-red-400/10",
-  PATCH: "text-purple-600 dark:text-purple-400 bg-purple-500/10 dark:bg-purple-400/10",
-  HEAD: "text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 dark:bg-cyan-400/10",
-  OPTIONS: "text-gray-600 dark:text-gray-400 bg-gray-500/10 dark:bg-gray-400/10",
+  GET: "text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20 dark:hover:bg-green-400/20",
+  POST: "text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-400/10 hover:bg-amber-500/20 dark:hover:bg-amber-400/20",
+  PUT: "text-blue-600 dark:text-blue-400 bg-blue-500/10 dark:bg-blue-400/10 hover:bg-blue-500/20 dark:hover:bg-blue-400/20",
+  DELETE: "text-red-600 dark:text-red-400 bg-red-500/10 dark:bg-red-400/10 hover:bg-red-500/20 dark:hover:bg-red-400/20",
+  PATCH: "text-purple-600 dark:text-purple-400 bg-purple-500/10 dark:bg-purple-400/10 hover:bg-purple-500/20 dark:hover:bg-purple-400/20",
+  HEAD: "text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 dark:bg-cyan-400/10 hover:bg-cyan-500/20 dark:hover:bg-cyan-400/20",
+  OPTIONS: "text-gray-600 dark:text-gray-400 bg-gray-500/10 dark:bg-gray-400/10 hover:bg-gray-500/20 dark:hover:bg-gray-400/20",
 }
 
 /** HTTP 方法文字颜色（下拉菜单：仅文字色，无背景） */
