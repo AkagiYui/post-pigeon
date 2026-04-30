@@ -1,6 +1,6 @@
 // 请求历史详情组件
 import { Clock } from "lucide-solid"
-import { createSignal, Match, onMount, Show, Switch } from "solid-js"
+import { createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 
 import type { RequestHistory } from "@/../bindings/post-pigeon/internal/models"
 import { RequestHistoryService } from "@/../bindings/post-pigeon/internal/services"
@@ -14,6 +14,13 @@ import { cn } from "@/lib/utils"
 export interface HistoryDetailProps {
   historyId: string
 }
+
+/** 渲染模式选项（直接展示的按钮组） */
+const renderModes = [
+  { value: "pretty", label: () => t("response.pretty") },
+  { value: "raw", label: () => t("response.raw") },
+  { value: "preview", label: () => t("response.preview") },
+] as const
 
 /** 格式化方式选项 */
 const formatOptions = [
@@ -39,6 +46,7 @@ export function HistoryDetail(props: HistoryDetailProps) {
   const [tab, setTab] = createSignal("response")
   const [responseTab, setResponseTab] = createSignal("body")
   const [requestTab, setRequestTab] = createSignal("body")
+  const [renderMode, setRenderMode] = createSignal("pretty")
   const [format, setFormat] = createSignal("json")
   const [encoding, setEncoding] = createSignal("utf-8")
 
@@ -173,18 +181,57 @@ export function HistoryDetail(props: HistoryDetailProps) {
                             <Switch>
                               <Match when={responseTab() === "body"}>
                                 <div class="flex flex-col h-full">
-                                  {/* 格式工具栏 */}
-                                  <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
-                                    <Select options={formatOptions} value={format()} onChange={setFormat} size="sm" class="w-20" />
-                                    <Select options={encodingOptions} value={encoding()} onChange={setEncoding} size="sm" class="w-24" />
+                                  {/* 渲染模式工具栏 */}
+                                  <div class="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
+                                    {/* 渲染模式按钮组 */}
+                                    <div class="flex items-center rounded-md border border-border overflow-hidden">
+                                      <For each={renderModes}>
+                                        {(mode) => (
+                                          <button
+                                            class={cn(
+                                              "px-2.5 py-1 text-xs font-medium transition-colors",
+                                              renderMode() === mode.value
+                                                ? "bg-accent text-white"
+                                                : "bg-transparent text-muted-foreground hover:bg-accent-muted hover:text-accent",
+                                            )}
+                                            onClick={() => setRenderMode(mode.value)}
+                                          >
+                                            {mode.label()}
+                                          </button>
+                                        )}
+                                      </For>
+                                    </div>
+                                    {/* 格式选择（仅格式化模式可用） */}
+                                    <Show when={renderMode() === "pretty"}>
+                                      <Select options={formatOptions} value={format()} onChange={setFormat} size="sm" class="w-20" />
+                                    </Show>
+                                    {/* 编码选择（格式化和原始模式可用） */}
+                                    <Show when={renderMode() === "pretty" || renderMode() === "raw"}>
+                                      <Select options={encodingOptions} value={encoding()} onChange={setEncoding} size="sm" class="w-24" />
+                                    </Show>
                                   </div>
                                   {/* 响应体内容 */}
                                   <div class="flex-1 overflow-auto p-3">
-                                    <pre class="text-sm font-mono whitespace-pre-wrap break-all text-foreground">
-                                      <Show when={detail()!.responseBody} fallback={t("response.empty")}>
-                                        {format() === "json" ? formatJson(detail()!.responseBody) : detail()!.responseBody}
+                                    <Show
+                                      when={renderMode() === "preview"}
+                                      fallback={
+                                        <pre class="text-sm font-mono whitespace-pre-wrap break-all text-foreground">
+                                          <Show when={detail()!.responseBody} fallback={t("response.empty")}>
+                                            {renderMode() === "pretty" && format() === "json" ? formatJson(detail()!.responseBody) : detail()!.responseBody}
+                                          </Show>
+                                        </pre>
+                                      }
+                                    >
+                                      {/* 预览模式：使用 iframe 渲染 HTML */}
+                                      <Show when={detail()!.responseBody} fallback={<div class="text-muted-foreground">{t("response.empty")}</div>}>
+                                        <iframe
+                                          class="w-full h-full min-h-48 border rounded bg-white"
+                                          srcdoc={detail()!.responseBody}
+                                          sandbox="allow-same-origin"
+                                          title="Preview"
+                                        />
                                       </Show>
-                                    </pre>
+                                    </Show>
                                   </div>
                                 </div>
                               </Match>
