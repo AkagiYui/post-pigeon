@@ -97,3 +97,21 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: bin/
+
+  # 生成构建摘要
+  summary:
+    needs: build
+    # 无论构建是否成功都生成摘要
+    if: always() && needs.check-commits.outputs.should-build == 'true'
+    name: 生成构建摘要
+    runs-on: ubuntu-latest
+
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 生成 Action Summary
+        env:
+          COMMITS_JSON: ${{ toJson(github.event.commits) }}
+          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+        run: python3 scripts/generate_summary.py
