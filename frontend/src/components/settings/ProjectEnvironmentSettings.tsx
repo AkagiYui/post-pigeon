@@ -20,7 +20,7 @@ import { Input } from "@/components/ui/input"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
-import { setProjectEnvironmentsList } from "@/stores/app"
+import { notifyBaseUrlsChanged, setProjectEnvironmentsList } from "@/stores/app"
 
 export interface ProjectEnvironmentSettingsProps {
   /** 项目 ID */
@@ -365,6 +365,8 @@ function ModuleBaseUrlsEditor(props: { ref: EditorSaveRef; projectId: string; en
     )
     // 保存成功后更新原始快照
     setOriginalBaseUrls({ ...urlMap })
+    // 通知其他组件 baseUrl 已变更
+    notifyBaseUrlsChanged()
   }
 
   // 将接口暴露给父级

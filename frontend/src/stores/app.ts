@@ -59,6 +59,14 @@ const [projectEnvironments, setProjectEnvironments] = createSignal<Record<string
 /** 设置模态框是否显示（不持久化） */
 const [settingsOpen, setSettingsOpen] = createSignal(false)
 
+/** baseUrl 版本号，设置面板保存后递增，供其他组件监听变化（不持久化） */
+const [baseUrlVersion, setBaseUrlVersion] = createSignal(0)
+
+/** 通知 baseUrl 已变更（设置面板保存后调用） */
+export function notifyBaseUrlsChanged() {
+  setBaseUrlVersion(prev => prev + 1)
+}
+
 export {
   openProjectIds, setOpenProjectIds,
   activeProjectId, setActiveProjectId,
@@ -66,6 +74,7 @@ export {
   currentEnvironmentIds, setCurrentEnvironmentIds,
   projectNames, setProjectNames,
   projectEnvironments, setProjectEnvironments,
+  baseUrlVersion,
 }
 
 // ---- 自动持久化：在模块根作用域创建 effect 监听状态变化 ----

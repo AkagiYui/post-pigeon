@@ -1,7 +1,7 @@
 // 接口管理主界面组件
 // 左侧树形面板 + 右侧多 Tab 端点详情编辑器
 // 支持未保存的请求标签页和已保存的端点标签页
-import { createSignal, For, onMount, Show } from "solid-js"
+import { createEffect, createSignal, For, on, onMount, Show } from "solid-js"
 
 import type {
   EndpointDetail as EndpointDetailType,
@@ -28,7 +28,7 @@ import { Tabs } from "@/components/ui/tabs"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
 import { type BodyType, type HTTPMethod } from "@/lib/types"
-import { getCurrentEnvironmentId } from "@/stores/app"
+import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId } from "@/stores/app"
 
 // ---- 类型定义 ----
 
@@ -125,6 +125,23 @@ export function ApiManagement(props: ApiManagementProps) {
   })
   // 组件卸载时自动保存所有注册的缓存状态
   cache.autoSaveAll()
+
+  // ---- 环境切换或 baseUrl 设置变更时，响应式更新当前端点的 baseUrl ----
+  createEffect(on(
+    () => [currentEnvironmentIds()[props.projectId], baseUrlVersion()] as const,
+    async ([envId]) => {
+      const epId = endpointData.id
+      // 仅对已保存的端点生效（树中可找到其所属模块）
+      if (!epId || !envId) return
+      const moduleId = findModuleIdByNodeId(treeData(), epId)
+      if (!moduleId) return
+      try {
+        const urls = await ModuleService.GetModuleBaseURLs(moduleId)
+        const matched = urls.find(u => u.environmentId === envId)
+        setEndpointData({ baseUrl: matched?.baseUrl || "" } as Partial<EndpointData>)
+      } catch { /* 获取 baseUrl 失败时忽略 */ }
+    },
+  ))
 
   // ---- 打开创建文件夹对话框 ----
   const openCreateFolder = (parentId: string | undefined, type: "module" | "folder") => {
@@ -335,11 +352,21 @@ export function ApiManagement(props: ApiManagementProps) {
     try {
       const detail = await EndpointService.GetEndpoint(endpointId)
       if (detail) {
+        // 根据端点所属模块和当前环境，获取前置 baseUrl
+        let baseUrl = ""
+        const envId = getCurrentEnvironmentId(props.projectId)
+        if (detail.moduleId && envId) {
+          try {
+            const urls = await ModuleService.GetModuleBaseURLs(detail.moduleId)
+            const matched = urls.find(u => u.environmentId === envId)
+            baseUrl = matched?.baseUrl || ""
+          } catch { /* 获取 baseUrl 失败时不阻塞加载 */ }
+        }
         setEndpointData({
           id: detail.id, name: detail.name, method: detail.method as HTTPMethod,
           path: detail.path, bodyType: detail.bodyType as BodyType, bodyContent: detail.bodyContent,
           contentType: detail.contentType, timeout: detail.timeout, followRedirects: detail.followRedirects,
-          baseUrl: "",
+          baseUrl,
         } as EndpointData)
         if (detail.response) {
           const ti = detail.response.timing ? JSON.parse(detail.response.timing) : { total: 0, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0, ttfb: 0 }
