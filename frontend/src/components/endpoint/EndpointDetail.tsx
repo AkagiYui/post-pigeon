@@ -2,8 +2,8 @@
 // 上：请求方法 + URL + 发送/保存/删除按钮
 // 中：请求设置 tabs (Params/Body/Headers/Auth/设置)
 // 下：响应信息 tabs (Body/Headers/Cookies/实际请求)
-import { Save, Send, Trash2 } from "lucide-solid"
-import { createEffect, createSignal, on, Show } from "solid-js"
+import { ChevronDown, Save, Send, Trash2 } from "lucide-solid"
+import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -92,6 +92,16 @@ export interface ResponseData {
   actualRequest: any
 }
 
+/** 环境前置 URL 条目 */
+export interface EnvironmentBaseURLOption {
+  /** 环境 ID */
+  environmentId: string
+  /** 环境名称 */
+  environmentName: string
+  /** 前置 URL */
+  baseUrl: string
+}
+
 export interface EndpointDetailProps {
   /** 端点数据 */
   endpoint: EndpointData
@@ -109,10 +119,113 @@ export interface EndpointDetailProps {
   onDelete?: () => void
   /** 数据变更回调 */
   onChange?: (data: Partial<EndpointData>) => void
+  /** 当前环境 ID */
+  currentEnvironmentId?: string
+  /** 所有环境的前置 URL 列表 */
+  environmentBaseUrls?: EnvironmentBaseURLOption[]
+  /** 切换环境回调 */
+  onEnvironmentChange?: (environmentId: string) => void
 }
 
 // 按端点 ID 持久化标签页状态，避免组件重新挂载时丢失
 const tabStateStore = new Map<string, { requestTab: string; responseTab: string }>()
+
+/**
+ * EnvironmentBadge 环境切换徽章
+ * 点击后弹出下拉菜单，展示所有环境的前置 URL，支持快捷切换
+ */
+function EnvironmentBadge(props: {
+  baseUrl: string
+  environmentBaseUrls?: EnvironmentBaseURLOption[]
+  currentEnvironmentId?: string
+  onEnvironmentChange?: (environmentId: string) => void
+}) {
+  const [open, setOpen] = createSignal(false)
+  // 菜单定位（基于 trigger 元素底部左对齐）
+  const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
+  let badgeRef: HTMLSpanElement | undefined
+
+  // 点击 Badge 时计算 trigger 位置并弹出菜单
+  const handleBadgeClick = (e: MouseEvent) => {
+    e.stopPropagation()
+    // 如果只有一个或没有环境，不弹出菜单
+    const urls = props.environmentBaseUrls
+    if (!urls || urls.length <= 1) return
+    // 基于 trigger 元素底部左对齐计算菜单位置
+    if (badgeRef) {
+      const rect = badgeRef.getBoundingClientRect()
+      setMenuPos({ x: rect.left, y: rect.bottom + 4 })
+    }
+    setOpen(prev => !prev)
+  }
+
+  // 点击外部关闭
+  createEffect(() => {
+    if (open()) {
+      const handler = (e: MouseEvent) => {
+        if (badgeRef && !badgeRef.contains(e.target as Node)) {
+          setOpen(false)
+        }
+      }
+      document.addEventListener("click", handler)
+      onCleanup(() => document.removeEventListener("click", handler))
+    }
+  })
+
+  return (
+    <>
+      <span
+        ref={badgeRef}
+        class="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs font-medium rounded-sm bg-accent-muted text-accent cursor-pointer select-none hover:opacity-80 transition-opacity max-w-50 truncate"
+        onClick={handleBadgeClick}
+        title={props.baseUrl}
+      >
+        <span class="truncate">{props.baseUrl}</span>
+        <Show when={props.environmentBaseUrls && props.environmentBaseUrls.length > 1}>
+          <ChevronDown class="h-3 w-3 shrink-0 opacity-60" />
+        </Show>
+      </span>
+
+      {/* 环境选择下拉菜单 */}
+      <Show when={open()}>
+        <div
+          class="fixed inset-0 z-40"
+          onClick={(e) => { e.stopPropagation(); setOpen(false) }}
+        />
+        <div
+          class="fixed z-50 min-w-80 bg-surface border border-border rounded-md shadow-lg py-1"
+          style={{ left: `${menuPos().x}px`, top: `${menuPos().y}px` }}
+          onClick={(e) => e.stopPropagation()}
+        >
+          <For each={props.environmentBaseUrls}>
+            {(item) => {
+              const isActive = item.environmentId === props.currentEnvironmentId
+              return (
+                <div
+                  class={cn(
+                    "flex items-center justify-between gap-3 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none",
+                    isActive
+                      ? "bg-accent-muted text-accent"
+                      : "text-foreground hover:bg-accent-muted hover:text-accent",
+                  )}
+                  onClick={() => {
+                    props.onEnvironmentChange?.(item.environmentId)
+                    setOpen(false)
+                  }}
+                >
+                  {/* 左侧：前置 URL（常规字体） */}
+                  <span class="truncate text-sm">{item.baseUrl || "/"}</span>
+                  {/* 右侧：环境名称（低对比度） */}
+                  <span class="text-xs text-muted-foreground shrink-0">{item.environmentName}</span>
+                </div>
+              )
+            }}
+          </For>
+        </div>
+      </Show>
+    </>
+  )
+}
 
 /**
  * EndpointDetail 端点详情组件
@@ -168,13 +281,13 @@ export function EndpointDetail(props: EndpointDetailProps) {
           {/* 分隔线 */}
           <div class="w-px self-stretch bg-border shrink-0" />
 
-          {/* 前置 baseUrl */}
+          {/* 前置 baseUrl 环境切换 Badge */}
           <Show when={ep().baseUrl}>
-            <Input
-              size="sm"
-              value={ep().baseUrl}
-              class="border-0 bg-transparent max-w-50 rounded-none"
-              readOnly
+            <EnvironmentBadge
+              baseUrl={ep().baseUrl}
+              environmentBaseUrls={props.environmentBaseUrls}
+              currentEnvironmentId={props.currentEnvironmentId}
+              onEnvironmentChange={props.onEnvironmentChange}
             />
             <div class="w-px self-stretch bg-border shrink-0" />
           </Show>

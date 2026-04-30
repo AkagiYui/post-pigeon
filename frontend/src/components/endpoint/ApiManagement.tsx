@@ -17,7 +17,7 @@ import {
   ProjectService,
 } from "@/../bindings/post-pigeon/internal/services"
 import { SendRequestData } from "@/../bindings/post-pigeon/internal/services"
-import { type EndpointData, EndpointDetail, type ResponseData } from "@/components/endpoint/EndpointDetail"
+import { type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type ResponseData } from "@/components/endpoint/EndpointDetail"
 import { EndpointTree, type TreeNode } from "@/components/endpoint/EndpointTree"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
 import { Button } from "@/components/ui/button"
@@ -28,7 +28,7 @@ import { Tabs } from "@/components/ui/tabs"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
 import { type BodyType, type HTTPMethod } from "@/lib/types"
-import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId } from "@/stores/app"
+import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, setCurrentEnvironment } from "@/stores/app"
 
 // ---- 类型定义 ----
 
@@ -106,6 +106,8 @@ export function ApiManagement(props: ApiManagementProps) {
   const [createFolderParentType, setCreateFolderParentType] = createSignal<"module" | "folder">("module")
   const [createModuleOpen, setCreateModuleOpen] = createSignal(false)
   const [newModuleName, setNewModuleName] = createSignal("")
+  // 当前端点所属模块的所有环境前置 URL 列表（供环境切换下拉使用）
+  const [environmentBaseUrls, setEnvironmentBaseUrls] = createSignal<EnvironmentBaseURLOption[]>([])
 
   // ---- 加载项目树数据 ----
   const loadTree = async () => {
@@ -128,7 +130,7 @@ export function ApiManagement(props: ApiManagementProps) {
 
   // ---- 环境切换或 baseUrl 设置变更时，响应式更新当前端点的 baseUrl ----
   createEffect(on(
-    () => [currentEnvironmentIds()[props.projectId], baseUrlVersion()] as const,
+    () => [currentEnvironmentIds()[props.projectId], baseUrlVersion(), activeTabId()] as const,
     async ([envId]) => {
       const epId = endpointData.id
       // 仅对已保存的端点生效（树中可找到其所属模块）
@@ -139,9 +141,22 @@ export function ApiManagement(props: ApiManagementProps) {
         const urls = await ModuleService.GetModuleBaseURLs(moduleId)
         const matched = urls.find(u => u.environmentId === envId)
         setEndpointData({ baseUrl: matched?.baseUrl || "" } as Partial<EndpointData>)
+        // 构建环境前置 URL 选项列表，供 Badge 下拉切换使用
+        const envs = getProjectEnvironments(props.projectId)
+        const options: EnvironmentBaseURLOption[] = urls.map(u => ({
+          environmentId: u.environmentId,
+          environmentName: envs.find((e: any) => e.id === u.environmentId)?.name || u.environmentId,
+          baseUrl: u.baseUrl,
+        }))
+        setEnvironmentBaseUrls(options)
       } catch { /* 获取 baseUrl 失败时忽略 */ }
     },
   ))
+
+  // ---- 环境切换回调（从 EndpointDetail 的 Badge 下拉触发） ----
+  const handleEnvironmentChange = (environmentId: string) => {
+    setCurrentEnvironment(props.projectId, environmentId)
+  }
 
   // ---- 打开创建文件夹对话框 ----
   const openCreateFolder = (parentId: string | undefined, type: "module" | "folder") => {
@@ -597,6 +612,9 @@ export function ApiManagement(props: ApiManagementProps) {
                 endpoint={endpointData} response={responseData()} sending={sending()}
                 isUnsaved={isActiveTabUnsaved()} onSend={handleSend} onSave={handleSave}
                 onDelete={handleDelete} onChange={handleDataChange}
+                currentEnvironmentId={getCurrentEnvironmentId(props.projectId)}
+                environmentBaseUrls={environmentBaseUrls()}
+                onEnvironmentChange={handleEnvironmentChange}
               /> : null}
             </Tabs>
           </Show>
