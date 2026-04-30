@@ -103,6 +103,7 @@ export function Combobox(props: ComboboxProps) {
     // 等待 DOM 更新后聚焦输入框
     queueMicrotask(() => {
       inputRef?.focus()
+      debugger
     })
   }
 
@@ -160,9 +161,17 @@ export function Combobox(props: ComboboxProps) {
 
   return (
     <div
-      class={cn("combobox-root relative w-fit", props.class)}
+      class={cn("combobox-root relative", props.class)}
       style={{ "min-width": props.minWidth ?? "80px" }}
     >
+      {/* 隐藏标尺：始终存在，以当前值撑住容器宽度，保证编辑态和显示态宽度一致 */}
+      <span
+        class="invisible absolute text-xs font-bold uppercase px-2 whitespace-nowrap"
+        aria-hidden="true"
+      >
+        {props.value}
+      </span>
+
       {/* 显示态：纯展示当前值 */}
       <Show when={!editing()}>
         <button
@@ -179,9 +188,9 @@ export function Combobox(props: ComboboxProps) {
         </button>
       </Show>
 
-      {/* 编辑态：透明输入框（底层保留原始值作为幽灵文字） + 下拉列表 */}
+      {/* 编辑态：绝对定位的输入框（底层保留原始值作为幽灵文字） + 下拉列表 */}
       <Show when={editing()}>
-        <div class="relative w-full h-full">
+        <div class="absolute inset-0 z-20">
           {/* 幽灵文字：输入为空时显示原始值，输入内容后隐藏 */}
           <Show when={!inputValue()}>
             <div
