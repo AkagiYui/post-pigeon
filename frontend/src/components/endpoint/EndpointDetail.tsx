@@ -2,7 +2,7 @@
 // 上：请求方法 + URL + 发送/保存/删除按钮
 // 中：请求设置 tabs (Params/Body/Headers/Auth/设置)
 // 下：响应信息 tabs (Body/Headers/Cookies/实际请求)
-import { ChevronDown, Save, Send, Trash2 } from "lucide-solid"
+import { Check, ChevronDown, Save, Send, Trash2 } from "lucide-solid"
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
@@ -200,7 +200,7 @@ function EnvironmentBadge(props: {
               return (
                 <div
                   class={cn(
-                    "flex items-center justify-between gap-3 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none",
+                    "flex items-center gap-3 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none",
                     isActive
                       ? "bg-accent-muted text-accent"
                       : "text-foreground hover:bg-accent-muted hover:text-accent",
@@ -210,8 +210,14 @@ function EnvironmentBadge(props: {
                     setOpen(false)
                   }}
                 >
-                  {/* 左侧：前置 URL（常规字体） */}
-                  <span class="truncate text-sm">{item.baseUrl || "/"}</span>
+                  {/* 左侧：复选标记 - 当前环境显示勾选图标，其他留空占位 */}
+                  <span class="w-4 shrink-0 flex items-center justify-center">
+                    <Show when={isActive}>
+                      <Check class="w-3.5 h-3.5" />
+                    </Show>
+                  </span>
+                  {/* 中间：前置 URL（常规字体，弹性撑满） */}
+                  <span class="truncate text-sm flex-1 min-w-0">{item.baseUrl || "/"}</span>
                   {/* 右侧：环境名称（低对比度） */}
                   <span class="text-xs text-muted-foreground shrink-0">{item.environmentName}</span>
                 </div>
