@@ -176,14 +176,11 @@ function EnvironmentBadge(props: {
     <>
       <span
         ref={badgeRef}
-        class="inline-flex items-center gap-0.5 px-1.5 py-0.5 text-xs font-medium rounded-sm bg-accent-muted text-accent cursor-pointer select-none hover:opacity-80 transition-opacity max-w-50 truncate"
+        class="inline-flex items-center gap-0.5 px-2 ml-1 my-1 text-xs bg-accent-muted text-accent rounded-sm cursor-pointer select-none hover:opacity-80 transition-opacity max-w-50 truncate"
         onClick={handleBadgeClick}
         title={props.baseUrl}
       >
         <span class="truncate">{props.baseUrl}</span>
-        <Show when={props.environmentBaseUrls && props.environmentBaseUrls.length > 1}>
-          <ChevronDown class="h-3 w-3 shrink-0 opacity-60" />
-        </Show>
       </span>
 
       {/* 环境选择下拉菜单 */}
@@ -289,7 +286,6 @@ export function EndpointDetail(props: EndpointDetailProps) {
               currentEnvironmentId={props.currentEnvironmentId}
               onEnvironmentChange={props.onEnvironmentChange}
             />
-            <div class="w-px self-stretch bg-border shrink-0" />
           </Show>
 
           {/* 端点路径 */}
