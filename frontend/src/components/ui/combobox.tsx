@@ -179,8 +179,9 @@ export function Combobox(props: ComboboxProps) {
         <button
           class={cn(
             "w-full h-full flex items-center px-2 text-xs font-bold uppercase whitespace-nowrap",
-            "cursor-pointer select-none rounded-md transition-colors",
+            "cursor-pointer select-none rounded-l transition-colors",
             props.displayClass,
+            "justify-center",
           )}
           onClick={startEditing}
           disabled={props.disabled}

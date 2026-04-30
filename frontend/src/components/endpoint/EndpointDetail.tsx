@@ -158,7 +158,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
             options={methodOptions}
             value={ep().method}
             onChange={(val) => props.onChange?.({ method: val as HTTPMethod })}
-            minWidth="68px"
+            minWidth="78px"
             customLabel={(val) => val}
             displayClass={methodColors[ep().method] || defaultMethodColor}
             optionTextClass={(val) => METHOD_COLORS[val] || "text-gray-600 dark:text-gray-400"}
