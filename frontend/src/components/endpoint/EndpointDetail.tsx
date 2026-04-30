@@ -190,7 +190,7 @@ function EnvironmentBadge(props: {
           onClick={(e) => { e.stopPropagation(); setOpen(false) }}
         />
         <div
-          class="fixed z-50 min-w-80 bg-surface border border-border rounded-md shadow-lg py-1"
+          class="fixed z-50 min-w-80 bg-surface border border-border rounded-md shadow-lg p-1 flex flex-col gap-0.5"
           style={{ left: `${menuPos().x}px`, top: `${menuPos().y}px` }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -200,7 +200,7 @@ function EnvironmentBadge(props: {
               return (
                 <div
                   class={cn(
-                    "flex items-center gap-3 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none",
+                    "flex items-center gap-3 px-3 py-1 text-sm cursor-pointer transition-colors rounded-sm select-none",
                     isActive
                       ? "bg-accent-muted text-accent"
                       : "text-foreground hover:bg-muted",
