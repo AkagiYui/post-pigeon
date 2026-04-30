@@ -200,45 +200,46 @@ export function EndpointTree(props: EndpointTreeProps) {
   )
 }
 
-/** 根据节点类型创建右键菜单项 */
-function createMenuItems(
+/** 创建节点的完整菜单项（右键菜单和弹出菜单共享） */
+function createAllMenuItems(
   node: TreeNode,
   onCreateEndpoint: EndpointTreeProps["onCreateEndpoint"],
   onCreateFolder: EndpointTreeProps["onCreateFolder"],
+  onRename: EndpointTreeProps["onRename"],
+  onCopy: EndpointTreeProps["onCopy"],
+  onDelete: EndpointTreeProps["onDelete"],
+  onMove: EndpointTreeProps["onMove"],
 ): MenuItem[] {
-  if (node.type === "module") {
-    return [
+  const items: MenuItem[] = []
+
+  // 模块和文件夹：新建接口、新建文件夹
+  if (node.type === "module" || node.type === "folder") {
+    items.push(
       {
         key: "new-endpoint",
         label: t("endpoint.create"),
         icon: <FilePlusCorner class="h-4 w-4 text-blue-500 shrink-0" />,
-        onClick: () => onCreateEndpoint?.(node.id, "module"),
+        onClick: () => onCreateEndpoint?.(node.id, node.type as "module" | "folder"),
       },
       {
         key: "new-folder",
         label: t("folder.create"),
         icon: <FolderPlus class="h-4 w-4 text-amber-500 shrink-0" />,
-        onClick: () => onCreateFolder?.(node.id, "module"),
+        onClick: () => onCreateFolder?.(node.id, node.type as "module" | "folder"),
       },
-    ]
+      { key: "separator-1", label: "", separator: true },
+    )
   }
-  if (node.type === "folder") {
-    return [
-      {
-        key: "new-endpoint",
-        label: t("endpoint.create"),
-        icon: <FilePlusCorner class="h-4 w-4 text-blue-500 shrink-0" />,
-        onClick: () => onCreateEndpoint?.(node.id, "folder"),
-      },
-      {
-        key: "new-folder",
-        label: t("folder.create"),
-        icon: <FolderPlus class="h-4 w-4 text-amber-500 shrink-0" />,
-        onClick: () => onCreateFolder?.(node.id, "folder"),
-      },
-    ]
-  }
-  return []
+
+  // 所有节点：重命名、复制、删除、移动
+  items.push(
+    { key: "rename", label: t("common.rename"), icon: <Pencil class="h-4 w-4 shrink-0" />, onClick: () => onRename?.(node) },
+    { key: "copy", label: t("common.copy"), icon: <Copy class="h-4 w-4 shrink-0" />, onClick: () => onCopy?.(node) },
+    { key: "delete", label: t("common.delete"), icon: <Trash2 class="h-4 w-4 shrink-0" />, onClick: () => onDelete?.(node) },
+    { key: "move", label: t("common.move"), icon: <ArrowUpDown class="h-4 w-4 shrink-0" />, onClick: () => onMove?.(node) },
+  )
+
+  return items
 }
 
 /** 递归过滤树节点，只保留匹配搜索的节点及其祖先路径 */
@@ -279,16 +280,14 @@ function TreeNodeItem(props: {
   const isSelected = () => props.selectedId === props.node.id
   const hasChildren = () => (props.node.children?.length || 0) > 0
 
-  // 三点操作菜单项（重命名、复制、删除、移动）
-  const actionMenuItems = (): MenuItem[] => [
-    { key: "rename", label: t("common.rename"), icon: <Pencil class="h-4 w-4 shrink-0" />, onClick: () => props.onRename?.(props.node) },
-    { key: "copy", label: t("common.copy"), icon: <Copy class="h-4 w-4 shrink-0" />, onClick: () => props.onCopy?.(props.node) },
-    { key: "delete", label: t("common.delete"), icon: <Trash2 class="h-4 w-4 shrink-0" />, onClick: () => props.onDelete?.(props.node) },
-    { key: "move", label: t("common.move"), icon: <ArrowUpDown class="h-4 w-4 shrink-0" />, onClick: () => props.onMove?.(props.node) },
-  ]
+  // 统一的菜单项（右键菜单和弹出菜单共享）
+  const menuItems = () => createAllMenuItems(
+    props.node, props.onCreateEndpoint, props.onCreateFolder,
+    props.onRename, props.onCopy, props.onDelete, props.onMove,
+  )
 
   return (
-    <ContextMenu items={createMenuItems(props.node, props.onCreateEndpoint, props.onCreateFolder)}>
+    <ContextMenu items={menuItems()}>
       <div>
         {/* 节点行 */}
         <div
@@ -340,7 +339,7 @@ function TreeNodeItem(props: {
             <DropdownMenu
               trigger="click"
               placement="cursor"
-              items={actionMenuItems()}
+              items={menuItems()}
             >
               <Button variant="ghost" size="icon-sm" class="h-5 w-5">
                 <Ellipsis class="h-3 w-3" />
