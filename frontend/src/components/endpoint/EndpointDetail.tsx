@@ -200,7 +200,7 @@ function EnvironmentBadge(props: {
               return (
                 <div
                   class={cn(
-                    "flex items-center gap-3 px-3 py-1 text-sm cursor-pointer transition-colors rounded-sm select-none",
+                    "flex items-center gap-1 px-1.5 py-1 text-sm cursor-pointer transition-colors rounded-sm select-none",
                     isActive
                       ? "bg-accent-muted text-accent"
                       : "text-foreground hover:bg-muted",
