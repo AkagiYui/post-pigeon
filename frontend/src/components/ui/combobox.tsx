@@ -33,6 +33,8 @@ export interface ComboboxProps {
   placeholder?: string
   /** 自定义输入选项的标签模板 */
   customLabel?: (value: string) => string
+  /** 选项文字颜色映射，根据选项值返回自定义类名 */
+  optionTextClass?: (value: string) => string
   /** 组件最小宽度 */
   minWidth?: string
   /** 显示态的自定义渲染类名（用于外部自定义颜色等样式） */
@@ -285,7 +287,9 @@ export function Combobox(props: ComboboxProps) {
                     }
                   }}
                 >
-                  <span class="font-bold">{option.label}</span>
+                  <span class={cn("font-bold", props.optionTextClass?.(option.value))}>
+                    {option.label}
+                  </span>
                 </div>
               )}
             </For>

@@ -161,6 +161,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
             minWidth="68px"
             customLabel={(val) => val}
             displayClass={methodColors[ep().method] || defaultMethodColor}
+            optionTextClass={(val) => METHOD_COLORS[val] || "text-gray-600 dark:text-gray-400"}
             class="rounded-l shrink-0"
           />
 
