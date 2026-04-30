@@ -3,10 +3,11 @@
 // 中：请求设置 tabs (Params/Body/Headers/Auth/设置)
 // 下：响应信息 tabs (Body/Headers/Cookies/实际请求)
 import { Save, Send, Trash2 } from "lucide-solid"
-import { createEffect, createSignal, For, on, Show } from "solid-js"
+import { createEffect, createSignal, on, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
+import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import { Input } from "@/components/ui/input"
 import { Tabs } from "@/components/ui/tabs"
 import { Tooltip } from "@/components/ui/tooltip"
@@ -21,8 +22,8 @@ import { HeadersEditor } from "./HeadersEditor"
 import { ParamsEditor } from "./ParamsEditor"
 import { ResponsePanel } from "./ResponsePanel"
 
-/** HTTP 方法选项 */
-const methodOptions = [
+/** HTTP 方法选项（用于 Combobox） */
+const methodOptions: ComboboxOption[] = [
   { value: "GET", label: "GET" },
   { value: "POST", label: "POST" },
   { value: "PUT", label: "PUT" },
@@ -32,27 +33,19 @@ const methodOptions = [
   { value: "OPTIONS", label: "OPTIONS" },
 ]
 
-/** HTTP 方法颜色映射（按钮：文字颜色 + 半透明背景 + hover 加深效果） */
+/** HTTP 方法颜色映射（输入框背景：文字颜色 + 半透明背景） */
 const methodColors: Record<string, string> = {
-  GET: "text-green-600 dark:text-green-400 bg-green-500/10 hover:bg-green-500/20 dark:hover:bg-green-400/20",
-  POST: "text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-400/10 hover:bg-amber-500/20 dark:hover:bg-amber-400/20",
-  PUT: "text-blue-600 dark:text-blue-400 bg-blue-500/10 dark:bg-blue-400/10 hover:bg-blue-500/20 dark:hover:bg-blue-400/20",
-  DELETE: "text-red-600 dark:text-red-400 bg-red-500/10 dark:bg-red-400/10 hover:bg-red-500/20 dark:hover:bg-red-400/20",
-  PATCH: "text-purple-600 dark:text-purple-400 bg-purple-500/10 dark:bg-purple-400/10 hover:bg-purple-500/20 dark:hover:bg-purple-400/20",
-  HEAD: "text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 dark:bg-cyan-400/10 hover:bg-cyan-500/20 dark:hover:bg-cyan-400/20",
-  OPTIONS: "text-gray-600 dark:text-gray-400 bg-gray-500/10 dark:bg-gray-400/10 hover:bg-gray-500/20 dark:hover:bg-gray-400/20",
+  GET: "text-green-600 dark:text-green-400 bg-green-500/10",
+  POST: "text-amber-600 dark:text-amber-400 bg-amber-500/10 dark:bg-amber-400/10",
+  PUT: "text-blue-600 dark:text-blue-400 bg-blue-500/10 dark:bg-blue-400/10",
+  DELETE: "text-red-600 dark:text-red-400 bg-red-500/10 dark:bg-red-400/10",
+  PATCH: "text-purple-600 dark:text-purple-400 bg-purple-500/10 dark:bg-purple-400/10",
+  HEAD: "text-cyan-600 dark:text-cyan-400 bg-cyan-500/10 dark:bg-cyan-400/10",
+  OPTIONS: "text-gray-600 dark:text-gray-400 bg-gray-500/10 dark:bg-gray-400/10",
 }
 
-/** HTTP 方法文字颜色（下拉菜单：仅文字色，无背景） */
-const methodTextColors: Record<string, string> = {
-  GET: "text-green-600 dark:text-green-400",
-  POST: "text-amber-600 dark:text-amber-400",
-  PUT: "text-blue-600 dark:text-blue-400",
-  DELETE: "text-red-600 dark:text-red-400",
-  PATCH: "text-purple-600 dark:text-purple-400",
-  HEAD: "text-cyan-600 dark:text-cyan-400",
-  OPTIONS: "text-gray-600 dark:text-gray-400",
-}
+/** 自定义方法的默认颜色 */
+const defaultMethodColor = "text-gray-600 dark:text-gray-400 bg-gray-500/10 dark:bg-gray-400/10"
 
 /** 请求设置标签 */
 function getRequestTabs() {
@@ -131,10 +124,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
   const [activeRequestTab, setActiveRequestTab] = createSignal("params")
   const [activeResponseTab, setActiveResponseTab] = createSignal("body")
 
-  // 方法选择器下拉状态
-  const [methodOpen, setMethodOpen] = createSignal(false)
-
-  // 端点切换时，从持久化存储中恢复对应的标签页状态
+  // 初始化标签页状态（从持久化存储恢复，或使用默认值）
   createEffect(on(
     () => ep().id,
     (id) => {
@@ -163,45 +153,16 @@ export function EndpointDetail(props: EndpointDetailProps) {
       <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
         {/* 内嵌方法选择器的 URL 输入组 */}
         <div class="flex-1 flex items-stretch border border-border rounded-md bg-input">
-          {/* HTTP 方法选择器按钮 */}
-          <div class="relative flex">
-            <button
-              class={cn(
-                "flex items-center gap-0.5 text-xs px-2 rounded-l whitespace-nowrap",
-                "transition-colors",
-                methodColors[ep().method] || "text-foreground",
-              )}
-              style="font-weight: 600"
-              onClick={() => setMethodOpen(!methodOpen())}
-            >
-              {ep().method}
-            </button>
-            <Show when={methodOpen()}>
-              {/* 下拉遮罩 */}
-              <div class="fixed inset-0 z-40" onClick={() => setMethodOpen(false)} />
-              {/* 下拉菜单 */}
-              <div class="absolute top-full left-0 z-50 mt-0.5 bg-surface border border-border rounded-md shadow-lg overflow-hidden min-w-24">
-                <For each={methodOptions}>
-                  {(opt) => (
-                    <div
-                      class={cn(
-                        "px-3 py-1.5 text-xs cursor-pointer transition-colors select-none",
-                        opt.value === ep().method
-                          ? "bg-accent-muted text-accent"
-                          : "text-foreground hover:bg-muted",
-                      )}
-                      onClick={() => {
-                        props.onChange?.({ method: opt.value as HTTPMethod })
-                        setMethodOpen(false)
-                      }}
-                    >
-                      <span class={cn("font-bold", methodTextColors[opt.value])}>{opt.label}</span>
-                    </div>
-                  )}
-                </For>
-              </div>
-            </Show>
-          </div>
+          {/* HTTP 方法选择器（Combobox：点击后弹出空白输入框，支持搜索筛选和自定义输入） */}
+          <Combobox
+            options={methodOptions}
+            value={ep().method}
+            onChange={(val) => props.onChange?.({ method: val as HTTPMethod })}
+            minWidth="68px"
+            customLabel={(val) => val}
+            displayClass={methodColors[ep().method] || defaultMethodColor}
+            class="rounded-l shrink-0"
+          />
 
           {/* 分隔线 */}
           <div class="w-px self-stretch bg-border shrink-0" />

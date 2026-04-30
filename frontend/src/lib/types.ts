@@ -1,7 +1,7 @@
 // 通用类型定义
 
-/** HTTP 请求方法 */
-export type HTTPMethod = "GET" | "POST" | "PUT" | "DELETE" | "PATCH" | "HEAD" | "OPTIONS"
+/** HTTP 请求方法（支持自定义方法） */
+export type HTTPMethod = string
 
 /** 请求体类型 */
 export type BodyType = "none" | "form-data" | "x-www-form-urlencoded" | "json" | "text"
