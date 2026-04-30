@@ -203,7 +203,7 @@ function EnvironmentBadge(props: {
                     "flex items-center gap-3 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none",
                     isActive
                       ? "bg-accent-muted text-accent"
-                      : "text-foreground hover:bg-accent-muted hover:text-accent",
+                      : "text-foreground hover:bg-muted",
                   )}
                   onClick={() => {
                     props.onEnvironmentChange?.(item.environmentId)
