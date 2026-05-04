@@ -12,6 +12,8 @@ build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 __pycache__
 
+.DS_Store
+
 # IDE
 .vscode/
 
