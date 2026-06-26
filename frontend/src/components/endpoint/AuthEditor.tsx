@@ -1,6 +1,7 @@
-// 认证信息编辑器
-import { createSignal, Show } from "solid-js"
+// 认证信息编辑器（受控组件）
+import { Show } from "solid-js"
 
+import type { AuthState } from "@/components/endpoint/EndpointDetail"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { t } from "@/hooks/useI18n"
@@ -12,11 +13,13 @@ const authTypeOptions = [
   { value: "bearer", label: t("endpoint.auth.bearer") },
 ]
 
-export function AuthEditor() {
-  const [authType, setAuthType] = createSignal<AuthType>("none")
-  const [username, setUsername] = createSignal("")
-  const [password, setPassword] = createSignal("")
-  const [token, setToken] = createSignal("")
+export interface AuthEditorProps {
+  value: AuthState
+  onChange: (value: AuthState) => void
+}
+
+export function AuthEditor(props: AuthEditorProps) {
+  const patch = (p: Partial<AuthState>) => props.onChange({ ...props.value, ...p })
 
   return (
     <div class="p-3 space-y-4">
@@ -24,29 +27,29 @@ export function AuthEditor() {
         <label class="text-sm font-medium w-20 shrink-0">{t("common.type")}</label>
         <Select
           options={authTypeOptions}
-          value={authType()}
-          onChange={(v) => setAuthType(v as AuthType)}
+          value={props.value.type}
+          onChange={(v) => patch({ type: v as AuthType })}
           class="w-48"
         />
       </div>
 
-      <Show when={authType() === "basic"}>
+      <Show when={props.value.type === "basic"}>
         <div class="space-y-3">
           <div class="flex items-center gap-3">
             <label class="text-sm w-20 shrink-0">{t("endpoint.auth.username")}</label>
-            <Input value={username()} onInput={(e) => setUsername(e.currentTarget.value)} class="flex-1" />
+            <Input value={props.value.username} onInput={(e) => patch({ username: e.currentTarget.value })} class="flex-1" />
           </div>
           <div class="flex items-center gap-3">
             <label class="text-sm w-20 shrink-0">{t("endpoint.auth.password")}</label>
-            <Input type="password" value={password()} onInput={(e) => setPassword(e.currentTarget.value)} class="flex-1" />
+            <Input type="password" value={props.value.password} onInput={(e) => patch({ password: e.currentTarget.value })} class="flex-1" />
           </div>
         </div>
       </Show>
 
-      <Show when={authType() === "bearer"}>
+      <Show when={props.value.type === "bearer"}>
         <div class="flex items-center gap-3">
           <label class="text-sm w-20 shrink-0">{t("endpoint.auth.token")}</label>
-          <Input value={token()} onInput={(e) => setToken(e.currentTarget.value)} placeholder={t("common.bearerToken")} class="flex-1" />
+          <Input value={props.value.token} onInput={(e) => patch({ token: e.currentTarget.value })} placeholder={t("common.bearerToken")} class="flex-1" />
         </div>
       </Show>
     </div>

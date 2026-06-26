@@ -12,7 +12,7 @@ import { Input } from "@/components/ui/input"
 import { Tabs } from "@/components/ui/tabs"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
-import { type BodyType, CONTENT_TYPES, formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS } from "@/lib/types"
+import { type AuthType, type BodyType, CONTENT_TYPES, formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 import { AuthEditor } from "./AuthEditor"
@@ -79,6 +79,54 @@ export interface EndpointData {
   timeout: number
   followRedirects: boolean
   baseUrl: string
+  params: ParamRow[]
+  headers: HeaderRow[]
+  bodyFields: BodyFieldRow[]
+  auth: AuthState
+}
+
+/** 查询参数行（前端编辑态，id 仅用于列表 key，不入库） */
+export interface ParamRow {
+  id: string
+  name: string
+  value: string
+  description: string
+  enabled: boolean
+}
+
+/** 请求头行 */
+export interface HeaderRow {
+  id: string
+  name: string
+  value: string
+  description: string
+  enabled: boolean
+}
+
+/** 请求体字段行（form-data / x-www-form-urlencoded） */
+export interface BodyFieldRow {
+  id: string
+  name: string
+  value: string
+  fieldType: "text" | "file"
+  enabled: boolean
+  /** 文件名（fieldType=file 时有效） */
+  fileName?: string
+  /** 文件内容 base64（fieldType=file 时有效，不含 data: 前缀） */
+  fileContent?: string
+}
+
+/** 认证编辑态 */
+export interface AuthState {
+  type: AuthType
+  username: string
+  password: string
+  token: string
+}
+
+/** 默认空认证 */
+export function emptyAuth(): AuthState {
+  return { type: "none", username: "", password: "", token: "" }
 }
 
 export interface ResponseData {
@@ -86,6 +134,8 @@ export interface ResponseData {
   timing: { total: number; dnsLookup: number; tlsHandshake: number; tcpConnect: number; ttfb: number }
   size: number
   body: string
+  /** 原始响应字节 base64，供按字符集解码（可能缺省，如历史记录） */
+  rawBody?: string
   headers: Record<string, string[]>
   cookies: any[]
   contentType: string
@@ -329,11 +379,21 @@ export function EndpointDetail(props: EndpointDetailProps) {
         >
           {(key) => {
             switch (key) {
-              case "params": return <ParamsEditor />
-              case "body": return <BodyEditor bodyType={ep().bodyType} onChange={(bt) => props.onChange?.({ bodyType: bt })} />
-              case "headers": return <HeadersEditor />
-              case "auth": return <AuthEditor />
-              case "settings": return <EndpointSettingsEditor timeout={ep().timeout} followRedirects={ep().followRedirects} />
+              case "params": return <ParamsEditor value={ep().params} onChange={(v) => props.onChange?.({ params: v })} />
+              case "body": return <BodyEditor
+                bodyType={ep().bodyType}
+                bodyContent={ep().bodyContent}
+                contentType={ep().contentType}
+                fields={ep().bodyFields}
+                onChange={(patch) => props.onChange?.(patch)}
+              />
+              case "headers": return <HeadersEditor value={ep().headers} onChange={(v) => props.onChange?.({ headers: v })} />
+              case "auth": return <AuthEditor value={ep().auth} onChange={(v) => props.onChange?.({ auth: v })} />
+              case "settings": return <EndpointSettingsEditor
+                timeout={ep().timeout}
+                followRedirects={ep().followRedirects}
+                onChange={(patch) => props.onChange?.(patch)}
+              />
               default: return null
             }
           }}

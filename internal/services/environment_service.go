@@ -122,19 +122,13 @@ func (s *EnvironmentService) ResolveVariables(environmentID string, input string
 		return input, err
 	}
 
-	// 构建变量映射（跳过禁用的变量）
-	varMap := make(map[string]string)
+	// 按变量的排序顺序依次替换（确定性：避免 map 遍历顺序导致嵌套变量结果不稳定）
+	// variables 已按 sort_order 升序返回；同名变量以先出现者为准
+	result := input
 	for _, v := range variables {
 		if v.Enabled {
-			varMap[v.Key] = v.Value
+			result = replaceAll(result, "{{"+v.Key+"}}", v.Value)
 		}
-	}
-
-	// 简单的模板替换
-	result := input
-	for key, value := range varMap {
-		placeholder := "{{" + key + "}}"
-		result = replaceAll(result, placeholder, value)
 	}
 
 	return result, nil

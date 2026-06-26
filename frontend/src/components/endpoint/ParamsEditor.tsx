@@ -1,25 +1,20 @@
-// 请求参数编辑器
+// 请求参数编辑器（受控组件）
 import { Plus, Trash2 } from "lucide-solid"
-import { createSignal, For } from "solid-js"
 
+import type { ParamRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table } from "@/components/ui/table"
 import { t } from "@/hooks/useI18n"
 
-interface ParamRow {
-  id: string
-  name: string
-  value: string
-  description: string
-  enabled: boolean
+export interface ParamsEditorProps {
+  value: ParamRow[]
+  onChange: (rows: ParamRow[]) => void
 }
 
-export function ParamsEditor() {
-  const [params, setParams] = createSignal<ParamRow[]>([])
-
+export function ParamsEditor(props: ParamsEditorProps) {
   const addParam = () => {
-    setParams(prev => [...prev, {
+    props.onChange([...props.value, {
       id: crypto.randomUUID(),
       name: "",
       value: "",
@@ -29,11 +24,11 @@ export function ParamsEditor() {
   }
 
   const removeParam = (id: string) => {
-    setParams(prev => prev.filter(p => p.id !== id))
+    props.onChange(props.value.filter(p => p.id !== id))
   }
 
   const updateParam = (id: string, field: keyof ParamRow, value: string | boolean) => {
-    setParams(prev => prev.map(p => p.id === id ? { ...p, [field]: value } : p))
+    props.onChange(props.value.map(p => p.id === id ? { ...p, [field]: value } : p))
   }
 
   return (
@@ -73,7 +68,7 @@ export function ParamsEditor() {
             ),
           },
         ]}
-        data={params()}
+        data={props.value}
         compact
         emptyText={t("endpoint.param.add")}
       />

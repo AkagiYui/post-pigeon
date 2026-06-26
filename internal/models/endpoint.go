@@ -72,7 +72,7 @@ type EndpointParam struct {
 	Name        string `gorm:"not null" json:"name"`
 	Value       string `json:"value"`
 	Description string `json:"description"`
-	Enabled     bool   `gorm:"default:true" json:"enabled"`
+	Enabled     bool   `json:"enabled"`
 }
 
 // BeforeCreate 创建前自动生成 UUID
@@ -90,7 +90,7 @@ type EndpointBodyField struct {
 	Name       string `gorm:"not null" json:"name"`
 	Value      string `json:"value"`
 	FieldType  string `gorm:"default:text" json:"fieldType"` // text, file
-	Enabled    bool   `gorm:"default:true" json:"enabled"`
+	Enabled    bool   `json:"enabled"`
 }
 
 // BeforeCreate 创建前自动生成 UUID
@@ -108,7 +108,7 @@ type EndpointHeader struct {
 	Name        string `gorm:"not null" json:"name"`
 	Value       string `json:"value"`
 	Description string `json:"description"`
-	Enabled     bool   `gorm:"default:true" json:"enabled"`
+	Enabled     bool   `json:"enabled"`
 }
 
 // BeforeCreate 创建前自动生成 UUID

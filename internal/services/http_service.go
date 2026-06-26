@@ -1,13 +1,18 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"crypto/tls"
+	"encoding/base64"
+	"encoding/json"
 	"fmt"
 	"io"
 	"log/slog"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
+	"net/http/httptrace"
 	"net/http/httputil"
 	"net/url"
 	"post-pigeon/internal/models"
@@ -48,9 +53,11 @@ type SendRequestData struct {
 
 // HTTPResponseData HTTP 响应数据
 type HTTPResponseData struct {
-	StatusCode    int                      `json:"statusCode"`
-	Headers       map[string][]string      `json:"headers"`
-	Body          string                   `json:"body"`
+	StatusCode int                 `json:"statusCode"`
+	Headers    map[string][]string `json:"headers"`
+	Body       string              `json:"body"`
+	// RawBody 原始响应字节的 base64 编码，供前端按任意字符集解码（GBK 等）
+	RawBody       string                   `json:"rawBody"`
 	ContentType   string                   `json:"contentType"`
 	Cookies       []models.CookieInfo      `json:"cookies"`
 	Timing        models.TimingInfo        `json:"timing"`
@@ -209,6 +216,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		StatusCode:    resp.StatusCode,
 		Headers:       resp.Header,
 		Body:          string(bodyBytes),
+		RawBody:       base64.StdEncoding.EncodeToString(bodyBytes),
 		ContentType:   resp.Header.Get("Content-Type"),
 		Cookies:       cookies,
 		Timing:        timing,
@@ -246,29 +254,44 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, en
 		}
 
 	case string(models.BodyTypeFormData):
-		// multipart/form-data
-		var buf strings.Builder
-		boundary := fmt.Sprintf("----PostPigeonBoundary%d", time.Now().UnixNano())
+		// multipart/form-data：用标准库 multipart.Writer 正确处理文本字段与文件字段（含二进制内容）
+		var buf bytes.Buffer
+		writer := multipart.NewWriter(&buf)
 		for _, field := range data.BodyFields {
 			if !field.Enabled {
 				continue
 			}
-			resolvedValue, _ := envService.ResolveVariables(data.EnvironmentID, field.Value)
-			buf.WriteString(fmt.Sprintf("--%s\r\n", boundary))
 			if field.FieldType == "file" {
-				buf.WriteString(fmt.Sprintf("Content-Disposition: form-data; name=\"%s\"; filename=\"%s\"\r\n\r\n", field.Name, resolvedValue))
+				// 文件字段：value 约定为 {"fileName":..,"content":<base64>}
+				fileName, content, ok := parseFileField(field.Value)
+				if !ok {
+					// 兼容旧数据：value 当作文件名，无内容
+					fileName = field.Value
+				}
+				part, err := writer.CreateFormFile(field.Name, fileName)
+				if err != nil {
+					return fmt.Errorf("创建文件表单项失败: %w", err)
+				}
+				if _, err := part.Write(content); err != nil {
+					return fmt.Errorf("写入文件内容失败: %w", err)
+				}
 			} else {
-				buf.WriteString(fmt.Sprintf("Content-Disposition: form-data; name=\"%s\"\r\n\r\n%s\r\n", field.Name, resolvedValue))
+				resolvedValue, _ := envService.ResolveVariables(data.EnvironmentID, field.Value)
+				if err := writer.WriteField(field.Name, resolvedValue); err != nil {
+					return fmt.Errorf("写入表单字段失败: %w", err)
+				}
 			}
 		}
-		buf.WriteString(fmt.Sprintf("--%s--\r\n", boundary))
-		body := buf.String()
-		req.Body = io.NopCloser(strings.NewReader(body))
+		if err := writer.Close(); err != nil {
+			return fmt.Errorf("关闭 multipart writer 失败: %w", err)
+		}
+		body := buf.Bytes()
+		req.Body = io.NopCloser(bytes.NewReader(body))
 		req.GetBody = func() (io.ReadCloser, error) {
-			return io.NopCloser(strings.NewReader(body)), nil
+			return io.NopCloser(bytes.NewReader(body)), nil
 		}
 		req.ContentLength = int64(len(body))
-		req.Header.Set("Content-Type", fmt.Sprintf("multipart/form-data; boundary=%s", boundary))
+		req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	case string(models.BodyTypeURLEncoded):
 		// application/x-www-form-urlencoded
@@ -363,6 +386,22 @@ func (s *HTTPService) saveResponseAndHistory(data SendRequestData, resp *HTTPRes
 	}
 }
 
+// parseFileField 解析文件字段的 value（前端约定为 {"fileName":..,"content":<base64>} JSON）
+func parseFileField(value string) (fileName string, content []byte, ok bool) {
+	var payload struct {
+		FileName string `json:"fileName"`
+		Content  string `json:"content"`
+	}
+	if err := json.Unmarshal([]byte(value), &payload); err != nil {
+		return "", nil, false
+	}
+	decoded, err := base64.StdEncoding.DecodeString(payload.Content)
+	if err != nil {
+		return "", nil, false
+	}
+	return payload.FileName, decoded, true
+}
+
 // combineURL 组合基础 URL 和路径
 func combineURL(baseURL, path string) string {
 	if baseURL == "" {
@@ -431,9 +470,22 @@ type httptraceCollector struct {
 }
 
 func (t *httptraceCollector) attach(ctx context.Context) context.Context {
-	// 使用 net/http/httptrace 进行计时
-	// 注意：这里简化实现，使用基本的计时
-	return ctx
+	// 安装 httptrace 钩子，记录各阶段时间点，用于计算 DNS/TCP/TLS/TTFB 分解
+	trace := &httptrace.ClientTrace{
+		DNSStart: func(httptrace.DNSStartInfo) { *t.dnsStart = time.Now() },
+		DNSDone:  func(httptrace.DNSDoneInfo) { *t.dnsEnd = time.Now() },
+		ConnectStart: func(_, _ string) {
+			// 可能多次回调（IPv4/IPv6），仅记录第一次
+			if t.connectStart.IsZero() {
+				*t.connectStart = time.Now()
+			}
+		},
+		ConnectDone:          func(_, _ string, _ error) { *t.connectEnd = time.Now() },
+		TLSHandshakeStart:    func() { *t.tlsStart = time.Now() },
+		TLSHandshakeDone:     func(tls.ConnectionState, error) { *t.tlsEnd = time.Now() },
+		GotFirstResponseByte: func() { *t.gotFirstByte = time.Now() },
+	}
+	return httptrace.WithClientTrace(ctx, trace)
 }
 
 // DumpRequest 导出请求信息（用于调试）

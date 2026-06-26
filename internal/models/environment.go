@@ -34,8 +34,9 @@ type EnvironmentVariable struct {
 	Key           string `gorm:"not null" json:"key"`
 	Value         string `json:"value"`
 	Description   string `json:"description"`
-	// Enabled 是否启用，默认启用
-	Enabled bool `gorm:"not null;default:true" json:"enabled"`
+	// Enabled 是否启用，默认启用。
+	// 注意：不能用 gorm default:true，否则 GORM 会丢弃 bool 零值 false，导致"禁用"无法保存
+	Enabled bool `gorm:"not null" json:"enabled"`
 	// SortOrder 排序序号，用于拖拽排序
 	SortOrder int `gorm:"not null;default:0" json:"sortOrder"`
 	// IsSecret 是否为秘密变量，秘密变量的值在前端默认显示为密码

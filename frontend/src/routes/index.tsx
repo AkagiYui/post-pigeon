@@ -9,10 +9,10 @@ import {
   SortableProvider,
   transformStyle,
 } from "@thisbeyond/solid-dnd"
-import { FolderOpen, GripVertical, Plus, Trash2, TriangleAlert, Upload } from "lucide-solid"
+import { Download, FolderOpen, GripVertical, Plus, Trash2, TriangleAlert, Upload } from "lucide-solid"
 import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 
-import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
+import { ImportExportService, ProjectService } from "@/../bindings/post-pigeon/internal/services"
 import { Button } from "@/components/ui/button"
 import { ContextMenu } from "@/components/ui/context-menu"
 import { Dialog } from "@/components/ui/dialog"
@@ -181,10 +181,39 @@ function HomePage() {
     }
   }
 
-  // 导入项目
+  // 导入项目：弹出文件选择，读取 JSON 后调用后端导入
   const handleImport = async () => {
-    // TODO: 实现文件选择对话框
-    console.log("导入项目")
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = "application/json,.json"
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      try {
+        const text = await file.text()
+        const project = await ImportExportService.ImportProject(text)
+        if (project) await loadProjects()
+      } catch (e) {
+        console.error("导入项目失败", e)
+      }
+    }
+    input.click()
+  }
+
+  // 导出项目：调用后端生成 JSON 并触发浏览器下载
+  const handleExport = async (project: Project) => {
+    try {
+      const json = await ImportExportService.ExportProject(project.id)
+      const blob = new Blob([json], { type: "application/json" })
+      const url = URL.createObjectURL(blob)
+      const a = document.createElement("a")
+      a.href = url
+      a.download = `${project.name || "project"}.json`
+      a.click()
+      URL.revokeObjectURL(url)
+    } catch (e) {
+      console.error("导出项目失败", e)
+    }
   }
 
   // 拖拽排序结束回调
@@ -242,6 +271,12 @@ function HomePage() {
           openProject(project.id)
           navigate({ to: "/project/$id", params: { id: project.id }, from: "/" })
         },
+      },
+      {
+        key: "export",
+        label: t("project.export"),
+        icon: <Download class="h-3.5 w-3.5" />,
+        onClick: () => handleExport(project),
       },
       { key: "sep1", label: "", separator: true },
       {

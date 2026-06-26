@@ -1,25 +1,20 @@
-// 请求头编辑器
+// 请求头编辑器（受控组件）
 import { Plus, Trash2 } from "lucide-solid"
-import { createSignal, For } from "solid-js"
 
+import type { HeaderRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table } from "@/components/ui/table"
 import { t } from "@/hooks/useI18n"
 
-interface HeaderRow {
-  id: string
-  name: string
-  value: string
-  description: string
-  enabled: boolean
+export interface HeadersEditorProps {
+  value: HeaderRow[]
+  onChange: (rows: HeaderRow[]) => void
 }
 
-export function HeadersEditor() {
-  const [headers, setHeaders] = createSignal<HeaderRow[]>([])
-
+export function HeadersEditor(props: HeadersEditorProps) {
   const addHeader = () => {
-    setHeaders(prev => [...prev, {
+    props.onChange([...props.value, {
       id: crypto.randomUUID(),
       name: "",
       value: "",
@@ -29,11 +24,11 @@ export function HeadersEditor() {
   }
 
   const removeHeader = (id: string) => {
-    setHeaders(prev => prev.filter(h => h.id !== id))
+    props.onChange(props.value.filter(h => h.id !== id))
   }
 
   const updateHeader = (id: string, field: keyof HeaderRow, value: string | boolean) => {
-    setHeaders(prev => prev.map(h => h.id === id ? { ...h, [field]: value } : h))
+    props.onChange(props.value.map(h => h.id === id ? { ...h, [field]: value } : h))
   }
 
   return (
@@ -45,6 +40,7 @@ export function HeadersEditor() {
               <input
                 type="checkbox"
                 checked={row.enabled}
+                onChange={(e) => updateHeader(row.id, "enabled", e.currentTarget.checked)}
                 class="rounded border-border"
               />
             ),
@@ -72,7 +68,7 @@ export function HeadersEditor() {
             ),
           },
         ]}
-        data={headers() as any[]}
+        data={props.value}
         compact
       />
       <Button variant="outline" size="sm" class="mt-2" onClick={addHeader}>

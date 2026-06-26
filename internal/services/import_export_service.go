@@ -172,6 +172,9 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 			return fmt.Errorf("创建项目失败: %w", err)
 		}
 
+		// 旧环境 ID -> 新环境 ID 映射，用于恢复模块前置 URL
+		envIDMap := make(map[string]string)
+
 		// 导入环境
 		for _, env := range data.Environments {
 			newEnv := models.Environment{
@@ -197,8 +200,8 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 				}
 			}
 
-			// 更新环境 ID 映射（用于模块前置 URL）
-			// 这里简化处理，导入后用户需要重新配置前置 URL
+			// 记录旧->新环境 ID 映射，供恢复模块前置 URL 使用
+			envIDMap[env.ID] = newEnv.ID
 		}
 
 		// 导入模块
@@ -210,6 +213,21 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 			}
 			if err := tx.Create(&newModule).Error; err != nil {
 				return err
+			}
+
+			// 恢复模块在各环境下的前置 URL（按映射转换环境 ID）
+			for _, bu := range me.BaseURLs {
+				newEnvID, ok := envIDMap[bu.EnvironmentID]
+				if !ok || bu.BaseURL == "" {
+					continue
+				}
+				if err := tx.Create(&models.ModuleBaseURL{
+					ModuleID:      newModule.ID,
+					EnvironmentID: newEnvID,
+					BaseURL:       bu.BaseURL,
+				}).Error; err != nil {
+					return err
+				}
 			}
 
 			// 导入文件夹

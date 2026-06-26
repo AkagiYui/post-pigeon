@@ -3,6 +3,7 @@
 // 支持未保存的请求标签页和已保存的端点标签页
 import { createEffect, createSignal, For, on, onMount, Show } from "solid-js"
 
+import { EndpointAuth, EndpointBodyField, EndpointHeader, EndpointParam } from "@/../bindings/post-pigeon/internal/models"
 import type {
   EndpointDetail as EndpointDetailType,
   FolderTree,
@@ -17,7 +18,7 @@ import {
   ProjectService,
 } from "@/../bindings/post-pigeon/internal/services"
 import { SendRequestData } from "@/../bindings/post-pigeon/internal/services"
-import { type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type ResponseData } from "@/components/endpoint/EndpointDetail"
+import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type HeaderRow, type ParamRow, type ResponseData } from "@/components/endpoint/EndpointDetail"
 import { EndpointTree, type TreeNode } from "@/components/endpoint/EndpointTree"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
 import { Button } from "@/components/ui/button"
@@ -52,12 +53,88 @@ interface UnsavedRequestData {
   timeout: number
   followRedirects: boolean
   baseUrl: string
+  params: ParamRow[]
+  headers: HeaderRow[]
+  bodyFields: BodyFieldRow[]
+  auth: AuthState
 }
 
 let tempIdCounter = 0
 function generateTempId(): string {
   tempIdCounter++
   return `__unsaved_${tempIdCounter}_${Date.now()}`
+}
+
+// ---- 编辑态行类型 ⇄ 后端绑定模型的相互转换 ----
+
+function toParamModels(rows: ParamRow[]): EndpointParam[] {
+  return rows.filter(r => r.name.trim()).map(r => new EndpointParam({
+    type: "query", name: r.name, value: r.value, description: r.description, enabled: r.enabled,
+  }))
+}
+
+function toHeaderModels(rows: HeaderRow[]): EndpointHeader[] {
+  return rows.filter(r => r.name.trim()).map(r => new EndpointHeader({
+    name: r.name, value: r.value, description: r.description, enabled: r.enabled,
+  }))
+}
+
+function toBodyFieldModels(rows: BodyFieldRow[]): EndpointBodyField[] {
+  return rows.filter(r => r.name.trim()).map(r => new EndpointBodyField({
+    name: r.name,
+    fieldType: r.fieldType,
+    enabled: r.enabled,
+    // 文件字段把文件名与 base64 内容打包进 value，后端按约定解析
+    value: r.fieldType === "file"
+      ? JSON.stringify({ fileName: r.fileName || "", content: r.fileContent || "" })
+      : r.value,
+  }))
+}
+
+function toAuthModel(a: AuthState): EndpointAuth | null {
+  if (!a || a.type === "none") return null
+  const data = a.type === "basic"
+    ? JSON.stringify({ username: a.username, password: a.password })
+    : JSON.stringify({ token: a.token })
+  return new EndpointAuth({ type: a.type, data })
+}
+
+function fromParamModels(arr?: EndpointParam[] | null): ParamRow[] {
+  return (arr || []).map(p => ({ id: crypto.randomUUID(), name: p.name, value: p.value, description: p.description, enabled: p.enabled }))
+}
+
+function fromHeaderModels(arr?: EndpointHeader[] | null): HeaderRow[] {
+  return (arr || []).map(h => ({ id: crypto.randomUUID(), name: h.name, value: h.value, description: h.description, enabled: h.enabled }))
+}
+
+function fromBodyFieldModels(arr?: EndpointBodyField[] | null): BodyFieldRow[] {
+  return (arr || []).map(f => {
+    const fieldType: "text" | "file" = f.fieldType === "file" ? "file" : "text"
+    const row: BodyFieldRow = { id: crypto.randomUUID(), name: f.name, value: f.value, fieldType, enabled: f.enabled }
+    if (fieldType === "file") {
+      try {
+        const parsed = JSON.parse(f.value)
+        row.fileName = parsed.fileName || ""
+        row.fileContent = parsed.content || ""
+        row.value = ""
+      } catch {
+        // 兼容旧数据：value 直接是文件名
+        row.fileName = f.value
+        row.fileContent = ""
+      }
+    }
+    return row
+  })
+}
+
+function fromAuthModel(a?: EndpointAuth | null): AuthState {
+  if (!a || !a.type || a.type === "none") return emptyAuth()
+  let d: { username?: string; password?: string; token?: string } = {}
+  try { d = a.data ? JSON.parse(a.data) : {} } catch { d = {} }
+  return {
+    type: a.type === "basic" || a.type === "bearer" ? a.type : "none",
+    username: d.username || "", password: d.password || "", token: d.token || "",
+  }
 }
 
 export interface ApiManagementProps {
@@ -85,6 +162,7 @@ export function ApiManagement(props: ApiManagementProps) {
     id: "", name: "", method: "GET" as HTTPMethod, path: "",
     bodyType: "none" as BodyType, bodyContent: "", contentType: "",
     timeout: 30000, followRedirects: true, baseUrl: "",
+    params: [], headers: [], bodyFields: [], auth: emptyAuth(),
   }
   // 使用 createCachedStore 替代 createStore，自动缓存且保持细粒度响应式
   const [endpointData, setEndpointData] = cache.createCachedStore<EndpointData>("endpointData", { ...emptyEndpoint })
@@ -337,6 +415,7 @@ export function ApiManagement(props: ApiManagementProps) {
       id: tempId, name: t("endpoint.newRequest"), method: "GET" as HTTPMethod,
       path: "/", bodyType: "none" as BodyType, bodyContent: "", contentType: "",
       timeout: 30000, followRedirects: true, baseUrl: "",
+      params: [], headers: [], bodyFields: [], auth: emptyAuth(),
     }
     setUnsavedRequests(prev => ({ ...prev, [tempId]: unsaved }))
     setRequestTabs(prev => [...prev, { id: tempId, name: unsaved.name, method: unsaved.method, saved: false, dirty: false }])
@@ -345,6 +424,7 @@ export function ApiManagement(props: ApiManagementProps) {
       id: tempId, name: unsaved.name, method: unsaved.method, path: unsaved.path,
       bodyType: unsaved.bodyType, bodyContent: unsaved.bodyContent, contentType: unsaved.contentType,
       timeout: unsaved.timeout, followRedirects: unsaved.followRedirects, baseUrl: unsaved.baseUrl,
+      params: [], headers: [], bodyFields: [], auth: emptyAuth(),
     } as EndpointData)
     setResponseData(null)
   }
@@ -382,6 +462,10 @@ export function ApiManagement(props: ApiManagementProps) {
           path: detail.path, bodyType: detail.bodyType as BodyType, bodyContent: detail.bodyContent,
           contentType: detail.contentType, timeout: detail.timeout, followRedirects: detail.followRedirects,
           baseUrl,
+          params: fromParamModels(detail.params),
+          headers: fromHeaderModels(detail.headers),
+          bodyFields: fromBodyFieldModels(detail.bodyFields),
+          auth: fromAuthModel(detail.auth),
         } as EndpointData)
         if (detail.response) {
           const ti = detail.response.timing ? JSON.parse(detail.response.timing) : { total: 0, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0, ttfb: 0 }
@@ -409,6 +493,8 @@ export function ApiManagement(props: ApiManagementProps) {
         id: unsaved.id, name: unsaved.name, method: unsaved.method, path: unsaved.path,
         bodyType: unsaved.bodyType, bodyContent: unsaved.bodyContent, contentType: unsaved.contentType,
         timeout: unsaved.timeout, followRedirects: unsaved.followRedirects, baseUrl: unsaved.baseUrl,
+        params: unsaved.params ?? [], headers: unsaved.headers ?? [],
+        bodyFields: unsaved.bodyFields ?? [], auth: unsaved.auth ?? emptyAuth(),
       } as EndpointData)
     }
   }
@@ -438,12 +524,14 @@ export function ApiManagement(props: ApiManagementProps) {
       const sendData = new SendRequestData()
       const ct = requestTabs().find(t => t.id === activeTabId())
       sendData.endpointId = ct?.saved ? ep.id : ""
-      sendData.moduleId = ""
+      // 已保存端点：带上所属模块 ID，后端据此记录请求历史
+      sendData.moduleId = ct?.saved ? (findModuleIdByNodeId(treeData(), ep.id) || "") : ""
       sendData.environmentId = getCurrentEnvironmentId(props.projectId)
       sendData.method = ep.method; sendData.baseUrl = ep.baseUrl; sendData.path = ep.path
-      sendData.headers = []; sendData.params = []; sendData.bodyType = ep.bodyType
+      sendData.headers = toHeaderModels(ep.headers); sendData.params = toParamModels(ep.params)
+      sendData.bodyType = ep.bodyType
       sendData.bodyContent = ep.bodyContent; sendData.contentType = ep.contentType
-      sendData.bodyFields = []; sendData.auth = null
+      sendData.bodyFields = toBodyFieldModels(ep.bodyFields); sendData.auth = toAuthModel(ep.auth)
       sendData.timeout = ep.timeout; sendData.followRedirects = ep.followRedirects
 
       const resp = await HTTPService.SendRequest(sendData)
@@ -451,7 +539,7 @@ export function ApiManagement(props: ApiManagementProps) {
         setResponseData({
           statusCode: resp.statusCode,
           timing: { total: resp.timing?.total || 0, dnsLookup: resp.timing?.dnsLookup || 0, tlsHandshake: resp.timing?.tlsHandshake || 0, tcpConnect: resp.timing?.tcpConnect || 0, ttfb: resp.timing?.ttfb || 0 },
-          size: resp.size, body: resp.body, headers: resp.headers as any,
+          size: resp.size, body: resp.body, rawBody: resp.rawBody, headers: resp.headers as any,
           cookies: resp.cookies as any || [], contentType: resp.contentType,
           actualRequest: resp.actualRequest,
         })
@@ -484,7 +572,8 @@ export function ApiManagement(props: ApiManagementProps) {
         id: ep.id, name: ep.name, method: ep.method, path: ep.path,
         bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
         timeout: ep.timeout, followRedirects: ep.followRedirects,
-        params: [], bodyFields: [], headers: [], auth: null,
+        params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
+        headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
       })
       setRequestTabs(pt => pt.map(t => t.id === ep.id ? { ...t, dirty: false } : t))
       await loadTree()
@@ -504,7 +593,8 @@ export function ApiManagement(props: ApiManagementProps) {
         id: "", name, method: ep.method, path: ep.path,
         bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
         timeout: ep.timeout, followRedirects: ep.followRedirects,
-        params: [], bodyFields: [], headers: [], auth: null,
+        params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
+        headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
       })
       if (created) {
         setRequestTabs(pt => pt.map(t => t.id === ct.id ? { id: created.id, name, method: ep.method as HTTPMethod, saved: true, dirty: false } : t))

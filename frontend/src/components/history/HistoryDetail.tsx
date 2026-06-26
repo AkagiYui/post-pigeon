@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"
 import { Tabs } from "@/components/ui/tabs"
 import { t } from "@/hooks/useI18n"
+import { formatBody } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export interface HistoryDetailProps {
@@ -217,7 +218,7 @@ export function HistoryDetail(props: HistoryDetailProps) {
                                       fallback={
                                         <pre class="text-sm font-mono whitespace-pre-wrap break-all text-foreground">
                                           <Show when={detail()!.responseBody} fallback={t("response.empty")}>
-                                            {renderMode() === "pretty" && format() === "json" ? formatJson(detail()!.responseBody) : detail()!.responseBody}
+                                            {renderMode() === "pretty" ? formatBody(detail()!.responseBody, format()) : detail()!.responseBody}
                                           </Show>
                                         </pre>
                                       }

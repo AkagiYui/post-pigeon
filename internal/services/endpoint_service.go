@@ -38,16 +38,23 @@ func (s *EndpointService) GetEndpoint(id string) (*EndpointDetail, error) {
 
 	detail := &EndpointDetail{Endpoint: endpoint}
 
-	// 加载参数
-	s.db.Where("endpoint_id = ?", id).Order("created_at ASC").Find(&detail.Params)
-	// 加载请求体字段
-	s.db.Where("endpoint_id = ?", id).Order("created_at ASC").Find(&detail.BodyFields)
-	// 加载请求头
-	s.db.Where("endpoint_id = ?", id).Order("created_at ASC").Find(&detail.Headers)
-	// 加载认证信息
-	s.db.Where("endpoint_id = ?", id).First(&detail.Auth)
-	// 加载最后一次响应
-	s.db.Where("endpoint_id = ?", id).First(&detail.Response)
+	// 加载参数、请求体字段、请求头
+	// 注意：这三张子表没有 created_at 字段，不能按其排序，否则 SQLite 报错且静默返回 0 行；
+	// 默认按 rowid（插入顺序）返回即可，与用户编辑顺序一致
+	s.db.Where("endpoint_id = ?", id).Find(&detail.Params)
+	s.db.Where("endpoint_id = ?", id).Find(&detail.BodyFields)
+	s.db.Where("endpoint_id = ?", id).Find(&detail.Headers)
+
+	// 加载认证信息（无记录时保持 nil，避免返回空对象误导前端）
+	var auth models.EndpointAuth
+	if err := s.db.Where("endpoint_id = ?", id).First(&auth).Error; err == nil {
+		detail.Auth = &auth
+	}
+	// 加载最后一次响应（无记录时保持 nil）
+	var resp models.Response
+	if err := s.db.Where("endpoint_id = ?", id).First(&resp).Error; err == nil {
+		detail.Response = &resp
+	}
 
 	return detail, nil
 }
@@ -140,11 +147,12 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 			}
 		}
 
-		// 保存认证信息
-		if data.Auth != nil {
-			if err := tx.Where("endpoint_id = ?", data.ID).Delete(&models.EndpointAuth{}).Error; err != nil {
-				return err
-			}
+		// 保存认证信息：始终先清除旧认证，再按需写入
+		// （切换为 none 或 nil 时仅清除，避免旧认证残留）
+		if err := tx.Where("endpoint_id = ?", data.ID).Delete(&models.EndpointAuth{}).Error; err != nil {
+			return err
+		}
+		if data.Auth != nil && data.Auth.Type != string(models.AuthTypeNone) {
 			data.Auth.ID = ""
 			data.Auth.EndpointID = data.ID
 			if err := tx.Create(data.Auth).Error; err != nil {

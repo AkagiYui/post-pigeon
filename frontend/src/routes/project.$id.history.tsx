@@ -60,6 +60,10 @@ function RequestHistoryPage() {
   onMount(() => {
     if (!cache.loadAll()) {
       loadHistory(true)
+    } else {
+      // 命中缓存时不会再调用 loadHistory，需手动结束加载态，
+      // 否则在缓存列表为空时页面会一直停留在“加载中”
+      setLoading(false)
     }
   })
   // 组件卸载时自动保存所有注册的缓存状态

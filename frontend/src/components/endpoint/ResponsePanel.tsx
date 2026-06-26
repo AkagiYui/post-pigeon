@@ -1,9 +1,10 @@
 // 响应面板组件
-import { createSignal, For, Show } from "solid-js"
+import { createMemo, createSignal, For, Show } from "solid-js"
 
 import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"
 import { t } from "@/hooks/useI18n"
+import { decodeRawBody, formatBody } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 import type { ResponseData } from "./EndpointDetail"
@@ -39,6 +40,15 @@ export function ResponsePanel(props: ResponsePanelProps) {
   const [renderMode, setRenderMode] = createSignal("pretty")
   const [format, setFormat] = createSignal("json")
   const [encoding, setEncoding] = createSignal("utf-8")
+
+  // 按所选字符集解码响应体：utf-8 直接用 body；其他用 rawBody 解码，失败回退 body
+  const decodedBody = createMemo(() => {
+    if (encoding() === "utf-8") return props.response.body
+    const decoded = props.response.rawBody ? decodeRawBody(props.response.rawBody, encoding()) : null
+    return decoded ?? props.response.body
+  })
+  // pretty 模式下再按所选格式美化
+  const displayBody = createMemo(() => renderMode() === "pretty" ? formatBody(decodedBody(), format()) : decodedBody())
 
   return (
     <div class="h-full flex flex-col">
@@ -78,15 +88,15 @@ export function ResponsePanel(props: ResponsePanelProps) {
             when={renderMode() === "preview"}
             fallback={
               <pre class="text-sm font-mono whitespace-pre-wrap break-all text-foreground">
-                {props.response.body || t("response.empty")}
+                {displayBody() || t("response.empty")}
               </pre>
             }
           >
             {/* 预览模式：使用 iframe 渲染 HTML */}
-            <Show when={props.response.body} fallback={<div class="text-muted-foreground">{t("response.empty")}</div>}>
+            <Show when={decodedBody()} fallback={<div class="text-muted-foreground">{t("response.empty")}</div>}>
               <iframe
                 class="w-full h-full min-h-48 border rounded bg-white"
-                srcdoc={props.response.body}
+                srcdoc={decodedBody()}
                 sandbox="allow-same-origin"
                 title="Preview"
               />
