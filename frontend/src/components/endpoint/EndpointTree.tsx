@@ -1,6 +1,6 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
-import { ArrowUpDown, Copy, Ellipsis, FileDown, FilePlusCorner, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Pencil, Plus, Radio, Search, Trash2, Webhook } from "lucide-solid"
+import { ArrowUpDown, Copy, Ellipsis, FileDown, FilePlusCorner, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Pencil, Plus, Radio, Search, Settings2, Trash2, Webhook } from "lucide-solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
@@ -55,6 +55,8 @@ export interface EndpointTreeProps {
   onImportApifox?: () => void
   /** 新建文档回调（模块/文件夹节点提供） */
   onCreateDocument?: (parentId: string | undefined, type: "module" | "folder") => void
+  /** 打开模块/文件夹设置（认证/自动参数/前置后置操作） */
+  onOpenSettings?: (node: TreeNode) => void
   /** 默认模块 ID：默认模块不可删除、不可移动 */
   defaultModuleId?: string
   /** 外部控制的展开节点 ID 列表（配合 onExpandedChange 使用，用于路由状态缓存） */
@@ -222,7 +224,7 @@ export function EndpointTree(props: EndpointTreeProps) {
 /** 创建节点的完整菜单项（右键菜单和弹出菜单共享） */
 function createAllMenuItems(
   node: TreeNode,
-  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI">,
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onOpenSettings">,
   isProtected: boolean,
 ): MenuItem[] {
   const items: MenuItem[] = []
@@ -258,6 +260,13 @@ function createAllMenuItems(
         onClick: () => handlers.onImportOpenAPI?.(node),
       })
     }
+    // 模块/文件夹级设置：认证、自动参数、前置/后置操作
+    items.push({
+      key: "scope-settings",
+      label: t("scope.settings"),
+      icon: <Settings2 class="h-4 w-4 text-slate-500 shrink-0" />,
+      onClick: () => handlers.onOpenSettings?.(node),
+    })
     items.push({ key: "separator-1", label: "", separator: true })
   }
 
@@ -307,7 +316,7 @@ function TreeNodeItem(props: {
   expandedIds: Set<string>
   onSelect?: (node: TreeNode) => void
   onToggle: (id: string) => void
-  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI">
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onOpenSettings">
   defaultModuleId?: string
 }) {
   const isExpanded = () => props.expandedIds.has(props.node.id)

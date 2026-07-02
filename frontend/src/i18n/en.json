@@ -293,5 +293,9 @@
   "scriptLib.empty": "No scripts",
   "scriptLib.selectHint": "Select or create a script to edit",
   "scriptLib.placeholder": "// Shared script that pre/post operations can reference",
-  "common.saved": "Saved"
+  "common.saved": "Saved",
+  "scope.settings": "Settings",
+  "scope.settingsTitle": "{name} · Settings",
+  "scope.autoParams": "Auto Parameters",
+  "scope.autoParamsHint": "These parameters are automatically added to every request under this module."
 }

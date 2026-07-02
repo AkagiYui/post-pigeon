@@ -26,6 +26,7 @@ import { SendRequestData } from "@/../bindings/post-pigeon/internal/services"
 import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type HeaderRow, type OperationRow, type ParamRow, type ResponseData } from "@/components/endpoint/EndpointDetail"
 import { EndpointTree, type TreeNode } from "@/components/endpoint/EndpointTree"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
+import { ScopeSettingsDialog } from "@/components/endpoint/ScopeSettingsDialog"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -302,6 +303,9 @@ export function ApiManagement(props: ApiManagementProps) {
   const [apifoxPreview, setApifoxPreview] = createSignal<ApifoxPreview | null>(null)
   const [apifoxImporting, setApifoxImporting] = createSignal(false)
   const [apifoxError, setApifoxError] = createSignal("")
+  // 模块/文件夹设置对话框
+  const [scopeSettingsOpen, setScopeSettingsOpen] = createSignal(false)
+  const [scopeSettingsNode, setScopeSettingsNode] = createSignal<TreeNode | null>(null)
 
   // ---- 加载项目树数据 ----
   const loadTree = async () => {
@@ -1069,6 +1073,13 @@ export function ApiManagement(props: ApiManagementProps) {
     } catch (e) { console.error("创建文档失败", e) }
   }
 
+  // ---- 打开模块/文件夹设置 ----
+  const openScopeSettings = (node: TreeNode) => {
+    if (node.type !== "module" && node.type !== "folder") return
+    setScopeSettingsNode(node)
+    setScopeSettingsOpen(true)
+  }
+
   // ---- 全局快捷键（跨平台，自动适配 Cmd/Ctrl） ----
   useHotkey([
     // 发送请求
@@ -1098,6 +1109,7 @@ export function ApiManagement(props: ApiManagementProps) {
             onImportOpenAPI={handleImportOpenAPI}
             onImportApifox={handleImportApifox}
             onCreateDocument={handleCreateDocument}
+            onOpenSettings={openScopeSettings}
             defaultModuleId={defaultModuleId()}
             expandedIds={expandedIds()} onExpandedChange={setExpandedIds}
           />
@@ -1445,6 +1457,20 @@ export function ApiManagement(props: ApiManagementProps) {
           </div>
         </div>
       </Dialog>
+
+      {/* 模块/文件夹设置对话框 */}
+      <Show when={scopeSettingsNode()}>
+        {(node) => (
+          <ScopeSettingsDialog
+            open={scopeSettingsOpen()}
+            onClose={() => setScopeSettingsOpen(false)}
+            scopeType={node().type as "module" | "folder"}
+            scopeId={node().id}
+            scopeName={node().name}
+            projectId={props.projectId}
+          />
+        )}
+      </Show>
     </>
   )
 }

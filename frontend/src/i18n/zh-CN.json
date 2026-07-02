@@ -293,5 +293,9 @@
   "scriptLib.empty": "暂无脚本",
   "scriptLib.selectHint": "选择或新建一个脚本进行编辑",
   "scriptLib.placeholder": "// 可被前置/后置操作引用的公共脚本",
-  "common.saved": "已保存"
+  "common.saved": "已保存",
+  "scope.settings": "设置",
+  "scope.settingsTitle": "{name} · 设置",
+  "scope.autoParams": "自动参数",
+  "scope.autoParamsHint": "以下参数会在该模块下所有接口发送时自动附加。"
 }
