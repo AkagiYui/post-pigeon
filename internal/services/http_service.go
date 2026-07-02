@@ -114,6 +114,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	reqCtx := &scripting.RequestData{
 		Method:  data.Method,
 		URL:     combineURL(data.BaseURL, data.Path),
+		BaseURL: data.BaseURL,
 		Headers: enabledHeaders(data.Headers),
 		Body:    data.BodyContent,
 	}
@@ -129,6 +130,20 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		data.Method = reqCtx.Method
 		data.BodyContent = reqCtx.Body
 		data.Headers = headersToModel(reqCtx.Headers)
+
+		// 前置脚本调用 pm.execution.skipRequest()：跳过发送，直接返回脚本结果
+		if scriptResults.PreRequest.SkipRequest {
+			if data.EnvironmentID != "" {
+				up, rm := stores.Environment.Changes()
+				_ = envService.ApplyVariableChanges(data.EnvironmentID, up, rm)
+			}
+			return &HTTPResponseData{
+				StatusCode: 0,
+				Headers:    map[string][]string{},
+				Body:       "（请求已被前置脚本 pm.execution.skipRequest() 跳过）",
+				Scripts:    scriptResults,
+			}, nil
+		}
 	}
 
 	// 用（可能被脚本更新过的）变量存储解析占位符

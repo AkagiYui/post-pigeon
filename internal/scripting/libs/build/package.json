@@ -1,0 +1,25 @@
+{
+  "name": "post-pigeon-script-libs-bundler",
+  "private": true,
+  "type": "module",
+  "description": "把 Apifox/Postman 内置 JS 库打包成可在 goja 中运行的自包含模块。产物提交到 internal/scripting/libs/，运行时 go:embed。详见 ../README.md。",
+  "scripts": {
+    "bundle": "node build.mjs"
+  },
+  "dependencies": {
+    "ajv": "6.6.2",
+    "cheerio": "0.22.0",
+    "csv-parse": "1.2.4",
+    "iconv-lite": "0.6.3",
+    "jsrsasign": "10.3.0",
+    "mockjs": "1.1.0",
+    "moment": "2.22.2",
+    "postman-collection": "3.4.0",
+    "tv4": "1.3.0",
+    "xml2js": "0.4.19"
+  },
+  "devDependencies": {
+    "esbuild": "0.27.7",
+    "esbuild-plugin-polyfill-node": "^0.3.0"
+  }
+}

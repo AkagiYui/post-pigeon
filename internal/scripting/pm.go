@@ -1,381 +1,146 @@
 package scripting
 
 import (
-	"encoding/base64"
-	"fmt"
-	"strings"
+	"time"
 
 	"github.com/dop251/goja"
+	"github.com/dop251/goja_nodejs/eventloop"
 )
 
-// buildGlobals 安装常用的全局函数（atob / btoa），对应 Apifox 内置库清单。
-func buildGlobals(vm *goja.Runtime) {
-	vm.Set("btoa", func(call goja.FunctionCall) goja.Value {
-		return vm.ToValue(base64.StdEncoding.EncodeToString([]byte(call.Argument(0).String())))
-	})
-	vm.Set("atob", func(call goja.FunctionCall) goja.Value {
-		decoded, err := base64.StdEncoding.DecodeString(call.Argument(0).String())
-		if err != nil {
-			panic(vm.NewTypeError("atob: 非法的 base64 输入: " + err.Error()))
-		}
-		return vm.ToValue(string(decoded))
-	})
-}
-
-// buildConsole 安装 console 全局对象，把日志捕获到 Result.Logs。
-func buildConsole(vm *goja.Runtime, res *Result) {
-	console := vm.NewObject()
-	mk := func(level string) func(goja.FunctionCall) goja.Value {
-		return func(call goja.FunctionCall) goja.Value {
-			parts := make([]string, 0, len(call.Arguments))
-			for _, a := range call.Arguments {
-				parts = append(parts, stringify(vm, a))
-			}
-			res.Logs = append(res.Logs, LogEntry{Level: level, Message: strings.Join(parts, " ")})
-			return goja.Undefined()
-		}
-	}
-	console.Set("log", mk("log"))
-	console.Set("info", mk("info"))
-	console.Set("warn", mk("warn"))
-	console.Set("error", mk("error"))
-	console.Set("debug", mk("debug"))
-	vm.Set("console", console)
-}
-
-// stringify 将 JS 值转为可读字符串：对象/数组用 JSON，其余用其字符串表示。
-func stringify(vm *goja.Runtime, v goja.Value) string {
-	if v == nil || goja.IsUndefined(v) {
-		return "undefined"
-	}
-	if goja.IsNull(v) {
-		return "null"
-	}
-	if obj, ok := v.(*goja.Object); ok {
-		// 优先用 JSON.stringify，失败则回退到默认字符串
-		if fn, ok := goja.AssertFunction(vm.Get("JSON").(*goja.Object).Get("stringify")); ok {
-			if s, err := fn(goja.Undefined(), obj); err == nil && !goja.IsUndefined(s) {
-				return s.String()
-			}
-		}
-	}
-	return v.String()
-}
-
-// buildPM 构建并注入 pm 全局对象。
-func buildPM(vm *goja.Runtime, opts Options, res *Result) {
+// buildPM 构建并注入 pm 全局对象。chai-postman 断言插件与 legacy 别名在 prelude.js 中补齐。
+func buildPM(vm *goja.Runtime, loop *eventloop.EventLoop, opts Options, res *Result) {
 	pm := vm.NewObject()
 
 	// pm.info
 	info := vm.NewObject()
 	info.Set("eventName", string(opts.Phase))
-	reqName := ""
-	if opts.Request != nil {
-		reqName = opts.Request.Name
+	name := opts.RequestName
+	if name == "" && opts.Request != nil {
+		name = opts.Request.Name
 	}
-	info.Set("requestName", reqName)
+	info.Set("requestName", name)
+	info.Set("requestId", opts.RequestID)
 	info.Set("iteration", 0)
 	info.Set("iterationCount", 1)
 	pm.Set("info", info)
 
 	// 变量作用域
-	pm.Set("environment", newVarScope(vm, opts.Stores.Environment))
-	pm.Set("globals", newVarScope(vm, opts.Stores.Globals))
-	pm.Set("collectionVariables", newVarScope(vm, opts.Stores.Collection))
-	// pm.variables 为跨作用域的只读合并视图（collection < environment < globals，后者优先）
-	pm.Set("variables", newMergedScope(vm, opts.Stores))
+	buildVarScopes(vm, pm, opts.Stores)
 
-	// pm.request
+	// pm.request（前置与后置均可读；前置可改）
 	if opts.Request != nil {
 		pm.Set("request", buildRequest(vm, opts.Request))
 	}
-
 	// pm.response（仅后置）
 	if opts.Response != nil {
 		pm.Set("response", buildResponse(vm, opts.Response))
 	}
 
-	// pm.expect = chai.expect
-	if expect := loadChaiExpect(vm); expect != nil {
-		pm.Set("expect", expect)
-	}
+	// pm.cookies
+	pm.Set("cookies", buildCookies(vm, opts.Response))
 
-	// pm.test(name, fn)
-	pm.Set("test", func(call goja.FunctionCall) goja.Value {
-		name := call.Argument(0).String()
-		tr := TestResult{Name: name, Passed: true}
-		if fn, ok := goja.AssertFunction(call.Argument(1)); ok {
-			if _, err := fn(goja.Undefined()); err != nil {
-				tr.Passed = false
-				tr.Error = err.Error()
-			}
-		}
-		res.Tests = append(res.Tests, tr)
-		return goja.Undefined()
-	})
+	// pm.sendRequest
+	pm.Set("sendRequest", buildSendRequest(vm, loop, res))
+
+	// pm.test（同步 / 异步(done) / skip / index）
+	buildTest(vm, loop, pm, res)
+
+	// pm.execution
+	pm.Set("execution", buildExecution(vm, opts, res))
 
 	vm.Set("pm", pm)
 }
 
-// loadChaiExpect 通过 require('chai') 取得 expect 函数。
-func loadChaiExpect(vm *goja.Runtime) goja.Value {
-	v, err := vm.RunString(`(function(){ try { return require('chai').expect; } catch(e){ return undefined; } })()`)
-	if err != nil || v == nil || goja.IsUndefined(v) {
-		return nil
-	}
-	return v
-}
+// buildTest 安装 pm.test 及其 skip / index。
+func buildTest(vm *goja.Runtime, loop *eventloop.EventLoop, pm *goja.Object, res *Result) {
+	index := 0
 
-// newVarScope 构建一个绑定到给定 VarStore 的作用域对象（get/set/has/unset/clear/toObject）。
-func newVarScope(vm *goja.Runtime, store *VarStore) *goja.Object {
-	o := vm.NewObject()
-	o.Set("get", func(call goja.FunctionCall) goja.Value {
-		if store == nil {
+	testFn := func(call goja.FunctionCall) goja.Value {
+		name := call.Argument(0).String()
+		fn, ok := goja.AssertFunction(call.Argument(1))
+		index++
+		if !ok {
+			res.Tests = append(res.Tests, TestResult{Name: name, Passed: true})
+			return pm
+		}
+		// 判断是否为异步测试：回调声明了形参(done)
+		isAsync := false
+		if fnObj, ok := call.Argument(1).(*goja.Object); ok {
+			if l := fnObj.Get("length"); l != nil && l.ToInteger() >= 1 {
+				isAsync = true
+			}
+		}
+		if !isAsync {
+			tr := TestResult{Name: name, Passed: true}
+			if _, err := fn(goja.Undefined()); err != nil {
+				tr.Passed = false
+				tr.Error = err.Error()
+			}
+			res.Tests = append(res.Tests, tr)
+			return pm
+		}
+		// 异步：提供 done 回调；用保活定时器维持事件循环直至 done 被调用。
+		idx := len(res.Tests)
+		res.Tests = append(res.Tests, TestResult{Name: name, Passed: true})
+		keepalive := loop.SetTimeout(func(*goja.Runtime) {}, time.Hour)
+		finished := false
+		done := func(call goja.FunctionCall) goja.Value {
+			if finished {
+				return goja.Undefined()
+			}
+			finished = true
+			if len(call.Arguments) > 0 && !goja.IsUndefined(call.Argument(0)) && !goja.IsNull(call.Argument(0)) {
+				res.Tests[idx].Passed = false
+				res.Tests[idx].Error = call.Argument(0).String()
+			}
+			loop.ClearTimeout(keepalive)
 			return goja.Undefined()
 		}
-		if v, ok := store.Get(call.Argument(0).String()); ok {
-			return vm.ToValue(v)
-		}
-		return goja.Undefined()
-	})
-	o.Set("set", func(call goja.FunctionCall) goja.Value {
-		if store != nil {
-			store.Set(call.Argument(0).String(), valueToString(call.Argument(1)))
-		}
-		return goja.Undefined()
-	})
-	o.Set("has", func(call goja.FunctionCall) goja.Value {
-		return vm.ToValue(store != nil && store.Has(call.Argument(0).String()))
-	})
-	o.Set("unset", func(call goja.FunctionCall) goja.Value {
-		if store != nil {
-			store.Unset(call.Argument(0).String())
-		}
-		return goja.Undefined()
-	})
-	o.Set("clear", func(goja.FunctionCall) goja.Value {
-		if store != nil {
-			store.Clear()
-		}
-		return goja.Undefined()
-	})
-	o.Set("toObject", func(goja.FunctionCall) goja.Value {
-		if store == nil {
-			return vm.ToValue(map[string]string{})
-		}
-		return vm.ToValue(store.ToMap())
-	})
-	// replaceIn: 替换字符串中的 {{var}} 占位符
-	o.Set("replaceIn", func(call goja.FunctionCall) goja.Value {
-		if store == nil {
-			return call.Argument(0)
-		}
-		return vm.ToValue(resolvePlaceholders(call.Argument(0).String(), store.ToMap()))
-	})
-	return o
-}
-
-// newMergedScope 构建 pm.variables：跨作用域只读合并视图。
-func newMergedScope(vm *goja.Runtime, stores Stores) *goja.Object {
-	lookup := func(key string) (string, bool) {
-		// 优先级：globals > environment > collection
-		if stores.Globals != nil {
-			if v, ok := stores.Globals.Get(key); ok {
-				return v, true
+		if _, err := fn(goja.Undefined(), vm.ToValue(done)); err != nil {
+			if !finished {
+				finished = true
+				res.Tests[idx].Passed = false
+				res.Tests[idx].Error = err.Error()
+				loop.ClearTimeout(keepalive)
 			}
 		}
-		if stores.Environment != nil {
-			if v, ok := stores.Environment.Get(key); ok {
-				return v, true
-			}
-		}
-		if stores.Collection != nil {
-			if v, ok := stores.Collection.Get(key); ok {
-				return v, true
-			}
-		}
-		return "", false
+		return pm
 	}
-	o := vm.NewObject()
-	o.Set("get", func(call goja.FunctionCall) goja.Value {
-		if v, ok := lookup(call.Argument(0).String()); ok {
-			return vm.ToValue(v)
-		}
+
+	fnVal := vm.ToValue(testFn).(*goja.Object)
+	fnVal.Set("skip", func(call goja.FunctionCall) goja.Value {
+		res.Tests = append(res.Tests, TestResult{Name: call.Argument(0).String(), Passed: true, Skipped: true})
 		return goja.Undefined()
 	})
-	o.Set("has", func(call goja.FunctionCall) goja.Value {
-		_, ok := lookup(call.Argument(0).String())
-		return vm.ToValue(ok)
-	})
-	// pm.variables.set 写入环境作用域（与 Postman 的行为近似）
-	o.Set("set", func(call goja.FunctionCall) goja.Value {
-		if stores.Environment != nil {
-			stores.Environment.Set(call.Argument(0).String(), valueToString(call.Argument(1)))
-		}
+	fnVal.Set("index", func(goja.FunctionCall) goja.Value { return vm.ToValue(index) })
+	pm.Set("test", fnVal)
+}
+
+// buildExecution 安装 pm.execution（skipRequest / setNextRequest / location）。
+func buildExecution(vm *goja.Runtime, opts Options, res *Result) *goja.Object {
+	ex := vm.NewObject()
+	ex.Set("skipRequest", func(goja.FunctionCall) goja.Value {
+		res.SkipRequest = true
 		return goja.Undefined()
 	})
-	o.Set("replaceIn", func(call goja.FunctionCall) goja.Value {
-		merged := map[string]string{}
-		for _, s := range []*VarStore{stores.Collection, stores.Environment, stores.Globals} {
-			if s != nil {
-				for k, v := range s.ToMap() {
-					merged[k] = v
-				}
-			}
-		}
-		return vm.ToValue(resolvePlaceholders(call.Argument(0).String(), merged))
-	})
-	return o
-}
-
-// buildRequest 构建 pm.request：标量字段用访问器属性直接读写 RequestData；headers 用方法操作。
-func buildRequest(vm *goja.Runtime, req *RequestData) *goja.Object {
-	o := vm.NewObject()
-	defineStringAccessor(vm, o, "method", func() string { return req.Method }, func(s string) { req.Method = s })
-	defineStringAccessor(vm, o, "body", func() string { return req.Body }, func(s string) { req.Body = s })
-	o.Set("headers", buildHeaders(vm, &req.Headers))
-
-	// pm.request.url：对象形态（含 query），赋值时接受字符串。
-	// getter 返回一个 Url 对象（有 query / toString / valueOf）；setter 接受字符串整体改写 URL。
-	getter := vm.ToValue(func(goja.FunctionCall) goja.Value { return buildURL(vm, req) })
-	setter := vm.ToValue(func(call goja.FunctionCall) goja.Value {
-		req.URL = call.Argument(0).String()
-		return goja.Undefined()
-	})
-	o.DefineAccessorProperty("url", getter, setter, goja.FLAG_FALSE, goja.FLAG_TRUE)
-	return o
-}
-
-// buildURL 构建 pm.request.url 的对象形态：query 支持增删查，toString/valueOf 返回完整 URL 字符串
-// （使其在字符串上下文中仍表现为 URL 字符串，兼容 `'' + pm.request.url` 等用法）。
-func buildURL(vm *goja.Runtime, req *RequestData) *goja.Object {
-	o := vm.NewObject()
-	o.Set("query", buildHeaders(vm, &req.Query))
-	o.Set("toString", func(goja.FunctionCall) goja.Value { return vm.ToValue(req.URL) })
-	o.Set("valueOf", func(goja.FunctionCall) goja.Value { return vm.ToValue(req.URL) })
-	return o
-}
-
-// buildResponse 构建 pm.response。
-func buildResponse(vm *goja.Runtime, resp *ResponseData) *goja.Object {
-	o := vm.NewObject()
-	o.Set("code", resp.Code)
-	o.Set("status", resp.Status)
-	o.Set("responseTime", resp.ResponseTime)
-	o.Set("responseSize", resp.ResponseSize)
-	o.Set("headers", buildHeaders(vm, &resp.Headers))
-	o.Set("text", func(goja.FunctionCall) goja.Value {
-		return vm.ToValue(resp.Body)
-	})
-	o.Set("json", func(goja.FunctionCall) goja.Value {
-		parse, _ := goja.AssertFunction(vm.Get("JSON").(*goja.Object).Get("parse"))
-		v, err := parse(goja.Undefined(), vm.ToValue(resp.Body))
-		if err != nil {
-			panic(vm.NewTypeError("响应体不是合法 JSON: " + err.Error()))
-		}
-		return v
-	})
-	o.Set("setBody", func(call goja.FunctionCall) goja.Value {
+	ex.Set("setNextRequest", func(call goja.FunctionCall) goja.Value {
 		arg := call.Argument(0)
-		if obj, ok := arg.(*goja.Object); ok {
-			// 传对象时序列化为 JSON 字符串
-			resp.Body = stringify(vm, obj)
+		if goja.IsNull(arg) || goja.IsUndefined(arg) {
+			empty := ""
+			res.NextRequest = &empty // null → 停止运行
 		} else {
-			resp.Body = arg.String()
+			s := arg.String()
+			res.NextRequest = &s
 		}
 		return goja.Undefined()
 	})
-	return o
-}
-
-// buildHeaders 构建 headers 操作对象：get/has/add/upsert/remove，直接修改底层切片。
-func buildHeaders(vm *goja.Runtime, headers *[]Header) *goja.Object {
-	o := vm.NewObject()
-
-	indexOf := func(key string) int {
-		for i, h := range *headers {
-			if strings.EqualFold(h.Key, key) {
-				return i
-			}
-		}
-		return -1
+	// location：当前项路径（单次发送场景仅含请求名）
+	name := opts.RequestName
+	if name == "" && opts.Request != nil {
+		name = opts.Request.Name
 	}
-	// keyValueFromCall 支持 add({key,value}) 与 add(key, value) 两种调用形式。
-	keyValueFromCall := func(call goja.FunctionCall) (string, string) {
-		if obj, ok := call.Argument(0).(*goja.Object); ok {
-			return obj.Get("key").String(), obj.Get("value").String()
-		}
-		return call.Argument(0).String(), call.Argument(1).String()
-	}
-
-	o.Set("get", func(call goja.FunctionCall) goja.Value {
-		if i := indexOf(call.Argument(0).String()); i >= 0 {
-			return vm.ToValue((*headers)[i].Value)
-		}
-		return goja.Undefined()
-	})
-	o.Set("has", func(call goja.FunctionCall) goja.Value {
-		return vm.ToValue(indexOf(call.Argument(0).String()) >= 0)
-	})
-	o.Set("add", func(call goja.FunctionCall) goja.Value {
-		k, v := keyValueFromCall(call)
-		*headers = append(*headers, Header{Key: k, Value: v})
-		return goja.Undefined()
-	})
-	o.Set("upsert", func(call goja.FunctionCall) goja.Value {
-		k, v := keyValueFromCall(call)
-		if i := indexOf(k); i >= 0 {
-			(*headers)[i].Value = v
-		} else {
-			*headers = append(*headers, Header{Key: k, Value: v})
-		}
-		return goja.Undefined()
-	})
-	o.Set("remove", func(call goja.FunctionCall) goja.Value {
-		if i := indexOf(call.Argument(0).String()); i >= 0 {
-			*headers = append((*headers)[:i], (*headers)[i+1:]...)
-		}
-		return goja.Undefined()
-	})
-	o.Set("toObject", func(goja.FunctionCall) goja.Value {
-		m := make(map[string]string, len(*headers))
-		for _, h := range *headers {
-			m[h.Key] = h.Value
-		}
-		return vm.ToValue(m)
-	})
-	o.Set("all", func(goja.FunctionCall) goja.Value {
-		return vm.ToValue(append([]Header(nil), *headers...))
-	})
-	return o
-}
-
-// defineStringAccessor 在对象上定义一个字符串访问器属性（getter/setter 直连 Go 字段）。
-func defineStringAccessor(vm *goja.Runtime, o *goja.Object, name string, get func() string, set func(string)) {
-	getter := vm.ToValue(func(goja.FunctionCall) goja.Value { return vm.ToValue(get()) })
-	setter := vm.ToValue(func(call goja.FunctionCall) goja.Value {
-		set(call.Argument(0).String())
-		return goja.Undefined()
-	})
-	o.DefineAccessorProperty(name, getter, setter, goja.FLAG_FALSE, goja.FLAG_TRUE)
-}
-
-// valueToString 将 JS 值转为存储用字符串（对象序列化为 JSON）。
-func valueToString(v goja.Value) string {
-	if v == nil || goja.IsUndefined(v) || goja.IsNull(v) {
-		return ""
-	}
-	return v.String()
-}
-
-// resolvePlaceholders 替换字符串中的 {{key}} 占位符。
-func resolvePlaceholders(input string, vars map[string]string) string {
-	if !strings.Contains(input, "{{") {
-		return input
-	}
-	result := input
-	for k, v := range vars {
-		result = strings.ReplaceAll(result, fmt.Sprintf("{{%s}}", k), v)
-	}
-	return result
+	loc := vm.NewArray(vm.ToValue(name))
+	loc.Set("current", name)
+	ex.Set("location", loc)
+	return ex
 }
