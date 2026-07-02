@@ -18,7 +18,6 @@ import (
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/buffer"
 	"github.com/dop251/goja_nodejs/eventloop"
-	"github.com/dop251/goja_nodejs/process"
 	"github.com/dop251/goja_nodejs/require"
 	nodeurl "github.com/dop251/goja_nodejs/url"
 	"github.com/google/uuid"
@@ -173,10 +172,13 @@ func registerNativeModules(reg *require.Registry) {
 	reg.RegisterNativeModule("btoa", func(rt *goja.Runtime, module *goja.Object) {
 		module.Set("exports", func(call goja.FunctionCall) goja.Value { return encodeBase64(rt, call) })
 	})
-	// url / buffer / process 交给 goja_nodejs 的实现（比 jspm 垫片更完整）。
+	// url / buffer 交给 goja_nodejs 的实现（比 jspm 垫片更完整）。
 	reg.RegisterNativeModule("url", nodeurl.Require)
 	reg.RegisterNativeModule("buffer", buffer.Require)
-	reg.RegisterNativeModule("process", process.Require)
+	// process 用自建的最小实现：env 为空，绝不暴露宿主环境变量。
+	reg.RegisterNativeModule("process", func(rt *goja.Runtime, module *goja.Object) {
+		module.Set("exports", buildProcess(rt))
+	})
 	// jsrsasign 是浏览器 UMD：在全局作用域执行使其挂到 window(=global)，再把命名空间导出。
 	reg.RegisterNativeModule("jsrsasign", func(rt *goja.Runtime, module *goja.Object) {
 		src, err := libsFS.ReadFile("libs/jsrsasign.js")
@@ -258,8 +260,9 @@ func (e *Engine) Run(script string, opts Options) *Result {
 // setupRuntime 在事件循环的 runtime 上安装全局对象、pm.* 与 legacy 兼容层。
 func setupRuntime(vm *goja.Runtime, loop *eventloop.EventLoop, opts Options, res *Result) {
 	buffer.Enable(vm)
-	process.Enable(vm)
 	nodeurl.Enable(vm)
+	// 注意：不调用 process.Enable —— 它会把宿主环境变量拷进 process.env。
+	// 全局 process 由 buildGlobals 用空 env 的最小实现注入。
 	buildConsole(vm, res)
 	buildGlobals(vm)
 	buildPM(vm, loop, opts, res)

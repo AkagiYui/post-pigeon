@@ -248,3 +248,29 @@ func TestTimeoutStillWorks(t *testing.T) {
 
 // 确保 strings 被使用（避免 import 报错，若上面未直接用）
 var _ = strings.Contains
+
+// TestProcessEnvIsolated 确认脚本无法通过 process.env 读到宿主机环境变量。
+func TestProcessEnvIsolated(t *testing.T) {
+	t.Setenv("POSTPIGEON_SECRET", "topsecret")
+	e := New()
+	stores := fullStores()
+	res := e.Run(`
+		pm.environment.set("home", String(process.env.HOME));
+		pm.environment.set("secret", String(process.env.POSTPIGEON_SECRET));
+		pm.environment.set("viaRequire", String(require('process').env.POSTPIGEON_SECRET));
+		pm.environment.set("envType", typeof process.env);
+	`, Options{Phase: PhasePreRequest, Stores: stores})
+	mustNoError(t, res)
+	if v, _ := stores.Environment.Get("secret"); v != "undefined" {
+		t.Errorf("宿主环境变量泄露到 process.env: secret=%q", v)
+	}
+	if v, _ := stores.Environment.Get("home"); v != "undefined" {
+		t.Errorf("宿主 HOME 泄露: %q", v)
+	}
+	if v, _ := stores.Environment.Get("viaRequire"); v != "undefined" {
+		t.Errorf("require('process').env 泄露宿主变量: %q", v)
+	}
+	if v, _ := stores.Environment.Get("envType"); v != "object" {
+		t.Errorf("process.env 应为对象: %q", v)
+	}
+}

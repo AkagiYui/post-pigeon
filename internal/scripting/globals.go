@@ -61,6 +61,34 @@ func buildGlobals(vm *goja.Runtime) {
 	nav.Set("language", "en")
 	vm.Set("navigator", nav)
 	vm.Set("window", vm.GlobalObject()) // jsrsasign 等浏览器库依赖 window
+	vm.Set("process", buildProcess(vm))
+}
+
+// buildProcess 构建一个最小化的 process 对象。
+// 关键：env 为空对象，绝不把宿主机环境变量暴露给脚本（隔离要求）。
+func buildProcess(vm *goja.Runtime) *goja.Object {
+	p := vm.NewObject()
+	p.Set("env", vm.NewObject())        // 空 env：不泄露宿主环境变量
+	p.Set("argv", []string{"node", ""}) // 占位
+	p.Set("platform", "")
+	p.Set("arch", "")
+	p.Set("version", "v18.0.0")
+	p.Set("versions", map[string]string{"node": "18.0.0"})
+	p.Set("browser", false)
+	p.Set("cwd", func(goja.FunctionCall) goja.Value { return vm.ToValue("/") })
+	// nextTick：交给事件循环下一拍执行（依赖已安装的 setTimeout）
+	p.Set("nextTick", func(call goja.FunctionCall) goja.Value {
+		fn, ok := goja.AssertFunction(call.Argument(0))
+		if !ok {
+			return goja.Undefined()
+		}
+		if st, ok := goja.AssertFunction(vm.Get("setTimeout")); ok {
+			extra := append([]goja.Value{vm.ToValue(fn), vm.ToValue(0)}, call.Arguments[1:]...)
+			_, _ = st(goja.Undefined(), extra...)
+		}
+		return goja.Undefined()
+	})
+	return p
 }
 
 // encodeBase64 实现 btoa。
