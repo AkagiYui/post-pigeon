@@ -3,7 +3,7 @@
 // 中：请求设置 tabs (Params/Body/Headers/Auth/设置)
 // 下：响应信息 tabs (Body/Headers/Cookies/实际请求)
 import { Check, ChevronDown, Save, Send, Trash2 } from "lucide-solid"
-import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js"
+import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -443,43 +443,9 @@ export function EndpointDetail(props: EndpointDetailProps) {
     </div>
   )
 
-  // 文档类型：Markdown 编辑器
-  if (ep().type === "doc") {
-    return (
-      <div class="flex flex-col h-full">
-        <NonHttpHeader />
-        <div class="flex-1 min-h-0">
-          <DocumentEditor content={ep().docContent} onChange={(v) => props.onChange?.({ docContent: v })} />
-        </div>
-      </div>
-    )
-  }
-
-  // WebSocket 类型
-  if (ep().type === "websocket") {
-    return (
-      <div class="flex flex-col h-full">
-        <NonHttpHeader showPath />
-        <div class="flex-1 min-h-0">
-          <WebSocketPanel connId={ep().id} baseUrl={ep().baseUrl} path={ep().path} />
-        </div>
-      </div>
-    )
-  }
-
-  // SSE 类型
-  if (ep().type === "sse") {
-    return (
-      <div class="flex flex-col h-full">
-        <NonHttpHeader showPath />
-        <div class="flex-1 min-h-0">
-          <SSEPanel connId={ep().id} baseUrl={ep().baseUrl} path={ep().path} method={ep().method} body={ep().bodyContent} />
-        </div>
-      </div>
-    )
-  }
-
+  // 按端点类型响应式路由：文档 / WebSocket / SSE 使用各自面板，其余为标准 HTTP 布局。
   return (
+    <Switch fallback={
     <div class="flex flex-col h-full">
       {/* 上部：请求行 */}
       <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
@@ -622,5 +588,34 @@ export function EndpointDetail(props: EndpointDetailProps) {
         </Show>
       </div>
     </div>
+    }>
+      {/* 文档：Markdown 编辑/预览 */}
+      <Match when={ep().type === "doc"}>
+        <div class="flex flex-col h-full">
+          <NonHttpHeader />
+          <div class="flex-1 min-h-0">
+            <DocumentEditor content={ep().docContent} onChange={(v) => props.onChange?.({ docContent: v })} />
+          </div>
+        </div>
+      </Match>
+      {/* WebSocket */}
+      <Match when={ep().type === "websocket"}>
+        <div class="flex flex-col h-full">
+          <NonHttpHeader showPath />
+          <div class="flex-1 min-h-0">
+            <WebSocketPanel connId={ep().id} baseUrl={ep().baseUrl} path={ep().path} />
+          </div>
+        </div>
+      </Match>
+      {/* SSE */}
+      <Match when={ep().type === "sse"}>
+        <div class="flex flex-col h-full">
+          <NonHttpHeader showPath />
+          <div class="flex-1 min-h-0">
+            <SSEPanel connId={ep().id} baseUrl={ep().baseUrl} path={ep().path} method={ep().method} body={ep().bodyContent} />
+          </div>
+        </div>
+      </Match>
+    </Switch>
   )
 }
