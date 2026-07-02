@@ -16,6 +16,7 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"post-pigeon/internal/models"
+	"post-pigeon/internal/scripting"
 	"strings"
 	"time"
 
@@ -24,12 +25,13 @@ import (
 
 // HTTPService HTTP 请求服务
 type HTTPService struct {
-	db *gorm.DB
+	db     *gorm.DB
+	engine *scripting.Engine
 }
 
 // NewHTTPService 创建 HTTP 服务实例
 func NewHTTPService(db *gorm.DB) *HTTPService {
-	return &HTTPService{db: db}
+	return &HTTPService{db: db, engine: scripting.New()}
 }
 
 // SendRequestData 发送请求的参数
@@ -49,6 +51,16 @@ type SendRequestData struct {
 	Auth            *models.EndpointAuth       `json:"auth"`
 	Timeout         int                        `json:"timeout"`
 	FollowRedirects bool                       `json:"followRedirects"`
+	// PreRequestScript 前置脚本，请求发送前执行
+	PreRequestScript string `json:"preRequestScript"`
+	// PostResponseScript 后置脚本，响应返回后执行
+	PostResponseScript string `json:"postResponseScript"`
+}
+
+// ScriptResults 前置/后置脚本的执行结果，随响应返回给前端展示
+type ScriptResults struct {
+	PreRequest   *scripting.Result `json:"preRequest,omitempty"`
+	PostResponse *scripting.Result `json:"postResponse,omitempty"`
 }
 
 // HTTPResponseData HTTP 响应数据
@@ -63,20 +75,62 @@ type HTTPResponseData struct {
 	Timing        models.TimingInfo        `json:"timing"`
 	Size          int64                    `json:"size"`
 	ActualRequest models.ActualRequestInfo `json:"actualRequest"`
+	// Scripts 前置/后置脚本执行结果（无脚本时为 nil）
+	Scripts *ScriptResults `json:"scripts,omitempty"`
 }
 
 // SendRequest 发送 HTTP 请求
 func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, error) {
-	// 解析环境变量
 	envService := NewEnvironmentService(s.db)
-	resolvedPath, err := envService.ResolveVariables(data.EnvironmentID, data.Path)
-	if err != nil {
-		slog.Warn("解析环境变量失败，使用原始路径", "error", err)
-		resolvedPath = data.Path
+
+	// 载入环境变量到内存变量存储；前置脚本读写的是这份存储，
+	// 请求结束后再把增量持久化回数据库。
+	envVars := map[string]string{}
+	if data.EnvironmentID != "" {
+		if vars, err := envService.GetEnvironmentVariables(data.EnvironmentID); err == nil {
+			for _, v := range vars {
+				if v.Enabled {
+					envVars[v.Key] = v.Value
+				}
+			}
+		} else {
+			slog.Warn("载入环境变量失败", "error", err)
+		}
+	}
+	stores := scripting.Stores{
+		Environment: scripting.NewVarStore(envVars),
+		Globals:     scripting.NewVarStore(nil),
+		Collection:  scripting.NewVarStore(nil),
 	}
 
-	// 组合 URL
-	fullURL := combineURL(data.BaseURL, resolvedPath)
+	scriptResults := &ScriptResults{}
+
+	// 构建可被前置脚本修改的请求上下文
+	reqCtx := &scripting.RequestData{
+		Method:  data.Method,
+		URL:     combineURL(data.BaseURL, data.Path),
+		Headers: enabledHeaders(data.Headers),
+		Body:    data.BodyContent,
+	}
+
+	// 执行前置脚本（可修改 method/url/headers/body 及环境变量）
+	if strings.TrimSpace(data.PreRequestScript) != "" {
+		scriptResults.PreRequest = s.engine.Run(data.PreRequestScript, scripting.Options{
+			Phase:   scripting.PhasePreRequest,
+			Request: reqCtx,
+			Stores:  stores,
+		})
+		// 将脚本对请求的修改应用回 data
+		data.Method = reqCtx.Method
+		data.BodyContent = reqCtx.Body
+		data.Headers = headersToModel(reqCtx.Headers)
+	}
+
+	// 用（可能被脚本更新过的）变量存储解析占位符
+	vars := stores.Environment.ToMap()
+
+	// 组合 URL（前置脚本可能已改写整条 URL）
+	fullURL := resolveVars(reqCtx.URL, vars)
 
 	// 解析 URL 中的查询参数
 	parsedURL, err := url.Parse(fullURL)
@@ -88,8 +142,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	query := parsedURL.Query()
 	for _, param := range data.Params {
 		if param.Enabled && param.Type == "query" {
-			resolvedValue, _ := envService.ResolveVariables(data.EnvironmentID, param.Value)
-			query.Add(param.Name, resolvedValue)
+			query.Add(param.Name, resolveVars(param.Value, vars))
 		}
 	}
 	parsedURL.RawQuery = query.Encode()
@@ -110,13 +163,12 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	// 设置请求头
 	for _, header := range data.Headers {
 		if header.Enabled {
-			resolvedValue, _ := envService.ResolveVariables(data.EnvironmentID, header.Value)
-			req.Header.Set(header.Name, resolvedValue)
+			req.Header.Set(header.Name, resolveVars(header.Value, vars))
 		}
 	}
 
 	// 设置请求体
-	if err := s.setRequestBody(req, data, envService); err != nil {
+	if err := s.setRequestBody(req, data, vars); err != nil {
 		return nil, err
 	}
 
@@ -224,6 +276,48 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		ActualRequest: actualReq,
 	}
 
+	// 执行后置脚本（可读取响应、修改响应体/响应头、运行断言、读写变量）
+	if strings.TrimSpace(data.PostResponseScript) != "" {
+		respCtx := &scripting.ResponseData{
+			Code:         resp.StatusCode,
+			Status:       http.StatusText(resp.StatusCode),
+			Headers:      flattenToHeaders(resp.Header),
+			Body:         string(bodyBytes),
+			ResponseTime: timing.Total,
+			ResponseSize: int64(len(bodyBytes)),
+		}
+		scriptResults.PostResponse = s.engine.Run(data.PostResponseScript, scripting.Options{
+			Phase:    scripting.PhasePostResponse,
+			Request:  reqCtx,
+			Response: respCtx,
+			Stores:   stores,
+		})
+		// 应用后置脚本对响应的修改（setBody / headers）
+		if respCtx.Body != string(bodyBytes) {
+			responseData.Body = respCtx.Body
+			responseData.RawBody = base64.StdEncoding.EncodeToString([]byte(respCtx.Body))
+			responseData.Size = int64(len(respCtx.Body))
+		}
+		mutatedHeaders := headersToHTTPHeader(respCtx.Headers)
+		responseData.Headers = mutatedHeaders
+		if ct := mutatedHeaders.Get("Content-Type"); ct != "" {
+			responseData.ContentType = ct
+		}
+	}
+
+	// 将脚本对环境变量的增量持久化回数据库
+	if data.EnvironmentID != "" {
+		upserts, removed := stores.Environment.Changes()
+		if err := envService.ApplyVariableChanges(data.EnvironmentID, upserts, removed); err != nil {
+			slog.Error("持久化脚本变量失败", "error", err)
+		}
+	}
+
+	// 附加脚本执行结果（无脚本时保持 nil）
+	if scriptResults.PreRequest != nil || scriptResults.PostResponse != nil {
+		responseData.Scripts = scriptResults
+	}
+
 	// 异步保存响应和请求历史
 	go s.saveResponseAndHistory(data, responseData)
 
@@ -231,7 +325,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 }
 
 // setRequestBody 设置请求体
-func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, envService *EnvironmentService) error {
+func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, vars map[string]string) error {
 	switch data.BodyType {
 	case string(models.BodyTypeNone):
 		// 无请求体
@@ -239,7 +333,7 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, en
 
 	case string(models.BodyTypeJSON), string(models.BodyTypeText):
 		// JSON 或纯文本
-		resolvedContent, _ := envService.ResolveVariables(data.EnvironmentID, data.BodyContent)
+		resolvedContent := resolveVars(data.BodyContent, vars)
 		req.Body = io.NopCloser(strings.NewReader(resolvedContent))
 		req.GetBody = func() (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(resolvedContent)), nil
@@ -276,8 +370,7 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, en
 					return fmt.Errorf("写入文件内容失败: %w", err)
 				}
 			} else {
-				resolvedValue, _ := envService.ResolveVariables(data.EnvironmentID, field.Value)
-				if err := writer.WriteField(field.Name, resolvedValue); err != nil {
+				if err := writer.WriteField(field.Name, resolveVars(field.Value, vars)); err != nil {
 					return fmt.Errorf("写入表单字段失败: %w", err)
 				}
 			}
@@ -300,8 +393,7 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, en
 			if !field.Enabled {
 				continue
 			}
-			resolvedValue, _ := envService.ResolveVariables(data.EnvironmentID, field.Value)
-			values.Set(field.Name, resolvedValue)
+			values.Set(field.Name, resolveVars(field.Value, vars))
 		}
 		body := values.Encode()
 		req.Body = io.NopCloser(strings.NewReader(body))
@@ -400,6 +492,59 @@ func parseFileField(value string) (fileName string, content []byte, ok bool) {
 		return "", nil, false
 	}
 	return payload.FileName, decoded, true
+}
+
+// resolveVars 替换字符串中的 {{key}} 占位符；多趟替换以支持一层嵌套。
+func resolveVars(input string, vars map[string]string) string {
+	result := input
+	for i := 0; i < 5 && strings.Contains(result, "{{"); i++ {
+		prev := result
+		for k, v := range vars {
+			result = strings.ReplaceAll(result, "{{"+k+"}}", v)
+		}
+		if result == prev {
+			break
+		}
+	}
+	return result
+}
+
+// enabledHeaders 将启用的端点请求头转换为脚本 Header 列表。
+func enabledHeaders(headers []models.EndpointHeader) []scripting.Header {
+	out := make([]scripting.Header, 0, len(headers))
+	for _, h := range headers {
+		if h.Enabled {
+			out = append(out, scripting.Header{Key: h.Name, Value: h.Value})
+		}
+	}
+	return out
+}
+
+// headersToModel 将脚本 Header 列表转换回端点请求头（均标记为启用）。
+func headersToModel(headers []scripting.Header) []models.EndpointHeader {
+	out := make([]models.EndpointHeader, 0, len(headers))
+	for _, h := range headers {
+		out = append(out, models.EndpointHeader{Name: h.Key, Value: h.Value, Enabled: true})
+	}
+	return out
+}
+
+// flattenToHeaders 将 http.Header 转换为脚本 Header 列表（多值以逗号连接）。
+func flattenToHeaders(h http.Header) []scripting.Header {
+	out := make([]scripting.Header, 0, len(h))
+	for k, v := range h {
+		out = append(out, scripting.Header{Key: k, Value: strings.Join(v, ", ")})
+	}
+	return out
+}
+
+// headersToHTTPHeader 将脚本 Header 列表转换回 http.Header。
+func headersToHTTPHeader(headers []scripting.Header) http.Header {
+	out := http.Header{}
+	for _, h := range headers {
+		out.Set(h.Key, h.Value)
+	}
+	return out
 }
 
 // combineURL 组合基础 URL 和路径

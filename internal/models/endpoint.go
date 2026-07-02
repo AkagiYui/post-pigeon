@@ -44,7 +44,11 @@ type Endpoint struct {
 	ContentType     string    `json:"contentType"`
 	Timeout         int       `gorm:"default:30000" json:"timeout"`
 	FollowRedirects bool      `gorm:"default:true" json:"followRedirects"`
-	SortOrder       int       `gorm:"default:0" json:"sortOrder"`
+	// PreRequestScript 前置脚本，请求发送前执行（JavaScript）
+	PreRequestScript string `gorm:"type:text" json:"preRequestScript"`
+	// PostResponseScript 后置脚本，响应返回后执行（JavaScript）
+	PostResponseScript string `gorm:"type:text" json:"postResponseScript"`
+	SortOrder          int    `gorm:"default:0" json:"sortOrder"`
 	CreatedAt       time.Time `json:"createdAt"`
 	UpdatedAt       time.Time `json:"updatedAt"`
 

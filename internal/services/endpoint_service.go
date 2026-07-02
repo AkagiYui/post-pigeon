@@ -98,9 +98,11 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 			"path":             data.Path,
 			"body_type":        data.BodyType,
 			"body_content":     data.BodyContent,
-			"content_type":     data.ContentType,
-			"timeout":          data.Timeout,
-			"follow_redirects": data.FollowRedirects,
+			"content_type":         data.ContentType,
+			"timeout":              data.Timeout,
+			"follow_redirects":     data.FollowRedirects,
+			"pre_request_script":   data.PreRequestScript,
+			"post_response_script": data.PostResponseScript,
 		}).Error; err != nil {
 			return err
 		}
@@ -211,10 +213,12 @@ type EndpointSaveData struct {
 	Path            string                     `json:"path"`
 	BodyType        string                     `json:"bodyType"`
 	BodyContent     string                     `json:"bodyContent"`
-	ContentType     string                     `json:"contentType"`
-	Timeout         int                        `json:"timeout"`
-	FollowRedirects bool                       `json:"followRedirects"`
-	Params          []models.EndpointParam     `json:"params"`
+	ContentType        string                     `json:"contentType"`
+	Timeout            int                        `json:"timeout"`
+	FollowRedirects    bool                       `json:"followRedirects"`
+	PreRequestScript   string                     `json:"preRequestScript"`
+	PostResponseScript string                     `json:"postResponseScript"`
+	Params             []models.EndpointParam     `json:"params"`
 	BodyFields      []models.EndpointBodyField `json:"bodyFields"`
 	Headers         []models.EndpointHeader    `json:"headers"`
 	Auth            *models.EndpointAuth       `json:"auth"`

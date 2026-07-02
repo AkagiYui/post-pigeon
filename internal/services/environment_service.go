@@ -114,6 +114,50 @@ func (s *EnvironmentService) GetEnvironmentVariables(environmentID string) ([]mo
 	return variables, nil
 }
 
+// ApplyVariableChanges 将脚本产生的变量增量持久化回环境：
+// upserts 为新增/修改的键值（不存在则创建，存在则更新），removed 为需删除的键。
+func (s *EnvironmentService) ApplyVariableChanges(environmentID string, upserts map[string]string, removed []string) error {
+	if environmentID == "" || (len(upserts) == 0 && len(removed) == 0) {
+		return nil
+	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for key, value := range upserts {
+			var existing models.EnvironmentVariable
+			err := tx.Where("environment_id = ? AND key = ?", environmentID, key).First(&existing).Error
+			if err == gorm.ErrRecordNotFound {
+				var maxOrder int
+				tx.Model(&models.EnvironmentVariable{}).
+					Where("environment_id = ?", environmentID).
+					Select("COALESCE(MAX(sort_order), -1)").Scan(&maxOrder)
+				nv := models.EnvironmentVariable{
+					EnvironmentID: environmentID,
+					Key:           key,
+					Value:         value,
+					Enabled:       true,
+					SortOrder:     maxOrder + 1,
+				}
+				if err := tx.Create(&nv).Error; err != nil {
+					return err
+				}
+			} else if err == nil {
+				if err := tx.Model(&existing).Update("value", value).Error; err != nil {
+					return err
+				}
+			} else {
+				return err
+			}
+		}
+		for _, key := range removed {
+			if err := tx.Where("environment_id = ? AND key = ?", environmentID, key).
+				Delete(&models.EnvironmentVariable{}).Error; err != nil {
+				return err
+			}
+		}
+		slog.Info("脚本变量增量已持久化", "environmentId", environmentID, "upserts", len(upserts), "removed", len(removed))
+		return nil
+	})
+}
+
 // ResolveVariables 替换字符串中的环境变量占位符
 // 占位符格式：{{variableName}}
 func (s *EnvironmentService) ResolveVariables(environmentID string, input string) (string, error) {
