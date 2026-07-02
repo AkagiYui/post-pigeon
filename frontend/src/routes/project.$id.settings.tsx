@@ -1,11 +1,13 @@
 // 项目设置路由
 // 使用左右分栏标签页，包含基本设置和环境设置
 import { createFileRoute, useParams } from "@tanstack/solid-router"
-import { Cog, Globe } from "lucide-solid"
+import { Cog, FileCode, Globe, Variable } from "lucide-solid"
 import { createSignal, onMount } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
+import { GlobalVariablesSettings } from "@/components/settings/GlobalVariablesSettings"
 import { ProjectEnvironmentSettings } from "@/components/settings/ProjectEnvironmentSettings"
+import { ScriptLibrarySettings } from "@/components/settings/ScriptLibrarySettings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SideTabs } from "@/components/ui/tabs"
@@ -18,6 +20,8 @@ import { setProjectNames } from "@/stores/app"
 const projectSettingsTabs = [
   { key: "basic", label: "", icon: <Cog class="h-4 w-4" /> }, // label 在渲染时由 i18n 填充
   { key: "environment", label: "", icon: <Globe class="h-4 w-4" /> },
+  { key: "globalVars", label: "", icon: <Variable class="h-4 w-4" /> },
+  { key: "scriptLibrary", label: "", icon: <FileCode class="h-4 w-4" /> },
 ]
 
 export const Route = createFileRoute("/project/$id/settings")({
@@ -111,10 +115,15 @@ function ProjectSettingsPage() {
   ])
 
   // 带国际化标签的 tab 列表
+  const tabLabels: Record<string, string> = {
+    basic: t("settings.general"),
+    environment: t("environment.title"),
+    globalVars: t("globalVar.title"),
+    scriptLibrary: t("scriptLib.title"),
+  }
   const tabs = () => projectSettingsTabs.map(tab => ({
     ...tab,
-    // 基本设置 / 环境设置
-    label: tab.key === "basic" ? t("settings.general") : t("environment.title"),
+    label: tabLabels[tab.key] || tab.key,
   }))
 
   return (
@@ -181,6 +190,18 @@ function ProjectSettingsPage() {
                       projectId={projectId()}
                       createCachedSignal={cache.createCachedSignal}
                     />
+                  </div>
+                )
+              case "globalVars":
+                return (
+                  <div class="h-full">
+                    <GlobalVariablesSettings projectId={projectId()} />
+                  </div>
+                )
+              case "scriptLibrary":
+                return (
+                  <div class="h-full">
+                    <ScriptLibrarySettings projectId={projectId()} />
                   </div>
                 )
               default:

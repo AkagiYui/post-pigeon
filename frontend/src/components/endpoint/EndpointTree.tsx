@@ -1,6 +1,6 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
-import { ArrowUpDown, Copy, Ellipsis, FileDown, FilePlusCorner, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Pencil, Plus, Search, Trash2 } from "lucide-solid"
+import { ArrowUpDown, Copy, Ellipsis, FileDown, FilePlusCorner, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Pencil, Plus, Radio, Search, Trash2, Webhook } from "lucide-solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
@@ -9,7 +9,7 @@ import { ContextMenu, type MenuItem } from "@/components/ui/context-menu"
 import { DropdownMenu } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"
-import { type HTTPMethod } from "@/lib/types"
+import { type EndpointType, type HTTPMethod } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 /** 树节点数据类型 */
@@ -18,6 +18,8 @@ export interface TreeNode {
   type: "module" | "folder" | "endpoint"
   name: string
   method?: HTTPMethod
+  /** 端点类型：http / doc / websocket / sse（仅 type=endpoint 时有效） */
+  endpointType?: EndpointType
   children?: TreeNode[]
   parentId?: string
 }
@@ -49,6 +51,10 @@ export interface EndpointTreeProps {
   onMove?: (node: TreeNode) => void
   /** 导入 OpenAPI 文档回调（仅模块节点提供） */
   onImportOpenAPI?: (node: TreeNode) => void
+  /** 导入 Apifox 导出文件回调（项目级） */
+  onImportApifox?: () => void
+  /** 新建文档回调（模块/文件夹节点提供） */
+  onCreateDocument?: (parentId: string | undefined, type: "module" | "folder") => void
   /** 默认模块 ID：默认模块不可删除、不可移动 */
   defaultModuleId?: string
   /** 外部控制的展开节点 ID 列表（配合 onExpandedChange 使用，用于路由状态缓存） */
@@ -168,6 +174,19 @@ export function EndpointTree(props: EndpointTreeProps) {
               icon: <FilePlusCorner class="h-4 w-4 text-blue-500 shrink-0" />,
               onClick: () => props.onCreateEndpoint?.(undefined, "module"),
             },
+            {
+              key: "new-document",
+              label: t("doc.create"),
+              icon: <FileText class="h-4 w-4 text-violet-500 shrink-0" />,
+              onClick: () => props.onCreateDocument?.(undefined, "module"),
+            },
+            { key: "sep-import", label: "", separator: true },
+            {
+              key: "import-apifox",
+              label: t("apifox.import"),
+              icon: <FileDown class="h-4 w-4 text-orange-500 shrink-0" />,
+              onClick: () => props.onImportApifox?.(),
+            },
           ]}
         >
           <Button variant="ghost" size="icon-sm">
@@ -203,12 +222,12 @@ export function EndpointTree(props: EndpointTreeProps) {
 /** 创建节点的完整菜单项（右键菜单和弹出菜单共享） */
 function createAllMenuItems(
   node: TreeNode,
-  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateFolder" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI">,
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI">,
   isProtected: boolean,
 ): MenuItem[] {
   const items: MenuItem[] = []
 
-  // 模块和文件夹：新建接口、新建文件夹
+  // 模块和文件夹：新建接口、新建文件夹、新建文档
   if (node.type === "module" || node.type === "folder") {
     items.push(
       {
@@ -222,6 +241,12 @@ function createAllMenuItems(
         label: t("folder.create"),
         icon: <FolderPlus class="h-4 w-4 text-amber-500 shrink-0" />,
         onClick: () => handlers.onCreateFolder?.(node.id, node.type as "module" | "folder"),
+      },
+      {
+        key: "new-document",
+        label: t("doc.create"),
+        icon: <FileText class="h-4 w-4 text-violet-500 shrink-0" />,
+        onClick: () => handlers.onCreateDocument?.(node.id, node.type as "module" | "folder"),
       },
     )
     // 模块节点：支持导入 OpenAPI 接口文档
@@ -282,7 +307,7 @@ function TreeNodeItem(props: {
   expandedIds: Set<string>
   onSelect?: (node: TreeNode) => void
   onToggle: (id: string) => void
-  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateFolder" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI">
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI">
   defaultModuleId?: string
 }) {
   const isExpanded = () => props.expandedIds.has(props.node.id)
@@ -334,10 +359,22 @@ function TreeNodeItem(props: {
               ? <FolderOpen class="h-3.5 w-3.5 text-amber-500 shrink-0" />
               : <Folder class="h-3.5 w-3.5 text-amber-500 shrink-0" />}
           </Show>
-          <Show when={props.node.type === "endpoint" && props.node.method}>
-            <Badge variant={props.node.method!.toLowerCase() as any} class="text-[10px] px-1 py-0 shrink-0">
-              {props.node.method}
-            </Badge>
+          {/* 端点叶子图标：文档 / WebSocket / SSE 使用独立图标，普通接口显示方法徽章 */}
+          <Show when={props.node.type === "endpoint"}>
+            <Show when={props.node.endpointType === "doc"}>
+              <FileText class="h-3.5 w-3.5 text-violet-500 shrink-0" />
+            </Show>
+            <Show when={props.node.endpointType === "websocket"}>
+              <Webhook class="h-3.5 w-3.5 text-teal-500 shrink-0" />
+            </Show>
+            <Show when={props.node.endpointType === "sse"}>
+              <Radio class="h-3.5 w-3.5 text-pink-500 shrink-0" />
+            </Show>
+            <Show when={(!props.node.endpointType || props.node.endpointType === "http") && props.node.method}>
+              <Badge variant={props.node.method!.toLowerCase() as any} class="text-[10px] px-1 py-0 shrink-0">
+                {props.node.method}
+              </Badge>
+            </Show>
           </Show>
 
           {/* 名称 */}

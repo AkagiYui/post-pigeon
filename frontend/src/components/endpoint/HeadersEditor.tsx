@@ -20,6 +20,8 @@ export function HeadersEditor(props: HeadersEditorProps) {
       value: "",
       description: "",
       enabled: true,
+      required: false,
+      example: "",
     }])
   }
 

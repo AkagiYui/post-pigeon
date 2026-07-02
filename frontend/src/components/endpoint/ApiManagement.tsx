@@ -3,7 +3,7 @@
 // 支持未保存的请求标签页和已保存的端点标签页
 import { createEffect, createSignal, For, on, onMount, Show } from "solid-js"
 
-import { EndpointAuth, EndpointBodyField, EndpointHeader, EndpointParam } from "@/../bindings/post-pigeon/internal/models"
+import { EndpointAuth, EndpointBodyField, EndpointHeader, EndpointParam, Operation, ResponseExample, ResponseSchema } from "@/../bindings/post-pigeon/internal/models"
 import type {
   EndpointDetail as EndpointDetailType,
   FolderTree,
@@ -12,6 +12,7 @@ import type {
   OpenAPIPreview,
 } from "@/../bindings/post-pigeon/internal/services"
 import {
+  ApifoxService,
   EndpointService,
   EnvironmentService,
   FolderService,
@@ -20,8 +21,9 @@ import {
   ModuleService,
   ProjectService,
 } from "@/../bindings/post-pigeon/internal/services"
+import type { ApifoxPreview } from "@/../bindings/post-pigeon/internal/services"
 import { SendRequestData } from "@/../bindings/post-pigeon/internal/services"
-import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type HeaderRow, type ParamRow, type ResponseData } from "@/components/endpoint/EndpointDetail"
+import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type HeaderRow, type OperationRow, type ParamRow, type ResponseData } from "@/components/endpoint/EndpointDetail"
 import { EndpointTree, type TreeNode } from "@/components/endpoint/EndpointTree"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
 import { Button } from "@/components/ui/button"
@@ -32,7 +34,7 @@ import { Tabs } from "@/components/ui/tabs"
 import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
-import { type BodyType, type HTTPMethod } from "@/lib/types"
+import { type BodyType, type EndpointType, type HTTPMethod, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
 import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, notifyBaseUrlsChanged, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
 
 // ---- 类型定义 ----
@@ -49,6 +51,7 @@ export interface RequestTab {
 interface UnsavedRequestData {
   id: string
   name: string
+  type: EndpointType
   method: HTTPMethod
   path: string
   bodyType: BodyType
@@ -63,6 +66,22 @@ interface UnsavedRequestData {
   auth: AuthState
   preRequestScript: string
   postResponseScript: string
+  docContent: string
+  status: string
+  tags: string
+  description: string
+  inheritOperations: boolean
+  operations: OperationRow[]
+  examples: any[]
+  schemas: any[]
+}
+
+/** 端点默认字段（新字段的默认值集中在此，供各处构造 EndpointData 时展开使用） */
+const endpointDefaults = {
+  type: "http" as EndpointType,
+  docContent: "", status: "", tags: "", description: "",
+  inheritOperations: true, operations: [] as OperationRow[],
+  examples: [] as any[], schemas: [] as any[],
 }
 
 let tempIdCounter = 0
@@ -71,18 +90,61 @@ function generateTempId(): string {
   return `__unsaved_${tempIdCounter}_${Date.now()}`
 }
 
+/** 从操作列表拼接指定阶段的 script 类型脚本（用于未保存请求的直接发送） */
+function deriveScriptFromOps(ops: OperationRow[], stage: OperationStage, fallback: string): string {
+  const scripts = (ops || []).filter(o => o.stage === stage && o.enabled && (o.type === "script" || o.type === "libraryScript") && o.script.trim()).map(o => o.script)
+  if (scripts.length === 0) return fallback || ""
+  return scripts.join("\n")
+}
+
 // ---- 编辑态行类型 ⇄ 后端绑定模型的相互转换 ----
 
 function toParamModels(rows: ParamRow[]): EndpointParam[] {
   return rows.filter(r => r.name.trim()).map(r => new EndpointParam({
-    type: "query", name: r.name, value: r.value, description: r.description, enabled: r.enabled,
+    type: r.type || "query", name: r.name, value: r.value, description: r.description, enabled: r.enabled,
+    dataType: r.dataType || "string", required: r.required, example: r.example,
   }))
 }
 
 function toHeaderModels(rows: HeaderRow[]): EndpointHeader[] {
   return rows.filter(r => r.name.trim()).map(r => new EndpointHeader({
     name: r.name, value: r.value, description: r.description, enabled: r.enabled,
+    required: r.required, example: r.example,
   }))
+}
+
+/** 操作行 -> 后端 Operation 模型（按类型序列化 data） */
+function toOperationModels(rows: OperationRow[]): Operation[] {
+  return rows.map((r, i) => {
+    let data = "{}"
+    switch (r.type) {
+      case "script": data = JSON.stringify({ script: r.script }); break
+      case "libraryScript": data = JSON.stringify({ libraryId: r.libraryId, script: r.script }); break
+      case "assert": data = JSON.stringify({ source: r.assertSource, expression: r.assertExpression, comparison: r.assertComparison, target: r.assertTarget }); break
+      case "extractVar": data = JSON.stringify({ variable: r.varName, scope: r.varScope, source: r.varSource, expression: r.varExpression }); break
+      case "wait": data = JSON.stringify({ milliseconds: r.waitMs }); break
+    }
+    return new Operation({ stage: r.stage, type: r.type, name: r.name, enabled: r.enabled, sortOrder: i, data })
+  })
+}
+
+function fromOperationModels(arr?: Operation[] | null): OperationRow[] {
+  return (arr || []).map(o => {
+    let d: any = {}
+    try { d = o.data ? JSON.parse(o.data) : {} } catch { d = {} }
+    return {
+      id: crypto.randomUUID(),
+      stage: (o.stage as OperationStage) || "pre",
+      type: (o.type as OperationType) || "script",
+      name: o.name || "", enabled: o.enabled,
+      script: d.script || "", libraryId: d.libraryId || "",
+      assertSource: d.source || "responseJson", assertExpression: d.expression || "",
+      assertComparison: d.comparison || "eq", assertTarget: d.target || "",
+      varName: d.variable || "", varScope: d.scope || "environment",
+      varSource: d.source || "responseJson", varExpression: d.expression || "",
+      waitMs: d.milliseconds || 1000,
+    }
+  })
 }
 
 function toBodyFieldModels(rows: BodyFieldRow[]): EndpointBodyField[] {
@@ -99,18 +161,26 @@ function toBodyFieldModels(rows: BodyFieldRow[]): EndpointBodyField[] {
 
 function toAuthModel(a: AuthState): EndpointAuth | null {
   if (!a || a.type === "none") return null
-  const data = a.type === "basic"
-    ? JSON.stringify({ username: a.username, password: a.password })
-    : JSON.stringify({ token: a.token })
+  let data = "{}"
+  if (a.type === "basic") data = JSON.stringify({ username: a.username, password: a.password })
+  else if (a.type === "bearer") data = JSON.stringify({ token: a.token })
+  else if (a.type === "apikey") data = JSON.stringify({ key: a.apiKeyKey, value: a.apiKeyValue, in: a.apiKeyIn || "header" })
+  // inherit：无数据
   return new EndpointAuth({ type: a.type, data })
 }
 
 function fromParamModels(arr?: EndpointParam[] | null): ParamRow[] {
-  return (arr || []).map(p => ({ id: crypto.randomUUID(), name: p.name, value: p.value, description: p.description, enabled: p.enabled }))
+  return (arr || []).map(p => ({
+    id: crypto.randomUUID(), type: (p.type as ParamLocation) || "query", name: p.name, value: p.value,
+    description: p.description, enabled: p.enabled, dataType: p.dataType || "string", required: p.required, example: p.example || "",
+  }))
 }
 
 function fromHeaderModels(arr?: EndpointHeader[] | null): HeaderRow[] {
-  return (arr || []).map(h => ({ id: crypto.randomUUID(), name: h.name, value: h.value, description: h.description, enabled: h.enabled }))
+  return (arr || []).map(h => ({
+    id: crypto.randomUUID(), name: h.name, value: h.value, description: h.description, enabled: h.enabled,
+    required: h.required, example: h.example || "",
+  }))
 }
 
 function fromBodyFieldModels(arr?: EndpointBodyField[] | null): BodyFieldRow[] {
@@ -135,11 +205,13 @@ function fromBodyFieldModels(arr?: EndpointBodyField[] | null): BodyFieldRow[] {
 
 function fromAuthModel(a?: EndpointAuth | null): AuthState {
   if (!a || !a.type || a.type === "none") return emptyAuth()
-  let d: { username?: string; password?: string; token?: string } = {}
+  let d: { username?: string; password?: string; token?: string; key?: string; value?: string; in?: string } = {}
   try { d = a.data ? JSON.parse(a.data) : {} } catch { d = {} }
+  const validTypes = ["basic", "bearer", "apikey", "inherit"]
   return {
-    type: a.type === "basic" || a.type === "bearer" ? a.type : "none",
+    type: (validTypes.includes(a.type) ? a.type : "none") as AuthState["type"],
     username: d.username || "", password: d.password || "", token: d.token || "",
+    apiKeyKey: d.key || "", apiKeyValue: d.value || "", apiKeyIn: d.in || "header",
   }
 }
 
@@ -170,6 +242,7 @@ export function ApiManagement(props: ApiManagementProps) {
     timeout: 30000, followRedirects: true, baseUrl: "",
     params: [], headers: [], bodyFields: [], auth: emptyAuth(),
     preRequestScript: "", postResponseScript: "",
+    ...endpointDefaults,
   }
   // 使用 createCachedStore 替代 createStore，自动缓存且保持细粒度响应式
   const [endpointData, setEndpointData] = cache.createCachedStore<EndpointData>("endpointData", { ...emptyEndpoint })
@@ -223,6 +296,12 @@ export function ApiManagement(props: ApiManagementProps) {
   const [openApiSelectedIndexes, setOpenApiSelectedIndexes] = createSignal<Set<number>>(new Set())
   // 当前端点所属模块的所有环境前置 URL 列表（供环境切换下拉使用）
   const [environmentBaseUrls, setEnvironmentBaseUrls] = createSignal<EnvironmentBaseURLOption[]>([])
+  // Apifox 导入对话框
+  const [apifoxOpen, setApifoxOpen] = createSignal(false)
+  const [apifoxJson, setApifoxJson] = createSignal("")
+  const [apifoxPreview, setApifoxPreview] = createSignal<ApifoxPreview | null>(null)
+  const [apifoxImporting, setApifoxImporting] = createSignal(false)
+  const [apifoxError, setApifoxError] = createSignal("")
 
   // ---- 加载项目树数据 ----
   const loadTree = async () => {
@@ -348,6 +427,7 @@ export function ApiManagement(props: ApiManagementProps) {
 
   const mapEndpoint = (e: any): TreeNode => ({
     id: e.id, type: "endpoint", name: e.name, method: e.method as HTTPMethod,
+    endpointType: (e.type as EndpointType) || "http",
   })
 
   /** 通过节点 ID 查找所属模块 ID */
@@ -470,6 +550,7 @@ export function ApiManagement(props: ApiManagementProps) {
       timeout: 30000, followRedirects: true, baseUrl: "",
       params: [], headers: [], bodyFields: [], auth: emptyAuth(),
       preRequestScript: "", postResponseScript: "",
+      ...endpointDefaults,
     }
     setUnsavedRequests(prev => ({ ...prev, [tempId]: unsaved }))
     setRequestTabs(prev => [...prev, { id: tempId, name: unsaved.name, method: unsaved.method, saved: false, dirty: false }])
@@ -480,6 +561,7 @@ export function ApiManagement(props: ApiManagementProps) {
       timeout: unsaved.timeout, followRedirects: unsaved.followRedirects, baseUrl: unsaved.baseUrl,
       params: [], headers: [], bodyFields: [], auth: emptyAuth(),
       preRequestScript: "", postResponseScript: "",
+      ...endpointDefaults,
     } as EndpointData)
     setResponseData(null)
   }
@@ -513,7 +595,8 @@ export function ApiManagement(props: ApiManagementProps) {
           } catch { /* 获取 baseUrl 失败时不阻塞加载 */ }
         }
         setEndpointData({
-          id: detail.id, name: detail.name, method: detail.method as HTTPMethod,
+          id: detail.id, name: detail.name, type: (detail.type as EndpointType) || "http",
+          method: detail.method as HTTPMethod,
           path: detail.path, bodyType: detail.bodyType as BodyType, bodyContent: detail.bodyContent,
           contentType: detail.contentType, timeout: detail.timeout, followRedirects: detail.followRedirects,
           baseUrl,
@@ -523,6 +606,11 @@ export function ApiManagement(props: ApiManagementProps) {
           auth: fromAuthModel(detail.auth),
           preRequestScript: detail.preRequestScript || "",
           postResponseScript: detail.postResponseScript || "",
+          docContent: detail.docContent || "",
+          status: detail.status || "", tags: detail.tags || "", description: detail.description || "",
+          inheritOperations: detail.inheritOperations ?? true,
+          operations: fromOperationModels(detail.operations),
+          examples: (detail.examples as any[]) || [], schemas: (detail.schemas as any[]) || [],
         } as EndpointData)
         if (detail.response) {
           const ti = detail.response.timing ? JSON.parse(detail.response.timing) : { total: 0, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0, ttfb: 0 }
@@ -547,12 +635,15 @@ export function ApiManagement(props: ApiManagementProps) {
     else {
       const unsaved = unsavedRequests()[tabId]
       if (unsaved) setEndpointData({
-        id: unsaved.id, name: unsaved.name, method: unsaved.method, path: unsaved.path,
+        id: unsaved.id, name: unsaved.name, type: unsaved.type ?? "http", method: unsaved.method, path: unsaved.path,
         bodyType: unsaved.bodyType, bodyContent: unsaved.bodyContent, contentType: unsaved.contentType,
         timeout: unsaved.timeout, followRedirects: unsaved.followRedirects, baseUrl: unsaved.baseUrl,
         params: unsaved.params ?? [], headers: unsaved.headers ?? [],
         bodyFields: unsaved.bodyFields ?? [], auth: unsaved.auth ?? emptyAuth(),
         preRequestScript: unsaved.preRequestScript ?? "", postResponseScript: unsaved.postResponseScript ?? "",
+        docContent: unsaved.docContent ?? "", status: unsaved.status ?? "", tags: unsaved.tags ?? "",
+        description: unsaved.description ?? "", inheritOperations: unsaved.inheritOperations ?? true,
+        operations: unsaved.operations ?? [], examples: unsaved.examples ?? [], schemas: unsaved.schemas ?? [],
       } as EndpointData)
     }
   }
@@ -591,7 +682,9 @@ export function ApiManagement(props: ApiManagementProps) {
       sendData.bodyContent = ep.bodyContent; sendData.contentType = ep.contentType
       sendData.bodyFields = toBodyFieldModels(ep.bodyFields); sendData.auth = toAuthModel(ep.auth)
       sendData.timeout = ep.timeout; sendData.followRedirects = ep.followRedirects
-      sendData.preRequestScript = ep.preRequestScript; sendData.postResponseScript = ep.postResponseScript
+      // 已保存端点由后端根据操作组合脚本；未保存请求在此把 script 类型操作拼接为前置/后置脚本
+      sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript)
+      sendData.postResponseScript = deriveScriptFromOps(ep.operations, "post", ep.postResponseScript)
 
       const resp = await HTTPService.SendRequest(sendData)
       if (resp) {
@@ -644,8 +737,12 @@ export function ApiManagement(props: ApiManagementProps) {
         bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
         timeout: ep.timeout, followRedirects: ep.followRedirects,
         preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
+        type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
+        description: ep.description, inheritOperations: ep.inheritOperations,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
+        operations: toOperationModels(ep.operations),
+        examples: (ep.examples as ResponseExample[]) || [], schemas: (ep.schemas as ResponseSchema[]) || [],
       })
       setRequestTabs(pt => pt.map(t => t.id === ep.id ? { ...t, dirty: false } : t))
       await loadTree()
@@ -666,9 +763,26 @@ export function ApiManagement(props: ApiManagementProps) {
         bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
         timeout: ep.timeout, followRedirects: ep.followRedirects,
         preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
+        type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
+        description: ep.description, inheritOperations: ep.inheritOperations,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
+        operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
       })
+      // 新建端点后，把前置/后置操作补存（CreateFullEndpoint 不含操作）
+      if (created && ep.operations.length > 0) {
+        await EndpointService.SaveEndpointData({
+          id: created.id, name, method: ep.method, path: ep.path,
+          bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
+          timeout: ep.timeout, followRedirects: ep.followRedirects,
+          preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
+          type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
+          description: ep.description, inheritOperations: ep.inheritOperations,
+          params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
+          headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
+          operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
+        })
+      }
       if (created) {
         setRequestTabs(pt => pt.map(t => t.id === ct.id ? { id: created.id, name, method: ep.method as HTTPMethod, saved: true, dirty: false } : t))
         setEndpointData({ id: created.id, name } as EndpointData)
@@ -891,6 +1005,70 @@ export function ApiManagement(props: ApiManagementProps) {
     } finally { setOpenApiImporting(false) }
   }
 
+  // ---- Apifox 导入：选择文件 → 预览 → 确认导入到项目 ----
+  const handleImportApifox = () => {
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = "application/json,.json"
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      setApifoxError("")
+      setApifoxPreview(null)
+      setApifoxJson("")
+      setApifoxOpen(true)
+      try {
+        const text = await file.text()
+        setApifoxJson(text)
+        const preview = await ApifoxService.PreviewApifox(text)
+        if (!preview?.isApifox) {
+          setApifoxError(t("apifox.notApifox"))
+          return
+        }
+        setApifoxPreview(preview)
+      } catch (e) {
+        console.error("解析 Apifox 文件失败", e)
+        setApifoxError(t("apifox.parseFailed"))
+      }
+    }
+    input.click()
+  }
+
+  const confirmImportApifox = async () => {
+    if (!apifoxJson()) return
+    setApifoxImporting(true)
+    try {
+      await ApifoxService.ImportApifox(props.projectId, apifoxJson())
+      setApifoxOpen(false)
+      await loadTree()
+      try {
+        const envs = await EnvironmentService.ListEnvironments(props.projectId)
+        setProjectEnvironmentsList(props.projectId, envs || [])
+      } catch { /* 刷新环境列表失败时忽略 */ }
+      notifyBaseUrlsChanged()
+    } catch (e) {
+      console.error("导入 Apifox 失败", e)
+      setApifoxError(t("apifox.importFailed"))
+    } finally { setApifoxImporting(false) }
+  }
+
+  // ---- 新建文档（doc 类型端点，作为叶子与接口同级） ----
+  const handleCreateDocument = async (parentNodeId: string | undefined, _type?: "module" | "folder") => {
+    const location = parentNodeId && findNodeInTree(treeData(), parentNodeId) ? parentNodeId : getEffectiveSaveLocation()
+    if (!location) { console.error(t("module.notSelected")); return }
+    const { moduleId, folderId } = resolveSaveLocation(location)
+    if (!moduleId) return
+    try {
+      const doc = await EndpointService.CreateDocument(moduleId, folderId ?? null, t("doc.untitled"))
+      await loadTree()
+      if (doc) {
+        setRequestTabs(prev => [...prev, { id: doc.id, name: doc.name, method: "GET" as HTTPMethod, saved: true, dirty: false }])
+        setActiveTabId(doc.id)
+        await loadSavedEndpointData(doc.id)
+      }
+    } catch (e) { console.error("创建文档失败", e) }
+  }
+
   // ---- 全局快捷键（跨平台，自动适配 Cmd/Ctrl） ----
   useHotkey([
     // 发送请求
@@ -918,6 +1096,8 @@ export function ApiManagement(props: ApiManagementProps) {
             onRename={handleTreeRename} onCopy={handleTreeCopy}
             onDelete={handleTreeDelete} onMove={handleTreeMove}
             onImportOpenAPI={handleImportOpenAPI}
+            onImportApifox={handleImportApifox}
+            onCreateDocument={handleCreateDocument}
             defaultModuleId={defaultModuleId()}
             expandedIds={expandedIds()} onExpandedChange={setExpandedIds}
           />
@@ -944,6 +1124,7 @@ export function ApiManagement(props: ApiManagementProps) {
                 currentEnvironmentId={getCurrentEnvironmentId(props.projectId)}
                 environmentBaseUrls={environmentBaseUrls()}
                 onEnvironmentChange={handleEnvironmentChange}
+                projectId={props.projectId}
               /> : null}
             </Tabs>
           </Show>
@@ -1206,6 +1387,42 @@ export function ApiManagement(props: ApiManagementProps) {
         </div>
       </Dialog>
 
+      {/* Apifox 导入对话框 */}
+      <Dialog open={apifoxOpen()} onClose={() => setApifoxOpen(false)} title={t("apifox.importTitle")} closeOnEsc closeOnOverlayClick width="480px">
+        <div class="px-6 py-4 flex flex-col gap-3">
+          <Show when={apifoxError()}>
+            <div class="text-sm text-red-500 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded-md">{apifoxError()}</div>
+          </Show>
+          <Show when={!apifoxError() && !apifoxPreview()}>
+            <div class="py-8 flex items-center justify-center text-muted-foreground">{t("common.loading")}</div>
+          </Show>
+          <Show when={apifoxPreview()}>
+            {(preview) => (
+              <div class="flex flex-col gap-2">
+                <p class="text-sm text-muted-foreground">{t("apifox.summaryHint", { name: preview().projectName })}</p>
+                <div class="grid grid-cols-2 gap-2 text-sm">
+                  <ApifoxStat label={t("apifox.stat.modules")} value={preview().modules} />
+                  <ApifoxStat label={t("apifox.stat.endpoints")} value={preview().endpoints} />
+                  <ApifoxStat label={t("apifox.stat.folders")} value={preview().folders} />
+                  <ApifoxStat label={t("apifox.stat.documents")} value={preview().documents} />
+                  <ApifoxStat label={t("apifox.stat.webSockets")} value={preview().webSockets} />
+                  <ApifoxStat label={t("apifox.stat.environments")} value={preview().environments} />
+                  <ApifoxStat label={t("apifox.stat.globalVars")} value={preview().globalVars} />
+                  <ApifoxStat label={t("apifox.stat.scripts")} value={preview().scripts} />
+                </div>
+                <p class="text-xs text-muted-foreground mt-1">{t("apifox.dedupHint")}</p>
+              </div>
+            )}
+          </Show>
+          <div class="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setApifoxOpen(false)}>{t("common.cancel")}</Button>
+            <Button onClick={confirmImportApifox} disabled={!apifoxPreview() || apifoxImporting()}>
+              {apifoxImporting() ? t("common.saving") : t("apifox.confirmImport")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
       {/* 创建模块对话框 */}
       <Dialog open={createModuleOpen()} onClose={() => setCreateModuleOpen(false)} title={t("module.create")} closeOnEsc closeOnOverlayClick>
         <div class="p-6 space-y-4">
@@ -1229,5 +1446,15 @@ export function ApiManagement(props: ApiManagementProps) {
         </div>
       </Dialog>
     </>
+  )
+}
+
+/** Apifox 导入预览的单项统计 */
+function ApifoxStat(props: { label: string; value: number }) {
+  return (
+    <div class="flex items-center justify-between px-2 py-1 rounded bg-muted/40">
+      <span class="text-muted-foreground">{props.label}</span>
+      <span class="font-medium tabular-nums">{props.value}</span>
+    </div>
   )
 }

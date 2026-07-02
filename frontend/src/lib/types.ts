@@ -4,10 +4,22 @@
 export type HTTPMethod = string
 
 /** 请求体类型 */
-export type BodyType = "none" | "form-data" | "x-www-form-urlencoded" | "json" | "text"
+export type BodyType = "none" | "form-data" | "x-www-form-urlencoded" | "json" | "text" | "xml" | "binary"
 
 /** 认证类型 */
-export type AuthType = "none" | "basic" | "bearer"
+export type AuthType = "none" | "basic" | "bearer" | "apikey" | "inherit"
+
+/** 参数位置 */
+export type ParamLocation = "query" | "path" | "cookie"
+
+/** 端点类型 */
+export type EndpointType = "http" | "doc" | "websocket" | "sse"
+
+/** 操作阶段 */
+export type OperationStage = "pre" | "post"
+
+/** 操作类型 */
+export type OperationType = "script" | "libraryScript" | "assert" | "extractVar" | "wait"
 
 /** 主题模式 */
 export type ThemeMode = "light" | "dark" | "system"

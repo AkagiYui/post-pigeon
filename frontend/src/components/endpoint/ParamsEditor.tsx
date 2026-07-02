@@ -1,25 +1,37 @@
-// 请求参数编辑器（受控组件）
+// 请求参数编辑器（受控组件）：支持 query / path / cookie 参数位置、必填、示例
 import { Plus, Trash2 } from "lucide-solid"
 
 import type { ParamRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"
 import { t } from "@/hooks/useI18n"
+import type { ParamLocation } from "@/lib/types"
 
 export interface ParamsEditorProps {
   value: ParamRow[]
   onChange: (rows: ParamRow[]) => void
 }
 
+const locationOptions = [
+  { value: "query", label: "Query" },
+  { value: "path", label: "Path" },
+  { value: "cookie", label: "Cookie" },
+]
+
 export function ParamsEditor(props: ParamsEditorProps) {
   const addParam = () => {
     props.onChange([...props.value, {
       id: crypto.randomUUID(),
+      type: "query",
       name: "",
       value: "",
       description: "",
       enabled: true,
+      dataType: "string",
+      required: false,
+      example: "",
     }])
   }
 
@@ -46,6 +58,16 @@ export function ParamsEditor(props: ParamsEditorProps) {
             ),
           },
           {
+            header: t("endpoint.param.location"), width: "96px", render: (row) => (
+              <Select
+                options={locationOptions}
+                value={row.type}
+                onChange={(v) => updateParam(row.id, "type", v as ParamLocation)}
+                size="sm"
+              />
+            ),
+          },
+          {
             header: t("endpoint.param.name"), render: (row) => (
               <Input size="sm" value={row.name} onInput={(e) => updateParam(row.id, "name", e.currentTarget.value)} />
             ),
@@ -53,6 +75,21 @@ export function ParamsEditor(props: ParamsEditorProps) {
           {
             header: t("endpoint.param.value"), render: (row) => (
               <Input size="sm" value={row.value} onInput={(e) => updateParam(row.id, "value", e.currentTarget.value)} />
+            ),
+          },
+          {
+            header: t("endpoint.param.required"), width: "56px", render: (row) => (
+              <input
+                type="checkbox"
+                checked={row.required}
+                onChange={(e) => updateParam(row.id, "required", e.currentTarget.checked)}
+                class="rounded border-border"
+              />
+            ),
+          },
+          {
+            header: t("endpoint.param.example"), render: (row) => (
+              <Input size="sm" value={row.example} onInput={(e) => updateParam(row.id, "example", e.currentTarget.value)} />
             ),
           },
           {

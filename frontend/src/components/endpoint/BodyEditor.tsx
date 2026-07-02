@@ -1,6 +1,6 @@
 // 请求体编辑器（受控组件）
 import { Plus, Trash2, Upload } from "lucide-solid"
-import { For, Show } from "solid-js"
+import { createMemo, For, Show } from "solid-js"
 
 import type { BodyFieldRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
@@ -18,7 +18,9 @@ const bodyTypeOptions = [
   { value: "form-data", label: "form-data" },
   { value: "x-www-form-urlencoded", label: "x-www-form-urlencoded" },
   { value: "json", label: "JSON" },
+  { value: "xml", label: "XML" },
   { value: "text", label: "Text" },
+  { value: "binary", label: "Binary" },
 ]
 
 /** BodyEditor 变更补丁：只携带本次变化的字段 */
@@ -69,6 +71,24 @@ export function BodyEditor(props: BodyEditorProps) {
     reader.readAsDataURL(file)
   }
 
+  // Binary 请求体的当前文件名（从 bodyContent 的 JSON 解析）
+  const binaryFileName = createMemo(() => {
+    try { return JSON.parse(props.bodyContent || "{}").fileName || "" } catch { return "" }
+  })
+
+  // 选择 Binary 请求体文件：打包为 {fileName, content(base64)} 存入 bodyContent
+  const pickBinaryFile = (input: HTMLInputElement) => {
+    const file = input.files?.[0]
+    if (!file) return
+    const reader = new FileReader()
+    reader.onload = () => {
+      const result = String(reader.result || "")
+      const base64 = result.includes(",") ? result.slice(result.indexOf(",") + 1) : result
+      props.onChange({ bodyContent: JSON.stringify({ fileName: file.name, content: base64 }) })
+    }
+    reader.readAsDataURL(file)
+  }
+
   return (
     <div class="p-3 h-full overflow-auto flex flex-col">
       {/* 请求体类型选择 */}
@@ -91,8 +111,8 @@ export function BodyEditor(props: BodyEditorProps) {
           </For>
         </div>
 
-        {/* JSON/Text 的内容类型选择 */}
-        <Show when={props.bodyType === "json" || props.bodyType === "text"}>
+        {/* JSON/Text/XML 的内容类型选择 */}
+        <Show when={props.bodyType === "json" || props.bodyType === "text" || props.bodyType === "xml"}>
           <div class="ml-auto">
             <Input
               size="sm"
@@ -113,13 +133,34 @@ export function BodyEditor(props: BodyEditorProps) {
           </div>
         </Show>
 
-        <Show when={props.bodyType === "json" || props.bodyType === "text"}>
+        <Show when={props.bodyType === "json" || props.bodyType === "text" || props.bodyType === "xml"}>
           <Textarea
             value={props.bodyContent}
             onInput={(e) => props.onChange({ bodyContent: e.currentTarget.value })}
             placeholder={props.bodyType === "json" ? t("endpoint.placeholder.jsonBody") : t("endpoint.placeholder.requestBody")}
             class="h-full font-mono text-sm"
           />
+        </Show>
+
+        {/* Binary：选择单个文件，打包为 {fileName, content(base64)} 存入 bodyContent */}
+        <Show when={props.bodyType === "binary"}>
+          <div class="flex flex-col gap-2 py-4">
+            <label class="flex items-center gap-2 cursor-pointer text-sm">
+              <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-muted hover:text-foreground text-muted-foreground">
+                <Upload class="h-3 w-3" />
+                {t("common.chooseFile")}
+              </span>
+              <span class="truncate text-muted-foreground max-w-60">{binaryFileName() || t("common.noFileChosen")}</span>
+              <input type="file" class="hidden" onChange={(e) => pickBinaryFile(e.currentTarget)} />
+            </label>
+            <Input
+              size="sm"
+              value={props.contentType}
+              onInput={(e) => props.onChange({ contentType: e.currentTarget.value })}
+              placeholder="application/octet-stream"
+              class="w-64"
+            />
+          </div>
         </Show>
 
         <Show when={props.bodyType === "form-data" || props.bodyType === "x-www-form-urlencoded"}>

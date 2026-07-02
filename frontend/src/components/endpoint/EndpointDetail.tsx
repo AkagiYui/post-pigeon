@@ -12,16 +12,18 @@ import { Input } from "@/components/ui/input"
 import { Tabs } from "@/components/ui/tabs"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
-import { type AuthType, type BodyType, CONTENT_TYPES, formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS } from "@/lib/types"
+import { type AuthType, type BodyType, CONTENT_TYPES, type EndpointType, formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 import { AuthEditor } from "./AuthEditor"
 import { BodyEditor } from "./BodyEditor"
+import { DocumentEditor } from "./DocumentEditor"
 import { EndpointSettingsEditor } from "./EndpointSettingsEditor"
 import { HeadersEditor } from "./HeadersEditor"
+import { OperationsEditor } from "./OperationsEditor"
 import { ParamsEditor } from "./ParamsEditor"
 import { ResponsePanel } from "./ResponsePanel"
-import { ScriptEditor } from "./ScriptEditor"
+import { SSEPanel, WebSocketPanel } from "./StreamPanels"
 
 /** HTTP 方法选项（用于 Combobox） */
 const methodOptions: ComboboxOption[] = [
@@ -55,7 +57,7 @@ function getRequestTabs() {
     { key: "body", label: t("endpoint.body") },
     { key: "headers", label: t("endpoint.headers") },
     { key: "auth", label: t("endpoint.auth") },
-    { key: "script", label: t("endpoint.scripts") },
+    { key: "script", label: t("endpoint.operations") },
     { key: "settings", label: t("endpoint.settings") },
   ]
 }
@@ -74,6 +76,8 @@ function getResponseTabs() {
 export interface EndpointData {
   id: string
   name: string
+  /** 端点类型：http / doc / websocket / sse */
+  type: EndpointType
   method: HTTPMethod
   path: string
   bodyType: BodyType
@@ -90,15 +94,39 @@ export interface EndpointData {
   preRequestScript: string
   /** 后置脚本（响应返回后执行） */
   postResponseScript: string
+  /** 文档正文（type=doc 时的 Markdown） */
+  docContent: string
+  /** 接口状态：developing / released / deprecated */
+  status: string
+  /** 标签（JSON 字符串数组） */
+  tags: string
+  /** 接口描述 */
+  description: string
+  /** 是否继承上级前置/后置操作 */
+  inheritOperations: boolean
+  /** 前置/后置操作列表 */
+  operations: OperationRow[]
+  /** 响应示例（不在此编辑，仅透传保存以免丢失） */
+  examples: any[]
+  /** 响应定义（不在此编辑，仅透传保存以免丢失） */
+  schemas: any[]
 }
 
 /** 查询参数行（前端编辑态，id 仅用于列表 key，不入库） */
 export interface ParamRow {
   id: string
+  /** 参数位置：query / path / cookie */
+  type: ParamLocation
   name: string
   value: string
   description: string
   enabled: boolean
+  /** 值类型：string / integer / number / boolean / ... */
+  dataType: string
+  /** 是否必填 */
+  required: boolean
+  /** 示例值 */
+  example: string
 }
 
 /** 请求头行 */
@@ -108,6 +136,43 @@ export interface HeaderRow {
   value: string
   description: string
   enabled: boolean
+  required: boolean
+  example: string
+}
+
+/** 前置/后置操作行 */
+export interface OperationRow {
+  id: string
+  stage: OperationStage
+  type: OperationType
+  name: string
+  enabled: boolean
+  // script / libraryScript
+  script: string
+  libraryId: string
+  // assert
+  assertSource: string
+  assertExpression: string
+  assertComparison: string
+  assertTarget: string
+  // extractVar
+  varName: string
+  varScope: string
+  varSource: string
+  varExpression: string
+  // wait
+  waitMs: number
+}
+
+/** 创建一个空操作行 */
+export function emptyOperation(stage: OperationStage, type: OperationType = "script"): OperationRow {
+  return {
+    id: crypto.randomUUID(), stage, type, name: "", enabled: true,
+    script: "", libraryId: "",
+    assertSource: "responseJson", assertExpression: "", assertComparison: "eq", assertTarget: "",
+    varName: "", varScope: "environment", varSource: "responseJson", varExpression: "",
+    waitMs: 1000,
+  }
 }
 
 /** 请求体字段行（form-data / x-www-form-urlencoded） */
@@ -129,11 +194,15 @@ export interface AuthState {
   username: string
   password: string
   token: string
+  /** API Key 认证 */
+  apiKeyKey: string
+  apiKeyValue: string
+  apiKeyIn: string // header / query / cookie
 }
 
 /** 默认空认证 */
 export function emptyAuth(): AuthState {
-  return { type: "none", username: "", password: "", token: "" }
+  return { type: "none", username: "", password: "", token: "", apiKeyKey: "", apiKeyValue: "", apiKeyIn: "header" }
 }
 
 /** 脚本控制台输出 */
@@ -214,6 +283,8 @@ export interface EndpointDetailProps {
   environmentBaseUrls?: EnvironmentBaseURLOption[]
   /** 切换环境回调 */
   onEnvironmentChange?: (environmentId: string) => void
+  /** 所属项目 ID（供操作编辑器读取脚本库） */
+  projectId?: string
 }
 
 // 按端点 ID 持久化标签页状态，避免组件重新挂载时丢失
@@ -352,6 +423,62 @@ export function EndpointDetail(props: EndpointDetailProps) {
     },
   ))
 
+  // 非 HTTP 端点（文档 / WebSocket / SSE）的头部：名称/路径 + 保存/删除
+  const NonHttpHeader = (headerProps: { showPath?: boolean }) => (
+    <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
+      <Input
+        size="sm"
+        value={headerProps.showPath ? ep().path : ep().name}
+        onInput={(e) => props.onChange?.(headerProps.showPath ? { path: e.currentTarget.value } : { name: e.currentTarget.value })}
+        placeholder={headerProps.showPath ? "wss://example.com/socket" : t("endpoint.name")}
+        class="flex-1"
+      />
+      <Button variant={props.isUnsaved ? "default" : "outline"} size="sm" onClick={props.onSave}>
+        <Save class="h-3.5 w-3.5" />
+        {props.isUnsaved ? t("endpoint.saveToProject") : t("endpoint.save")}
+      </Button>
+      <Button variant="ghost" size="icon-sm" onClick={props.onDelete}>
+        <Trash2 class="h-3.5 w-3.5" />
+      </Button>
+    </div>
+  )
+
+  // 文档类型：Markdown 编辑器
+  if (ep().type === "doc") {
+    return (
+      <div class="flex flex-col h-full">
+        <NonHttpHeader />
+        <div class="flex-1 min-h-0">
+          <DocumentEditor content={ep().docContent} onChange={(v) => props.onChange?.({ docContent: v })} />
+        </div>
+      </div>
+    )
+  }
+
+  // WebSocket 类型
+  if (ep().type === "websocket") {
+    return (
+      <div class="flex flex-col h-full">
+        <NonHttpHeader showPath />
+        <div class="flex-1 min-h-0">
+          <WebSocketPanel connId={ep().id} baseUrl={ep().baseUrl} path={ep().path} />
+        </div>
+      </div>
+    )
+  }
+
+  // SSE 类型
+  if (ep().type === "sse") {
+    return (
+      <div class="flex flex-col h-full">
+        <NonHttpHeader showPath />
+        <div class="flex-1 min-h-0">
+          <SSEPanel connId={ep().id} baseUrl={ep().baseUrl} path={ep().path} method={ep().method} body={ep().bodyContent} />
+        </div>
+      </div>
+    )
+  }
+
   return (
     <div class="flex flex-col h-full">
       {/* 上部：请求行 */}
@@ -428,10 +555,10 @@ export function EndpointDetail(props: EndpointDetailProps) {
               />
               case "headers": return <HeadersEditor value={ep().headers} onChange={(v) => props.onChange?.({ headers: v })} />
               case "auth": return <AuthEditor value={ep().auth} onChange={(v) => props.onChange?.({ auth: v })} />
-              case "script": return <ScriptEditor
-                preRequestScript={ep().preRequestScript}
-                postResponseScript={ep().postResponseScript}
-                onChange={(patch) => props.onChange?.(patch)}
+              case "script": return <OperationsEditor
+                operations={ep().operations}
+                onChange={(ops) => props.onChange?.({ operations: ops })}
+                projectId={props.projectId}
               />
               case "settings": return <EndpointSettingsEditor
                 timeout={ep().timeout}

@@ -92,15 +92,35 @@ export function ResponsePanel(props: ResponsePanelProps) {
               </pre>
             }
           >
-            {/* 预览模式：使用 iframe 渲染 HTML */}
-            <Show when={decodedBody()} fallback={<div class="text-muted-foreground">{t("response.empty")}</div>}>
-              <iframe
-                class="w-full h-full min-h-48 border rounded bg-white"
-                srcdoc={decodedBody()}
-                sandbox="allow-same-origin"
-                title="Preview"
-              />
-            </Show>
+            {/* 预览模式：按 Content-Type 渲染 图片 / PDF / 音频 / 视频 / HTML / XML(SVG) */}
+            {(() => {
+              const ct = (props.response.contentType || "").toLowerCase()
+              const raw = props.response.rawBody || ""
+              const dataUri = raw ? `data:${ct.split(";")[0] || "application/octet-stream"};base64,${raw}` : ""
+              if (ct.startsWith("image/")) {
+                return <img src={dataUri} alt="preview" class="max-w-full max-h-full object-contain mx-auto" />
+              }
+              if (ct.includes("pdf")) {
+                return <iframe class="w-full h-full min-h-96 border rounded bg-white" src={dataUri} title="PDF" />
+              }
+              if (ct.startsWith("audio/")) {
+                return <audio controls src={dataUri} class="w-full mt-4" />
+              }
+              if (ct.startsWith("video/")) {
+                return <video controls src={dataUri} class="max-w-full max-h-full mx-auto" />
+              }
+              // HTML / XML / SVG 等：用 iframe 渲染（srcdoc 保证同源沙箱）
+              return (
+                <Show when={decodedBody()} fallback={<div class="text-muted-foreground">{t("response.empty")}</div>}>
+                  <iframe
+                    class="w-full h-full min-h-48 border rounded bg-white"
+                    srcdoc={decodedBody()}
+                    sandbox="allow-same-origin"
+                    title="Preview"
+                  />
+                </Show>
+              )
+            })()}
           </Show>
         </div>
       </Show>
