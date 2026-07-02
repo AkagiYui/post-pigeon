@@ -301,6 +301,24 @@ if (pm.response.headers.get('Content-Type') === 'application/octet-stream') {
 	}
 }
 
+func TestAtobBtoa(t *testing.T) {
+	e := New()
+	stores := newTestStores(nil)
+	res := e.Run(`
+		pm.environment.set("enc", btoa("hello"));
+		pm.environment.set("dec", atob("aGVsbG8="));
+	`, Options{Phase: PhasePreRequest, Stores: stores})
+	if res.Error != "" {
+		t.Fatalf("意外错误: %s", res.Error)
+	}
+	if v, _ := stores.Environment.Get("enc"); v != "aGVsbG8=" {
+		t.Errorf("btoa = %q", v)
+	}
+	if v, _ := stores.Environment.Get("dec"); v != "hello" {
+		t.Errorf("atob = %q", v)
+	}
+}
+
 func TestScriptErrorCaptured(t *testing.T) {
 	e := New()
 	res := e.Run(`throw new Error("boom");`, Options{Phase: PhasePreRequest, Stores: newTestStores(nil)})

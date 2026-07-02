@@ -145,6 +145,10 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			query.Add(param.Name, resolveVars(param.Value, vars))
 		}
 	}
+	// 前置脚本通过 pm.request.url.query.add(...) 追加的查询参数
+	for _, q := range reqCtx.Query {
+		query.Add(q.Key, resolveVars(q.Value, vars))
+	}
 	parsedURL.RawQuery = query.Encode()
 
 	// 创建请求

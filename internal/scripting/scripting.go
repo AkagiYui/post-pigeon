@@ -40,6 +40,9 @@ type RequestData struct {
 	URL     string
 	Headers []Header
 	Body    string
+	// Query 前置脚本通过 pm.request.url.query.add(...) 追加的查询参数，
+	// 由发送流程合并到实际请求的查询串上。
+	Query []Header
 }
 
 // ResponseData 是后置脚本可读的响应数据；setBody / headers 的修改会写回最终响应。
@@ -148,6 +151,7 @@ func (e *Engine) Run(script string, opts Options) *Result {
 	vm := goja.New()
 	e.registry.Enable(vm)
 	buildConsole(vm, res)
+	buildGlobals(vm)
 	buildPM(vm, opts, res)
 
 	start := time.Now()

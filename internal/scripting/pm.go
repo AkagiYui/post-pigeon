@@ -1,11 +1,26 @@
 package scripting
 
 import (
+	"encoding/base64"
 	"fmt"
 	"strings"
 
 	"github.com/dop251/goja"
 )
+
+// buildGlobals 安装常用的全局函数（atob / btoa），对应 Apifox 内置库清单。
+func buildGlobals(vm *goja.Runtime) {
+	vm.Set("btoa", func(call goja.FunctionCall) goja.Value {
+		return vm.ToValue(base64.StdEncoding.EncodeToString([]byte(call.Argument(0).String())))
+	})
+	vm.Set("atob", func(call goja.FunctionCall) goja.Value {
+		decoded, err := base64.StdEncoding.DecodeString(call.Argument(0).String())
+		if err != nil {
+			panic(vm.NewTypeError("atob: 非法的 base64 输入: " + err.Error()))
+		}
+		return vm.ToValue(string(decoded))
+	})
+}
 
 // buildConsole 安装 console 全局对象，把日志捕获到 Result.Logs。
 func buildConsole(vm *goja.Runtime, res *Result) {
@@ -217,9 +232,27 @@ func newMergedScope(vm *goja.Runtime, stores Stores) *goja.Object {
 func buildRequest(vm *goja.Runtime, req *RequestData) *goja.Object {
 	o := vm.NewObject()
 	defineStringAccessor(vm, o, "method", func() string { return req.Method }, func(s string) { req.Method = s })
-	defineStringAccessor(vm, o, "url", func() string { return req.URL }, func(s string) { req.URL = s })
 	defineStringAccessor(vm, o, "body", func() string { return req.Body }, func(s string) { req.Body = s })
 	o.Set("headers", buildHeaders(vm, &req.Headers))
+
+	// pm.request.url：对象形态（含 query），赋值时接受字符串。
+	// getter 返回一个 Url 对象（有 query / toString / valueOf）；setter 接受字符串整体改写 URL。
+	getter := vm.ToValue(func(goja.FunctionCall) goja.Value { return buildURL(vm, req) })
+	setter := vm.ToValue(func(call goja.FunctionCall) goja.Value {
+		req.URL = call.Argument(0).String()
+		return goja.Undefined()
+	})
+	o.DefineAccessorProperty("url", getter, setter, goja.FLAG_FALSE, goja.FLAG_TRUE)
+	return o
+}
+
+// buildURL 构建 pm.request.url 的对象形态：query 支持增删查，toString/valueOf 返回完整 URL 字符串
+// （使其在字符串上下文中仍表现为 URL 字符串，兼容 `'' + pm.request.url` 等用法）。
+func buildURL(vm *goja.Runtime, req *RequestData) *goja.Object {
+	o := vm.NewObject()
+	o.Set("query", buildHeaders(vm, &req.Query))
+	o.Set("toString", func(goja.FunctionCall) goja.Value { return vm.ToValue(req.URL) })
+	o.Set("valueOf", func(goja.FunctionCall) goja.Value { return vm.ToValue(req.URL) })
 	return o
 }
 
@@ -310,6 +343,9 @@ func buildHeaders(vm *goja.Runtime, headers *[]Header) *goja.Object {
 			m[h.Key] = h.Value
 		}
 		return vm.ToValue(m)
+	})
+	o.Set("all", func(goja.FunctionCall) goja.Value {
+		return vm.ToValue(append([]Header(nil), *headers...))
 	})
 	return o
 }
