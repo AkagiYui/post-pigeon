@@ -9,11 +9,13 @@ import type {
   FolderTree,
   HTTPResponseData,
   ModuleTree,
+  OpenAPIPreview,
 } from "@/../bindings/post-pigeon/internal/services"
 import {
   EndpointService,
   FolderService,
   HTTPService,
+  ImportExportService,
   ModuleService,
   ProjectService,
 } from "@/../bindings/post-pigeon/internal/services"
@@ -26,6 +28,7 @@ import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { SplitPane } from "@/components/ui/split-pane"
 import { Tabs } from "@/components/ui/tabs"
+import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
 import { type BodyType, type HTTPMethod } from "@/lib/types"
@@ -180,10 +183,34 @@ export function ApiManagement(props: ApiManagementProps) {
   const [deleting, setDeleting] = createSignal(false)
   const [createFolderOpen, setCreateFolderOpen] = createSignal(false)
   const [newFolderName, setNewFolderName] = createSignal("")
-  const [createFolderParentId, setCreateFolderParentId] = createSignal<string | undefined>()
-  const [createFolderParentType, setCreateFolderParentType] = createSignal<"module" | "folder">("module")
   const [createModuleOpen, setCreateModuleOpen] = createSignal(false)
   const [newModuleName, setNewModuleName] = createSignal("")
+  // 新建文件夹对话框：父级位置选择（默认点击的文件夹，否则根模块）
+  const [createFolderLocation, setCreateFolderLocation] = createSignal<string>("")
+  const [createFolderExpandedIds, setCreateFolderExpandedIds] = createSignal<string[]>([])
+  // 重命名对话框
+  const [renameOpen, setRenameOpen] = createSignal(false)
+  const [renameNode, setRenameNode] = createSignal<TreeNode | null>(null)
+  const [renameValue, setRenameValue] = createSignal("")
+  const [renaming, setRenaming] = createSignal(false)
+  // 移动对话框
+  const [moveOpen, setMoveOpen] = createSignal(false)
+  const [moveNode, setMoveNode] = createSignal<TreeNode | null>(null)
+  const [moveTargetId, setMoveTargetId] = createSignal<string>("")
+  const [moveExpandedIds, setMoveExpandedIds] = createSignal<string[]>([])
+  const [moving, setMoving] = createSignal(false)
+  // 树节点删除确认对话框（模块/文件夹/端点通用）
+  const [treeDeleteOpen, setTreeDeleteOpen] = createSignal(false)
+  const [treeDeleteNode, setTreeDeleteNode] = createSignal<TreeNode | null>(null)
+  const [treeDeleting, setTreeDeleting] = createSignal(false)
+  // OpenAPI 导入对话框
+  const [openApiOpen, setOpenApiOpen] = createSignal(false)
+  const [openApiModuleId, setOpenApiModuleId] = createSignal<string>("")
+  const [openApiJson, setOpenApiJson] = createSignal<string>("")
+  const [openApiPreview, setOpenApiPreview] = createSignal<OpenAPIPreview | null>(null)
+  const [openApiOverwrite, setOpenApiOverwrite] = createSignal(false)
+  const [openApiImporting, setOpenApiImporting] = createSignal(false)
+  const [openApiError, setOpenApiError] = createSignal("")
   // 当前端点所属模块的所有环境前置 URL 列表（供环境切换下拉使用）
   const [environmentBaseUrls, setEnvironmentBaseUrls] = createSignal<EnvironmentBaseURLOption[]>([])
 
@@ -237,10 +264,18 @@ export function ApiManagement(props: ApiManagementProps) {
   }
 
   // ---- 打开创建文件夹对话框 ----
-  const openCreateFolder = (parentId: string | undefined, type: "module" | "folder") => {
-    setCreateFolderParentId(parentId)
-    setCreateFolderParentType(type)
+  // 默认选中点击的模块/文件夹节点作为父级；无则回退到第一个模块
+  const openCreateFolder = (parentId: string | undefined, _type: "module" | "folder") => {
     setNewFolderName("")
+    // 计算默认父级位置
+    let location = parentId && findNodeInTree(treeData(), parentId) ? parentId : ""
+    if (!location) location = getEffectiveSaveLocation()
+    setCreateFolderLocation(location)
+    // 展开到默认位置，方便用户看到当前选择
+    if (location) {
+      const ancestors = findAncestorIds(treeData(), location) || []
+      setCreateFolderExpandedIds([...new Set([...ancestors, location])])
+    }
     setCreateFolderOpen(true)
   }
 
@@ -249,14 +284,15 @@ export function ApiManagement(props: ApiManagementProps) {
     if (!name) return
 
     try {
-      const parentId = createFolderParentId()
-      const parentType = createFolderParentType()
-      const moduleId = findModuleId(treeData(), parentId, parentType)
+      // 从选中的树节点解析目标模块与父文件夹
+      const location = createFolderLocation()
+      if (!location) { console.error(t("module.notSelected")); return }
+      const { moduleId, folderId } = resolveSaveLocation(location)
       if (!moduleId) {
         console.error("无法确定所属模块 ID")
         return
       }
-      await FolderService.CreateFolder(moduleId, parentType === "folder" ? parentId ?? null : null, name)
+      await FolderService.CreateFolder(moduleId, folderId ?? null, name)
       setCreateFolderOpen(false)
       await loadTree()
     } catch (e) {
@@ -303,22 +339,6 @@ export function ApiManagement(props: ApiManagementProps) {
   const mapEndpoint = (e: any): TreeNode => ({
     id: e.id, type: "endpoint", name: e.name, method: e.method as HTTPMethod,
   })
-
-  // 从树数据中递归查找节点所属的模块 ID
-  const findModuleId = (nodes: TreeNode[], nodeId: string | undefined, nodeType: "module" | "folder"): string | undefined => {
-    for (const node of nodes) {
-      if (nodeType === "module" && node.id === nodeId) return node.id
-      if (node.children) {
-        if (nodeType === "folder") {
-          const found = node.children.find(c => c.id === nodeId && c.type === "folder")
-          if (found && node.type === "module") return node.id
-        }
-        const result = findModuleId(node.children, nodeId, nodeType)
-        if (result) return result
-      }
-    }
-    return undefined
-  }
 
   /** 通过节点 ID 查找所属模块 ID */
   const findModuleIdByNodeId = (nodes: TreeNode[], targetId: string): string | undefined => {
@@ -408,8 +428,31 @@ export function ApiManagement(props: ApiManagementProps) {
     if (changed) setSaveFolderExpandedIds([...current])
   }
 
+  /** 项目默认模块 ID（树中第一个模块），默认模块不可删除、不可移动 */
+  const defaultModuleId = () => {
+    const d = treeData()
+    return d.length > 0 && d[0].type === "module" ? d[0].id : undefined
+  }
+
+  /** 递归收集某节点自身及其所有后代 ID（用于移动时禁止选中自身/子孙作为目标） */
+  const collectSubtreeIds = (node: TreeNode): Set<string> => {
+    const ids = new Set<string>()
+    const walk = (n: TreeNode) => {
+      ids.add(n.id)
+      n.children?.forEach(walk)
+    }
+    walk(node)
+    return ids
+  }
+
   // ---- 创建未保存请求 ----
-  const createUnsavedTab = () => {
+  // parentNodeId：右键/菜单发起时点击的模块或文件夹节点，作为默认保存位置
+  const createUnsavedTab = (parentNodeId?: string) => {
+    // 记住默认保存位置：优先点击的节点，否则回退到第一个模块
+    if (parentNodeId && findNodeInTree(treeData(), parentNodeId)) {
+      setSelectedSaveLocation(parentNodeId)
+      ensureAncestorsExpanded(parentNodeId)
+    }
     const tempId = generateTempId()
     const unsaved: UnsavedRequestData = {
       id: tempId, name: t("endpoint.newRequest"), method: "GET" as HTTPMethod,
@@ -666,6 +709,152 @@ export function ApiManagement(props: ApiManagementProps) {
     try { await EndpointService.DeleteEndpoint(id); closeTab(id); setDeleteConfirmOpen(false); setDeletingEndpointId(null); await loadTree() } catch (e) { console.error("删除端点失败", e) } finally { setDeleting(false) }
   }
 
+  // ---- 树节点操作：重命名（模块 / 文件夹 / 端点） ----
+  const handleTreeRename = (node: TreeNode) => {
+    setRenameNode(node)
+    setRenameValue(node.name)
+    setRenameOpen(true)
+  }
+
+  const confirmRename = async () => {
+    const node = renameNode()
+    const name = renameValue().trim()
+    if (!node || !name) return
+    setRenaming(true)
+    try {
+      if (node.type === "module") await ModuleService.UpdateModule(node.id, name)
+      else if (node.type === "folder") await FolderService.UpdateFolder(node.id, name)
+      else await EndpointService.RenameEndpoint(node.id, name)
+      // 同步已打开标签页与当前编辑区的名称
+      setRequestTabs(pt => pt.map(t => t.id === node.id ? { ...t, name } : t))
+      if (endpointData.id === node.id) setEndpointData({ name } as Partial<EndpointData>)
+      setRenameOpen(false); setRenameNode(null)
+      await loadTree()
+    } catch (e) { console.error("重命名失败", e) } finally { setRenaming(false) }
+  }
+
+  // ---- 树节点操作：复制（模块 / 文件夹 / 端点） ----
+  const handleTreeCopy = async (node: TreeNode) => {
+    try {
+      if (node.type === "module") await ModuleService.DuplicateModule(node.id)
+      else if (node.type === "folder") await FolderService.DuplicateFolder(node.id)
+      else await EndpointService.DuplicateEndpoint(node.id)
+      await loadTree()
+    } catch (e) { console.error("复制失败", e) }
+  }
+
+  // ---- 树节点操作：删除（模块 / 文件夹 / 端点） ----
+  const handleTreeDelete = (node: TreeNode) => {
+    // 默认模块不可删除
+    if (node.type === "module" && node.id === defaultModuleId()) return
+    setTreeDeleteNode(node)
+    setTreeDeleteOpen(true)
+  }
+
+  const confirmTreeDelete = async () => {
+    const node = treeDeleteNode()
+    if (!node) return
+    setTreeDeleting(true)
+    try {
+      if (node.type === "module") await ModuleService.DeleteModule(node.id)
+      else if (node.type === "folder") await FolderService.DeleteFolder(node.id)
+      else await EndpointService.DeleteEndpoint(node.id)
+      // 关闭受影响的已打开标签页（被删端点本身，或被删容器内的端点）
+      if (node.type === "endpoint") {
+        if (requestTabs().some(t => t.id === node.id)) closeTab(node.id)
+      } else {
+        const subtree = collectSubtreeIds(node)
+        requestTabs().filter(t => subtree.has(t.id)).forEach(t => closeTab(t.id))
+      }
+      setTreeDeleteOpen(false); setTreeDeleteNode(null)
+      await loadTree()
+    } catch (e) { console.error("删除失败", e) } finally { setTreeDeleting(false) }
+  }
+
+  // ---- 树节点操作：移动（文件夹 / 端点，模块不可移动） ----
+  const handleTreeMove = (node: TreeNode) => {
+    if (node.type === "module") return
+    setMoveNode(node)
+    setMoveTargetId("")
+    // 展开到当前所在位置，方便用户定位
+    const ancestors = findAncestorIds(treeData(), node.id) || []
+    setMoveExpandedIds([...ancestors])
+    setMoveOpen(true)
+  }
+
+  const confirmMove = async () => {
+    const node = moveNode()
+    const target = moveTargetId()
+    if (!node || !target) return
+    setMoving(true)
+    try {
+      const { moduleId, folderId } = resolveSaveLocation(target)
+      if (!moduleId) return
+      if (node.type === "endpoint") await EndpointService.MoveEndpoint(node.id, moduleId, folderId ?? null)
+      else if (node.type === "folder") await FolderService.MoveFolderTo(node.id, moduleId, folderId ?? null)
+      setMoveOpen(false); setMoveNode(null)
+      await loadTree()
+    } catch (e) { console.error("移动失败", e) } finally { setMoving(false) }
+  }
+
+  /** 移动目标选择器中禁止选中的节点（被移动节点自身及其后代） */
+  const moveDisabledIds = () => {
+    const n = moveNode()
+    return n ? collectSubtreeIds(n) : new Set<string>()
+  }
+
+  // ---- OpenAPI 导入：选择文件 → 预览 → 确认导入 ----
+  const handleImportOpenAPI = (node: TreeNode) => {
+    if (node.type !== "module") return
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = "application/json,.json"
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      setOpenApiModuleId(node.id)
+      setOpenApiOverwrite(false)
+      setOpenApiError("")
+      setOpenApiPreview(null)
+      setOpenApiJson("")
+      setOpenApiOpen(true)
+      try {
+        const text = await file.text()
+        setOpenApiJson(text)
+        const preview = await ImportExportService.PreviewOpenAPIImport(node.id, text)
+        setOpenApiPreview(preview)
+      } catch (e) {
+        console.error("解析接口文档失败", e)
+        setOpenApiError(t("openapi.parseFailed"))
+      }
+    }
+    input.click()
+  }
+
+  const confirmImportOpenAPI = async () => {
+    const moduleId = openApiModuleId()
+    if (!moduleId || !openApiJson()) return
+    setOpenApiImporting(true)
+    try {
+      await ImportExportService.ImportOpenAPIToModule(moduleId, openApiJson(), openApiOverwrite())
+      setOpenApiOpen(false)
+      await loadTree()
+    } catch (e) {
+      console.error("导入接口文档失败", e)
+      setOpenApiError(t("openapi.importFailed"))
+    } finally { setOpenApiImporting(false) }
+  }
+
+  // ---- 全局快捷键（跨平台，自动适配 Cmd/Ctrl） ----
+  useHotkey([
+    // 发送请求
+    { key: "CmdOrCtrl+Enter", allowInInput: true, handler: () => { if (endpointData.id && !sending()) handleSend() } },
+    // 保存当前接口
+    { key: "CmdOrCtrl+S", allowInInput: true, handler: () => { if (activeTabId()) handleSave() } },
+    // 新建请求
+    { key: "CmdOrCtrl+N", allowInInput: true, handler: () => createUnsavedTab() },
+  ])
+
   // ---- 计算属性 ----
   const isActiveTabUnsaved = () => { const t = requestTabs().find(t => t.id === activeTabId()); return t ? !t.saved : false }
 
@@ -679,7 +868,11 @@ export function ApiManagement(props: ApiManagementProps) {
             data={treeData()} selectedId={activeTabId() || undefined}
             onSelect={handleSelectNode} onCollapse={() => setSidebarCollapsed(true)}
             onCreateModule={openCreateModule}
-            onCreateEndpoint={() => createUnsavedTab()} onCreateFolder={openCreateFolder}
+            onCreateEndpoint={(parentId) => createUnsavedTab(parentId)} onCreateFolder={openCreateFolder}
+            onRename={handleTreeRename} onCopy={handleTreeCopy}
+            onDelete={handleTreeDelete} onMove={handleTreeMove}
+            onImportOpenAPI={handleImportOpenAPI}
+            defaultModuleId={defaultModuleId()}
             expandedIds={expandedIds()} onExpandedChange={setExpandedIds}
           />
         </div>}
@@ -687,7 +880,7 @@ export function ApiManagement(props: ApiManagementProps) {
           <Show when={requestTabs().length > 0}
             fallback={<div class="flex flex-col items-center justify-center h-full text-muted-foreground gap-4">
               <span>{t("endpoint.selectPrompt")}</span>
-              <Button onClick={createUnsavedTab} variant="outline">+ {t("endpoint.newRequest")}</Button>
+              <Button onClick={() => createUnsavedTab()} variant="outline">+ {t("endpoint.newRequest")}</Button>
             </div>}
           >
             <Tabs
@@ -760,8 +953,8 @@ export function ApiManagement(props: ApiManagementProps) {
 
       {/* 创建文件夹对话框 */}
       <Dialog open={createFolderOpen()} onClose={() => setCreateFolderOpen(false)} title={t("folder.create")} closeOnEsc closeOnOverlayClick>
-        <div class="p-6 space-y-4">
-          <div>
+        <div class="px-6 py-4 flex flex-col h-[60vh] gap-4">
+          <div class="shrink-0">
             <label class="block text-sm font-medium mb-1.5">{t("folder.name")}</label>
             <Input
               value={newFolderName()}
@@ -770,12 +963,137 @@ export function ApiManagement(props: ApiManagementProps) {
               onKeyDown={(e) => e.key === "Enter" && handleCreateFolder()}
             />
           </div>
-          <div class="flex justify-end gap-2 pt-2">
+          <div class="flex-1 min-h-0 flex flex-col">
+            <label class="block text-sm font-medium mb-1.5 shrink-0">{t("folder.selectParent")}</label>
+            <FolderTreeSelector
+              data={treeData()}
+              selectedId={createFolderLocation()}
+              onSelect={(node) => setCreateFolderLocation(node.id)}
+              expandedIds={new Set(createFolderExpandedIds())}
+              onExpandedChange={(ids) => setCreateFolderExpandedIds([...ids])}
+              class="flex-1 min-h-0"
+            />
+            <p class="text-xs text-muted-foreground mt-1 shrink-0">{t("folder.selectParentHint")}</p>
+          </div>
+          <div class="flex justify-end gap-2 pt-2 shrink-0">
             <Button variant="outline" onClick={() => setCreateFolderOpen(false)}>
               {t("common.cancel")}
             </Button>
-            <Button onClick={handleCreateFolder} disabled={!newFolderName().trim()}>
+            <Button onClick={handleCreateFolder} disabled={!newFolderName().trim() || !createFolderLocation()}>
               {t("common.confirm")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* 重命名对话框 */}
+      <Dialog open={renameOpen()} onClose={() => setRenameOpen(false)} title={t("common.rename")} closeOnEsc closeOnOverlayClick>
+        <div class="p-6 space-y-4">
+          <div>
+            <label class="block text-sm font-medium mb-1.5">{t("common.name")}</label>
+            <Input
+              value={renameValue()}
+              onInput={(e) => setRenameValue(e.currentTarget.value)}
+              placeholder={t("common.name")}
+              onKeyDown={(e) => e.key === "Enter" && confirmRename()}
+            />
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setRenameOpen(false)}>{t("common.cancel")}</Button>
+            <Button onClick={confirmRename} disabled={!renameValue().trim() || renaming()}>
+              {renaming() ? t("common.saving") : t("common.confirm")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* 移动到对话框 */}
+      <Dialog open={moveOpen()} onClose={() => setMoveOpen(false)} title={t("common.move")} closeOnEsc closeOnOverlayClick>
+        <div class="px-6 py-4 flex flex-col h-[60vh] gap-4">
+          <div class="flex-1 min-h-0 flex flex-col">
+            <label class="block text-sm font-medium mb-1.5 shrink-0">{t("endpoint.selectFolder")}</label>
+            <FolderTreeSelector
+              data={treeData()}
+              selectedId={moveTargetId()}
+              onSelect={(node) => setMoveTargetId(node.id)}
+              expandedIds={new Set(moveExpandedIds())}
+              onExpandedChange={(ids) => setMoveExpandedIds([...ids])}
+              disabledIds={moveDisabledIds()}
+              class="flex-1 min-h-0"
+            />
+            <p class="text-xs text-muted-foreground mt-1 shrink-0">{t("move.hint")}</p>
+          </div>
+          <div class="flex justify-end gap-2 pt-2 shrink-0">
+            <Button variant="outline" onClick={() => setMoveOpen(false)}>{t("common.cancel")}</Button>
+            <Button onClick={confirmMove} disabled={!moveTargetId() || moving()}>
+              {moving() ? t("common.saving") : t("common.confirm")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* 树节点删除确认对话框 */}
+      <Dialog open={treeDeleteOpen()} onClose={() => { setTreeDeleteOpen(false); setTreeDeleteNode(null) }} title={t("common.delete")} closeOnEsc closeOnOverlayClick>
+        <div class="p-6 space-y-4">
+          <p class="text-sm text-muted-foreground">{t("tree.confirmDelete", { name: treeDeleteNode()?.name || "" })}</p>
+          <div class="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => { setTreeDeleteOpen(false); setTreeDeleteNode(null) }}>{t("common.cancel")}</Button>
+            <Button variant="destructive" onClick={confirmTreeDelete} disabled={treeDeleting()}>
+              {treeDeleting() ? t("common.deleting") : t("common.delete")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* OpenAPI 导入对话框 */}
+      <Dialog open={openApiOpen()} onClose={() => setOpenApiOpen(false)} title={t("openapi.importTitle")} closeOnEsc closeOnOverlayClick width="560px">
+        <div class="px-6 py-4 flex flex-col h-[70vh] gap-3">
+          <Show when={openApiError()}>
+            <div class="text-sm text-red-500 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded-md shrink-0">{openApiError()}</div>
+          </Show>
+          <Show when={!openApiError() && !openApiPreview()}>
+            <div class="flex-1 flex items-center justify-center text-muted-foreground">{t("common.loading")}</div>
+          </Show>
+          <Show when={openApiPreview()}>
+            {(preview) => (
+              <>
+                <div class="shrink-0 text-sm text-muted-foreground">
+                  {t("openapi.summary", { total: preview().total, dup: preview().duplicateCount })}
+                </div>
+                {/* 冲突处理方式选择（仅当存在重复项时显示） */}
+                <Show when={preview().duplicateCount > 0}>
+                  <div class="shrink-0 flex flex-col gap-2 border border-border rounded-md p-3">
+                    <label class="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="radio" name="openapi-conflict" checked={!openApiOverwrite()} onChange={() => setOpenApiOverwrite(false)} />
+                      <span>{t("openapi.skipDuplicates")}</span>
+                    </label>
+                    <label class="flex items-center gap-2 text-sm cursor-pointer">
+                      <input type="radio" name="openapi-conflict" checked={openApiOverwrite()} onChange={() => setOpenApiOverwrite(true)} />
+                      <span>{t("openapi.overwriteDuplicates")}</span>
+                    </label>
+                  </div>
+                </Show>
+                {/* 接口预览列表 */}
+                <div class="flex-1 min-h-0 overflow-auto border border-border rounded-md bg-input">
+                  <For each={preview().items}>
+                    {(item) => (
+                      <div class="flex items-center gap-2 px-3 py-1.5 text-sm border-b border-border/50 last:border-b-0">
+                        <span class="font-mono text-xs font-semibold w-14 shrink-0 text-accent">{item.method}</span>
+                        <span class="flex-1 min-w-0 truncate" title={item.path}>{item.name}</span>
+                        <Show when={item.duplicate}>
+                          <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">{t("openapi.duplicate")}</span>
+                        </Show>
+                      </div>
+                    )}
+                  </For>
+                </div>
+              </>
+            )}
+          </Show>
+          <div class="flex justify-end gap-2 pt-2 shrink-0">
+            <Button variant="outline" onClick={() => setOpenApiOpen(false)}>{t("common.cancel")}</Button>
+            <Button onClick={confirmImportOpenAPI} disabled={!openApiPreview() || (openApiPreview()?.total ?? 0) === 0 || openApiImporting()}>
+              {openApiImporting() ? t("common.saving") : t("openapi.confirmImport")}
             </Button>
           </div>
         </div>

@@ -315,35 +315,34 @@ function NavLink(props: { href: string; active: boolean; children: JSX.Element }
 
 /** 项目标签（Chrome 风格，带关闭按钮） */
 function ProjectTab(props: { projectId: string; active: boolean; onClick: () => void; onClose: () => void }) {
-  // 从缓存中获取项目名称
-  const [project] = createResource(() => props.projectId, async (id) => {
-    // 先检查缓存
-    const cachedName = projectNames()[id]
-    if (cachedName) {
-      return cachedName
-    }
-    // 从后端加载
+  // 按需从后端加载项目名称并写入全局缓存（缓存缺失时才请求）
+  // 注意：不直接使用 resource 返回值渲染，而是从 projectNames() 派生显示名称，
+  // 这样项目名称在设置页保存后会实时更新到标签上。
+  createResource(() => props.projectId, async (id) => {
+    if (projectNames()[id]) return projectNames()[id]
     const project = await ProjectService.GetProject(id)
     if (project?.name) {
-      // 缓存项目名称
       setProjectNames(prev => ({ ...prev, [id]: project.name }))
-      return project.name
     }
-    return id.slice(0, 8)
+    return project?.name ?? ""
   })
+
+  // 显示名称：始终从全局缓存派生，保证响应式更新
+  const displayName = () => projectNames()[props.projectId] || props.projectId.slice(0, 8)
 
   return (
     <div
       class={cn(
-        "relative flex items-center pl-3 pr-2 py-1 text-sm rounded-md cursor-pointer transition-colors group font-medium max-w-2222 min-w-16",
+        "relative flex items-center pl-3 pr-2 py-1 text-sm rounded-md cursor-pointer transition-colors group font-medium max-w-52 min-w-16",
         props.active
           ? "bg-accent-muted text-accent"
           : "text-muted-foreground hover:text-foreground hover:bg-muted",
       )}
       onClick={props.onClick}
+      title={displayName()}
     >
       {/* 标题文字 - 左对齐，超出渐隐 */}
-      <span class="tab-title-fade flex-1 text-left">{project() || props.projectId.slice(0, 8)}</span>
+      <span class="tab-title-fade flex-1 text-left">{displayName()}</span>
       {/* 关闭按钮 - 位于右侧，悬停时显示 */}
       <button
         class="ml-0.5 shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted/80 transition-all"

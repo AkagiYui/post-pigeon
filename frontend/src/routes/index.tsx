@@ -17,6 +17,7 @@ import { Button } from "@/components/ui/button"
 import { ContextMenu } from "@/components/ui/context-menu"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
 import { activeProjectId as storeActiveProjectId, closeProject, openProject, openProjectIds } from "@/stores/app"
@@ -130,6 +131,11 @@ function HomePage() {
   }
 
   onMount(loadProjects)
+
+  // 快捷键：CmdOrCtrl+N 新建项目（跨平台自动适配）
+  useHotkey([
+    { key: "CmdOrCtrl+N", handler: () => setCreateOpen(true) },
+  ])
 
   // 创建项目
   const handleCreate = async () => {

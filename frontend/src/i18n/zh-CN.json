@@ -189,5 +189,18 @@
     "window.maximize": "最大化",
     "window.restore": "还原",
     "window.close": "关闭",
-    "settings.about.description": "一个轻量级的 API 测试工具"
+    "settings.about.description": "一个轻量级的 API 测试工具",
+    "folder.selectParent": "选择父文件夹",
+    "folder.selectParentHint": "选择新建文件夹所在的模块或父文件夹",
+    "move.hint": "选择要移动到的目标模块或文件夹",
+    "tree.confirmDelete": "确定要删除「{name}」吗？其下的所有内容都会被删除，此操作不可恢复。",
+    "openapi.import": "导入接口文档",
+    "openapi.importTitle": "导入 OpenAPI 接口文档",
+    "openapi.summary": "共 {total} 个接口，其中 {dup} 个与已有接口重名重方法",
+    "openapi.duplicate": "重复",
+    "openapi.skipDuplicates": "忽略重复接口（保留已有）",
+    "openapi.overwriteDuplicates": "覆盖已有接口",
+    "openapi.confirmImport": "确认导入",
+    "openapi.parseFailed": "解析接口文档失败，请确认文件为有效的 OpenAPI/Swagger JSON",
+    "openapi.importFailed": "导入接口文档失败"
 }

@@ -141,6 +141,77 @@ func (s *ModuleService) DeleteModule(id string) error {
 	})
 }
 
+// DuplicateModule 复制模块及其所有文件夹、端点和前置 URL 到同一项目
+func (s *ModuleService) DuplicateModule(id string) (*models.Module, error) {
+	var src models.Module
+	if err := s.db.Where("id = ?", id).First(&src).Error; err != nil {
+		return nil, fmt.Errorf("获取模块失败: %w", err)
+	}
+
+	var maxSort int
+	s.db.Model(&models.Module{}).Where("project_id = ?", src.ProjectID).
+		Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
+
+	newModule := &models.Module{
+		ProjectID: src.ProjectID,
+		Name:      src.Name + " 副本",
+		SortOrder: maxSort + 1,
+	}
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(newModule).Error; err != nil {
+			return err
+		}
+
+		// 复制前置 URL
+		var baseURLs []models.ModuleBaseURL
+		if err := tx.Where("module_id = ?", src.ID).Find(&baseURLs).Error; err != nil {
+			return err
+		}
+		for _, bu := range baseURLs {
+			bu.ID = ""
+			bu.ModuleID = newModule.ID
+			if err := tx.Create(&bu).Error; err != nil {
+				return err
+			}
+		}
+
+		// 复制文件夹树：先复制根文件夹（parent_id 为空），保持层级结构
+		var rootFolders []models.Folder
+		if err := tx.Where("module_id = ? AND parent_id IS NULL", src.ID).
+			Order("sort_order ASC").Find(&rootFolders).Error; err != nil {
+			return err
+		}
+		fs := &FolderService{db: s.db}
+		// oldFolderID -> newFolderID 映射，用于复制文件夹下端点
+		for _, rf := range rootFolders {
+			if _, err := fs.copyFolderTree(tx, rf, nil, newModule.ID, "", -1); err != nil {
+				return err
+			}
+		}
+
+		// 复制模块直属端点（folder_id 为空）
+		var directEndpoints []models.Endpoint
+		if err := tx.Where("module_id = ? AND folder_id IS NULL", src.ID).
+			Order("sort_order ASC").Find(&directEndpoints).Error; err != nil {
+			return err
+		}
+		for _, ep := range directEndpoints {
+			if err := copyEndpointRecord(tx, ep, newModule.ID, nil, ""); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		slog.Error("复制模块失败", "error", err)
+		return nil, fmt.Errorf("复制模块失败: %w", err)
+	}
+	slog.Info("模块已复制", "srcID", id, "newID", newModule.ID)
+	return newModule, nil
+}
+
 // UpdateModuleSortOrder 更新模块排序
 func (s *ModuleService) UpdateModuleSortOrder(id string, sortOrder int) error {
 	return s.db.Model(&models.Module{}).Where("id = ?", id).Update("sort_order", sortOrder).Error

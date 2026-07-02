@@ -9,6 +9,7 @@ import { ProjectEnvironmentSettings } from "@/components/settings/ProjectEnviron
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SideTabs } from "@/components/ui/tabs"
+import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
 import { setProjectNames } from "@/stores/app"
@@ -86,6 +87,17 @@ function ProjectSettingsPage() {
     }
   }
 
+  // 快捷键：CmdOrCtrl+S 保存基本设置（仅在基本设置标签页生效）
+  useHotkey([
+    {
+      key: "CmdOrCtrl+S",
+      allowInInput: true,
+      handler: () => {
+        if (activeTab() === "basic" && !saving()) handleSave()
+      },
+    },
+  ])
+
   // 带国际化标签的 tab 列表
   const tabs = () => projectSettingsTabs.map(tab => ({
     ...tab,
@@ -122,6 +134,7 @@ function ProjectSettingsPage() {
                       <Input
                         value={name()}
                         onInput={(e) => setName(e.currentTarget.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleSave()}
                         placeholder={t("project.name")}
                         disabled={saving()}
                       />
@@ -135,6 +148,7 @@ function ProjectSettingsPage() {
                       <Input
                         value={description()}
                         onInput={(e) => setDescription(e.currentTarget.value)}
+                        onKeyDown={(e) => e.key === "Enter" && handleSave()}
                         placeholder={t("project.description")}
                         disabled={saving()}
                       />

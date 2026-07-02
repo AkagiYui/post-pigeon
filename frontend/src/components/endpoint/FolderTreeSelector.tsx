@@ -19,6 +19,8 @@ export interface FolderTreeSelectorProps {
   expandedIds?: Set<string>
   /** 展开状态变化回调 */
   onExpandedChange?: (ids: Set<string>) => void
+  /** 不可选中的节点 ID 集合（如移动时的自身及其后代），仍可展开查看 */
+  disabledIds?: Set<string>
   /** 自定义类名 */
   class?: string
 }
@@ -78,6 +80,7 @@ export function FolderTreeSelector(props: FolderTreeSelectorProps) {
               level={0}
               selectedId={props.selectedId}
               expandedIds={getExpandedIds()}
+              disabledIds={props.disabledIds}
               onSelect={props.onSelect}
               onToggle={toggleExpand}
             />
@@ -104,30 +107,37 @@ function FolderTreeNodeItem(props: {
   level: number
   selectedId?: string
   expandedIds: Set<string>
+  disabledIds?: Set<string>
   onSelect?: (node: TreeNode) => void
   onToggle: (id: string) => void
 }) {
   const isExpanded = () => props.expandedIds.has(props.node.id)
   const isSelected = () => props.selectedId === props.node.id
   const hasChildren = () => (props.node.children?.length || 0) > 0
+  const isDisabled = () => props.disabledIds?.has(props.node.id) ?? false
 
   return (
     <div>
       {/* 节点行 */}
       <div
         class={cn(
-          "flex items-center gap-1.5 py-1.5 pr-2 cursor-pointer transition-colors text-sm",
-          isSelected()
-            ? "bg-accent-muted text-accent"
-            : "hover:bg-muted text-foreground",
+          "flex items-center gap-1.5 py-1.5 pr-2 transition-colors text-sm",
+          isDisabled()
+            ? "opacity-40 cursor-not-allowed"
+            : isSelected()
+              ? "bg-accent-muted text-accent cursor-pointer"
+              : "hover:bg-muted text-foreground cursor-pointer",
         )}
         style={{ "padding-left": `${props.level * 16 + 8}px` }}
         onClick={() => {
-          // 模块和文件夹都能被选中作为保存位置
+          // 展开/收起始终可用，便于展开后查看子节点
           if (hasChildren()) {
             props.onToggle(props.node.id)
           }
-          props.onSelect?.(props.node)
+          // 禁用节点不可被选中作为目标
+          if (!isDisabled()) {
+            props.onSelect?.(props.node)
+          }
         }}
       >
         {/* 图标 */}
@@ -155,6 +165,7 @@ function FolderTreeNodeItem(props: {
               level={props.level + 1}
               selectedId={props.selectedId}
               expandedIds={props.expandedIds}
+              disabledIds={props.disabledIds}
               onSelect={props.onSelect}
               onToggle={props.onToggle}
             />

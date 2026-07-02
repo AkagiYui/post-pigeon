@@ -189,5 +189,18 @@
     "window.maximize": "Maximize",
     "window.restore": "Restore",
     "window.close": "Close",
-    "settings.about.description": "A lightweight API testing tool"
+    "settings.about.description": "A lightweight API testing tool",
+    "folder.selectParent": "Select parent folder",
+    "folder.selectParentHint": "Choose the module or parent folder for the new folder",
+    "move.hint": "Select the target module or folder to move into",
+    "tree.confirmDelete": "Delete \"{name}\"? All contents inside will be removed. This cannot be undone.",
+    "openapi.import": "Import API doc",
+    "openapi.importTitle": "Import OpenAPI Document",
+    "openapi.summary": "{total} endpoints total, {dup} conflict with existing (same name & method)",
+    "openapi.duplicate": "Duplicate",
+    "openapi.skipDuplicates": "Skip duplicates (keep existing)",
+    "openapi.overwriteDuplicates": "Overwrite existing",
+    "openapi.confirmImport": "Import",
+    "openapi.parseFailed": "Failed to parse the document. Please provide a valid OpenAPI/Swagger JSON file",
+    "openapi.importFailed": "Failed to import the API document"
 }

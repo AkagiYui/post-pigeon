@@ -349,6 +349,118 @@ func (s *EndpointService) CreateFullEndpoint(moduleID string, folderID *string, 
 	return endpoint, nil
 }
 
+// RenameEndpoint 重命名端点
+func (s *EndpointService) RenameEndpoint(id string, name string) error {
+	result := s.db.Model(&models.Endpoint{}).Where("id = ?", id).Update("name", name)
+	if result.Error != nil {
+		return fmt.Errorf("重命名端点失败: %w", result.Error)
+	}
+	if result.RowsAffected == 0 {
+		return fmt.Errorf("端点不存在: %s", id)
+	}
+	slog.Info("端点已重命名", "id", id, "name", name)
+	return nil
+}
+
+// MoveEndpoint 移动端点到目标模块和文件夹（folderID 为 nil 表示移动到模块根级）
+func (s *EndpointService) MoveEndpoint(id string, moduleID string, folderID *string) error {
+	// 计算目标位置的最大排序号，追加到末尾
+	var maxSort int
+	query := s.db.Model(&models.Endpoint{}).Where("module_id = ?", moduleID)
+	if folderID != nil {
+		query = query.Where("folder_id = ?", *folderID)
+	} else {
+		query = query.Where("folder_id IS NULL")
+	}
+	query.Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
+
+	result := s.db.Model(&models.Endpoint{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"module_id":  moduleID,
+		"folder_id":  folderID,
+		"sort_order": maxSort + 1,
+	})
+	if result.Error != nil {
+		return fmt.Errorf("移动端点失败: %w", result.Error)
+	}
+	slog.Info("端点已移动", "id", id, "moduleID", moduleID)
+	return nil
+}
+
+// DuplicateEndpoint 复制端点及其所有关联数据到同一位置
+func (s *EndpointService) DuplicateEndpoint(id string) (*models.Endpoint, error) {
+	// 加载源端点完整详情
+	src, err := s.GetEndpoint(id)
+	if err != nil {
+		return nil, err
+	}
+
+	// 计算同位置的最大排序号
+	var maxSort int
+	query := s.db.Model(&models.Endpoint{}).Where("module_id = ?", src.ModuleID)
+	if src.FolderID != nil {
+		query = query.Where("folder_id = ?", *src.FolderID)
+	} else {
+		query = query.Where("folder_id IS NULL")
+	}
+	query.Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
+
+	newEndpoint := &models.Endpoint{
+		ModuleID:        src.ModuleID,
+		FolderID:        src.FolderID,
+		Name:            src.Name + " 副本",
+		Method:          src.Method,
+		Path:            src.Path,
+		BodyType:        src.BodyType,
+		BodyContent:     src.BodyContent,
+		ContentType:     src.ContentType,
+		Timeout:         src.Timeout,
+		FollowRedirects: src.FollowRedirects,
+		SortOrder:       maxSort + 1,
+	}
+
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(newEndpoint).Error; err != nil {
+			return err
+		}
+		for _, p := range src.Params {
+			p.ID = ""
+			p.EndpointID = newEndpoint.ID
+			if err := tx.Create(&p).Error; err != nil {
+				return err
+			}
+		}
+		for _, bf := range src.BodyFields {
+			bf.ID = ""
+			bf.EndpointID = newEndpoint.ID
+			if err := tx.Create(&bf).Error; err != nil {
+				return err
+			}
+		}
+		for _, h := range src.Headers {
+			h.ID = ""
+			h.EndpointID = newEndpoint.ID
+			if err := tx.Create(&h).Error; err != nil {
+				return err
+			}
+		}
+		if src.Auth != nil {
+			auth := *src.Auth
+			auth.ID = ""
+			auth.EndpointID = newEndpoint.ID
+			if err := tx.Create(&auth).Error; err != nil {
+				return err
+			}
+		}
+		return nil
+	})
+	if err != nil {
+		slog.Error("复制端点失败", "error", err)
+		return nil, fmt.Errorf("复制端点失败: %w", err)
+	}
+	slog.Info("端点已复制", "srcID", id, "newID", newEndpoint.ID)
+	return newEndpoint, nil
+}
+
 // EndpointToJSON 将端点导出为 JSON
 func (s *EndpointService) EndpointToJSON(endpoint *EndpointDetail) (string, error) {
 	data, err := json.MarshalIndent(endpoint, "", "  ")

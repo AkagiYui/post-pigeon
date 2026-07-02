@@ -1,6 +1,6 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
-import { ArrowUpDown, Copy, Ellipsis, FilePlusCorner, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Pencil, Plus, Search, Trash2 } from "lucide-solid"
+import { ArrowUpDown, Copy, Ellipsis, FileDown, FilePlusCorner, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Pencil, Plus, Search, Trash2 } from "lucide-solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
@@ -47,6 +47,10 @@ export interface EndpointTreeProps {
   onDelete?: (node: TreeNode) => void
   /** 移动回调 */
   onMove?: (node: TreeNode) => void
+  /** 导入 OpenAPI 文档回调（仅模块节点提供） */
+  onImportOpenAPI?: (node: TreeNode) => void
+  /** 默认模块 ID：默认模块不可删除、不可移动 */
+  defaultModuleId?: string
   /** 外部控制的展开节点 ID 列表（配合 onExpandedChange 使用，用于路由状态缓存） */
   expandedIds?: string[]
   /** 展开状态变化回调 */
@@ -186,12 +190,8 @@ export function EndpointTree(props: EndpointTreeProps) {
               expandedIds={effectiveExpandedIds()}
               onSelect={props.onSelect}
               onToggle={toggleExpand}
-              onCreateEndpoint={props.onCreateEndpoint}
-              onCreateFolder={props.onCreateFolder}
-              onRename={props.onRename}
-              onCopy={props.onCopy}
-              onDelete={props.onDelete}
-              onMove={props.onMove}
+              handlers={props}
+              defaultModuleId={props.defaultModuleId}
             />
           )}
         </For>
@@ -203,12 +203,8 @@ export function EndpointTree(props: EndpointTreeProps) {
 /** 创建节点的完整菜单项（右键菜单和弹出菜单共享） */
 function createAllMenuItems(
   node: TreeNode,
-  onCreateEndpoint: EndpointTreeProps["onCreateEndpoint"],
-  onCreateFolder: EndpointTreeProps["onCreateFolder"],
-  onRename: EndpointTreeProps["onRename"],
-  onCopy: EndpointTreeProps["onCopy"],
-  onDelete: EndpointTreeProps["onDelete"],
-  onMove: EndpointTreeProps["onMove"],
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateFolder" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI">,
+  isProtected: boolean,
 ): MenuItem[] {
   const items: MenuItem[] = []
 
@@ -219,25 +215,42 @@ function createAllMenuItems(
         key: "new-endpoint",
         label: t("endpoint.create"),
         icon: <FilePlusCorner class="h-4 w-4 text-blue-500 shrink-0" />,
-        onClick: () => onCreateEndpoint?.(node.id, node.type as "module" | "folder"),
+        onClick: () => handlers.onCreateEndpoint?.(node.id, node.type as "module" | "folder"),
       },
       {
         key: "new-folder",
         label: t("folder.create"),
         icon: <FolderPlus class="h-4 w-4 text-amber-500 shrink-0" />,
-        onClick: () => onCreateFolder?.(node.id, node.type as "module" | "folder"),
+        onClick: () => handlers.onCreateFolder?.(node.id, node.type as "module" | "folder"),
       },
-      { key: "separator-1", label: "", separator: true },
     )
+    // 模块节点：支持导入 OpenAPI 接口文档
+    if (node.type === "module") {
+      items.push({
+        key: "import-openapi",
+        label: t("openapi.import"),
+        icon: <FileDown class="h-4 w-4 text-emerald-500 shrink-0" />,
+        onClick: () => handlers.onImportOpenAPI?.(node),
+      })
+    }
+    items.push({ key: "separator-1", label: "", separator: true })
   }
 
-  // 所有节点：重命名、复制、删除、移动
+  // 所有节点：重命名、复制
   items.push(
-    { key: "rename", label: t("common.rename"), icon: <Pencil class="h-4 w-4 shrink-0" />, onClick: () => onRename?.(node) },
-    { key: "copy", label: t("common.copy"), icon: <Copy class="h-4 w-4 shrink-0" />, onClick: () => onCopy?.(node) },
-    { key: "delete", label: t("common.delete"), icon: <Trash2 class="h-4 w-4 shrink-0" />, onClick: () => onDelete?.(node) },
-    { key: "move", label: t("common.move"), icon: <ArrowUpDown class="h-4 w-4 shrink-0" />, onClick: () => onMove?.(node) },
+    { key: "rename", label: t("common.rename"), icon: <Pencil class="h-4 w-4 shrink-0" />, onClick: () => handlers.onRename?.(node) },
+    { key: "copy", label: t("common.copy"), icon: <Copy class="h-4 w-4 shrink-0" />, onClick: () => handlers.onCopy?.(node) },
   )
+
+  // 移动：模块为顶层节点不可移动；受保护的默认模块也不可移动
+  if (node.type !== "module") {
+    items.push({ key: "move", label: t("common.move"), icon: <ArrowUpDown class="h-4 w-4 shrink-0" />, onClick: () => handlers.onMove?.(node) })
+  }
+
+  // 删除：受保护的默认模块不可删除
+  if (!isProtected) {
+    items.push({ key: "delete", label: t("common.delete"), icon: <Trash2 class="h-4 w-4 shrink-0" />, onClick: () => handlers.onDelete?.(node) })
+  }
 
   return items
 }
@@ -269,22 +282,18 @@ function TreeNodeItem(props: {
   expandedIds: Set<string>
   onSelect?: (node: TreeNode) => void
   onToggle: (id: string) => void
-  onCreateEndpoint?: EndpointTreeProps["onCreateEndpoint"]
-  onCreateFolder?: EndpointTreeProps["onCreateFolder"]
-  onRename?: EndpointTreeProps["onRename"]
-  onCopy?: EndpointTreeProps["onCopy"]
-  onDelete?: EndpointTreeProps["onDelete"]
-  onMove?: EndpointTreeProps["onMove"]
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateFolder" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI">
+  defaultModuleId?: string
 }) {
   const isExpanded = () => props.expandedIds.has(props.node.id)
   const isSelected = () => props.selectedId === props.node.id
   const hasChildren = () => (props.node.children?.length || 0) > 0
 
+  // 默认模块受保护（不可删除、不可移动）
+  const isProtected = () => props.node.type === "module" && props.node.id === props.defaultModuleId
+
   // 统一的菜单项（右键菜单和弹出菜单共享）
-  const menuItems = () => createAllMenuItems(
-    props.node, props.onCreateEndpoint, props.onCreateFolder,
-    props.onRename, props.onCopy, props.onDelete, props.onMove,
-  )
+  const menuItems = () => createAllMenuItems(props.node, props.handlers, isProtected())
 
   return (
     <ContextMenu items={menuItems()}>
@@ -359,12 +368,8 @@ function TreeNodeItem(props: {
                 expandedIds={props.expandedIds}
                 onSelect={props.onSelect}
                 onToggle={props.onToggle}
-                onCreateEndpoint={props.onCreateEndpoint}
-                onCreateFolder={props.onCreateFolder}
-                onRename={props.onRename}
-                onCopy={props.onCopy}
-                onDelete={props.onDelete}
-                onMove={props.onMove}
+                handlers={props.handlers}
+                defaultModuleId={props.defaultModuleId}
               />
             )}
           </For>
