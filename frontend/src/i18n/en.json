@@ -52,6 +52,8 @@
     "endpoint.script.postHint": "Runs after the response returns. Use pm.response to read/rewrite it, pm.test/pm.expect for assertions.",
     "endpoint.script.placeholderPre": "// e.g. pm.environment.set('ts', String(Date.now()))\n// pm.request.headers.upsert('X-Token', pm.environment.get('token'))",
     "endpoint.script.placeholderPost": "// e.g. pm.test('status is 200', () => pm.expect(pm.response.code).to.equal(200))\n// pm.environment.set('token', pm.response.json().token)",
+    "endpoint.script.libraries": "Available libraries ({count})",
+    "endpoint.script.librariesHint": "To add or update bundled libraries, see internal/scripting/libs/README.md",
     "endpoint.body.none": "No Body",
     "endpoint.body.formData": "form-data",
     "endpoint.body.urlencoded": "x-www-form-urlencoded",

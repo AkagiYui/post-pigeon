@@ -8,6 +8,7 @@ package scripting
 
 import (
 	"embed"
+	"encoding/json"
 	"fmt"
 	"strings"
 	"time"
@@ -17,8 +18,37 @@ import (
 	"github.com/google/uuid"
 )
 
-//go:embed libs/*.js
+//go:embed libs/*.js libs/manifest.json
 var libsFS embed.FS
+
+// LibraryInfo 描述一个内置脚本库，对应 libs/manifest.json 中的一条记录。
+type LibraryInfo struct {
+	Name        string `json:"name"`
+	Version     string `json:"version"`
+	Require     string `json:"require,omitempty"` // require() 名称；global 类型为空
+	Kind        string `json:"kind"`              // embed | native | global
+	Usage       string `json:"usage,omitempty"`
+	License     string `json:"license"`
+	Source      string `json:"source,omitempty"`
+	File        string `json:"file,omitempty"`
+	SHA256      string `json:"sha256,omitempty"`
+	Description string `json:"description"`
+}
+
+// Libraries 返回内置脚本库清单（解析自 libs/manifest.json）。
+func Libraries() ([]LibraryInfo, error) {
+	b, err := libsFS.ReadFile("libs/manifest.json")
+	if err != nil {
+		return nil, fmt.Errorf("读取内置库清单失败: %w", err)
+	}
+	var manifest struct {
+		Libraries []LibraryInfo `json:"libraries"`
+	}
+	if err := json.Unmarshal(b, &manifest); err != nil {
+		return nil, fmt.Errorf("解析内置库清单失败: %w", err)
+	}
+	return manifest.Libraries, nil
+}
 
 // DefaultTimeout 是单个脚本的默认执行超时。
 const DefaultTimeout = 5 * time.Second

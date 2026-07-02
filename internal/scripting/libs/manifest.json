@@ -1,0 +1,60 @@
+{
+  "$comment": "内置脚本库的唯一事实来源。后端解析后经 HTTPService.ListScriptLibraries 暴露给前端展示；维护流程见同目录 README.md。新增/更新库后务必同步 sha256（可运行 go test ./internal/scripting -run TestLibrariesIntegrity 校验）。",
+  "libraries": [
+    {
+      "name": "lodash",
+      "version": "4.17.21",
+      "require": "lodash",
+      "kind": "embed",
+      "usage": "const _ = require('lodash')",
+      "license": "MIT",
+      "source": "https://cdn.jsdelivr.net/npm/lodash@4.17.21/lodash.min.js",
+      "file": "lodash.js",
+      "sha256": "a9705dfc47c0763380d851ab1801be6f76019f6b67e40e9b873f8b4a0603f7a9",
+      "description": "实用工具函数库（数组/对象/集合等）"
+    },
+    {
+      "name": "crypto-js",
+      "version": "4.2.0",
+      "require": "crypto-js",
+      "kind": "embed",
+      "usage": "const CryptoJS = require('crypto-js')",
+      "license": "MIT",
+      "source": "https://cdn.jsdelivr.net/npm/crypto-js@4.2.0/crypto-js.js",
+      "file": "crypto-js.js",
+      "sha256": "ee02257ffbaf0a9b481c7039b0f3bb20c360c9674fe4be8b38ae709b2ea59bbe",
+      "description": "加解密与编码：MD5/SHA/HMAC/AES/Base64 等"
+    },
+    {
+      "name": "chai",
+      "version": "4.5.0",
+      "require": "chai",
+      "kind": "embed",
+      "usage": "const chai = require('chai') // pm.expect 即 chai.expect",
+      "license": "MIT",
+      "source": "https://cdn.jsdelivr.net/npm/chai@4.5.0/chai.js",
+      "file": "chai.js",
+      "sha256": "bdc229d660afad0313fc10d6afb5a339956a18c4c6e819d3eb5d8b94f314c202",
+      "description": "BDD/TDD 断言库，pm.expect 的底层"
+    },
+    {
+      "name": "uuid",
+      "version": "1.6.0",
+      "require": "uuid",
+      "kind": "native",
+      "usage": "const uuid = require('uuid'); uuid.v4()",
+      "license": "BSD-3-Clause",
+      "source": "github.com/google/uuid",
+      "description": "UUID 生成（由 Go 原生实现，非 JS 内置）"
+    },
+    {
+      "name": "atob / btoa",
+      "version": "-",
+      "kind": "global",
+      "usage": "btoa('hi'); atob('aGk=')",
+      "license": "-",
+      "source": "内置（Go base64）",
+      "description": "Base64 编解码全局函数（无需 require）"
+    }
+  ]
+}

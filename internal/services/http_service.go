@@ -79,6 +79,11 @@ type HTTPResponseData struct {
 	Scripts *ScriptResults `json:"scripts,omitempty"`
 }
 
+// ListScriptLibraries 返回脚本运行时的内置库清单（名称/版本/用法等），供前端展示。
+func (s *HTTPService) ListScriptLibraries() ([]scripting.LibraryInfo, error) {
+	return scripting.Libraries()
+}
+
 // SendRequest 发送 HTTP 请求
 func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, error) {
 	envService := NewEnvironmentService(s.db)

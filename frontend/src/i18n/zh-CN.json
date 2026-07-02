@@ -52,6 +52,8 @@
     "endpoint.script.postHint": "响应返回后执行。可用 pm.response 读取/改写响应、pm.test/pm.expect 断言。",
     "endpoint.script.placeholderPre": "// 例：pm.environment.set('ts', String(Date.now()))\n// pm.request.headers.upsert('X-Token', pm.environment.get('token'))",
     "endpoint.script.placeholderPost": "// 例：pm.test('状态码 200', () => pm.expect(pm.response.code).to.equal(200))\n// pm.environment.set('token', pm.response.json().token)",
+    "endpoint.script.libraries": "可用库 ({count})",
+    "endpoint.script.librariesHint": "新增或更新内置库的方式见 internal/scripting/libs/README.md",
     "endpoint.body.none": "无请求体",
     "endpoint.body.formData": "form-data",
     "endpoint.body.urlencoded": "x-www-form-urlencoded",
