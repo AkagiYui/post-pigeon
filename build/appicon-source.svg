@@ -1,0 +1,136 @@
+<?xml version="1.0" encoding="UTF-8" standalone="no"?>
+<svg width="1024" height="1024" viewBox="0 0 1024 1024" version="1.1"
+     xmlns="http://www.w3.org/2000/svg" xmlns:xlink="http://www.w3.org/1999/xlink">
+  <defs>
+    <!-- squircle clip for the tile -->
+    <clipPath id="tileClip">
+      <rect x="80" y="80" width="864" height="864" rx="230" ry="230"/>
+    </clipPath>
+
+    <!-- background sky gradient: top-left bright -> bottom-right deep -->
+    <linearGradient id="bg" x1="0.15" y1="0" x2="0.7" y2="1">
+      <stop offset="0"   stop-color="#5CC6FF"/>
+      <stop offset="0.42" stop-color="#2486E0"/>
+      <stop offset="1"   stop-color="#0C3680"/>
+    </linearGradient>
+
+    <!-- top gloss -->
+    <linearGradient id="gloss" x1="0" y1="0" x2="0" y2="1">
+      <stop offset="0"    stop-color="#ffffff" stop-opacity="0.40"/>
+      <stop offset="0.45" stop-color="#ffffff" stop-opacity="0.08"/>
+      <stop offset="0.6"  stop-color="#ffffff" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- bottom inner shade -->
+    <linearGradient id="shade" x1="0" y1="1" x2="0" y2="0">
+      <stop offset="0"   stop-color="#0A2050" stop-opacity="0.45"/>
+      <stop offset="0.4" stop-color="#0A2050" stop-opacity="0"/>
+    </linearGradient>
+
+    <!-- dove body white->cool light grey (light from top-left) -->
+    <linearGradient id="dove" x1="0.2" y1="0.05" x2="0.7" y2="1">
+      <stop offset="0"   stop-color="#FFFFFF"/>
+      <stop offset="0.55" stop-color="#EDF3FA"/>
+      <stop offset="1"   stop-color="#CBD9EA"/>
+    </linearGradient>
+
+    <!-- back wing slightly deeper -->
+    <linearGradient id="wingBack" x1="0.2" y1="0" x2="0.8" y2="1">
+      <stop offset="0"   stop-color="#FFFFFF"/>
+      <stop offset="1"   stop-color="#C2D2E8"/>
+    </linearGradient>
+
+    <!-- front wing brightest -->
+    <linearGradient id="wingFront" x1="0.1" y1="0" x2="0.8" y2="1">
+      <stop offset="0"   stop-color="#FFFFFF"/>
+      <stop offset="1"   stop-color="#D7E4F2"/>
+    </linearGradient>
+
+    <!-- envelope warm gradient -->
+    <linearGradient id="env" x1="0.1" y1="0" x2="0.8" y2="1">
+      <stop offset="0"   stop-color="#FFD27A"/>
+      <stop offset="0.5" stop-color="#FF9E45"/>
+      <stop offset="1"   stop-color="#F26D3D"/>
+    </linearGradient>
+
+    <!-- soft drop shadow for the bird -->
+    <filter id="birdShadow" x="-30%" y="-30%" width="160%" height="160%">
+      <feDropShadow dx="0" dy="12" stdDeviation="14" flood-color="#08183C" flood-opacity="0.38"/>
+    </filter>
+  </defs>
+
+  <!-- everything clipped to the squircle; corners stay transparent -->
+  <g clip-path="url(#tileClip)">
+    <rect x="80" y="80" width="864" height="864" fill="url(#bg)"/>
+
+    <!-- faint motion swooshes behind the bird -->
+    <g stroke="#ffffff" stroke-opacity="0.16" stroke-width="14" fill="none" stroke-linecap="round">
+      <path d="M 250 560 C 360 540, 470 540, 560 556"/>
+      <path d="M 300 640 C 400 626, 500 628, 580 642"/>
+    </g>
+
+    <rect x="80" y="80" width="864" height="864" fill="url(#gloss)"/>
+    <rect x="80" y="80" width="864" height="864" fill="url(#shade)"/>
+
+    <!-- ===== bird (enlarged & recentered to tile center) ===== -->
+    <g filter="url(#birdShadow)" transform="translate(512 512) scale(1.28) translate(-547 -518)">
+      <!-- back wing (up) -->
+      <path fill="url(#wingBack)" d="
+        M 596 498
+        C 520 470, 430 430, 360 372
+        C 330 348, 318 332, 326 322
+        C 318 372, 332 452, 386 520
+        C 432 578, 520 566, 590 516 Z"/>
+
+      <!-- tail (forked, lower-left) -->
+      <path fill="url(#dove)" d="
+        M 452 600
+        C 402 620, 344 648, 296 686
+        C 342 678, 396 660, 436 636
+        C 426 660, 418 682, 414 702
+        C 452 682, 492 640, 510 598 Z"/>
+
+      <!-- body + head + beak -->
+      <path fill="url(#dove)" d="
+        M 444 606
+        C 498 590, 560 562, 606 520
+        C 632 496, 650 478, 660 462
+        C 676 442, 700 430, 724 432
+        C 740 433, 752 440, 758 450
+        L 794 470
+        L 760 472
+        C 758 488, 748 504, 728 514
+        C 700 528, 664 526, 638 516
+        C 586 552, 512 580, 456 606
+        C 452 606, 448 606, 444 606 Z"/>
+
+      <!-- front wing (down) -->
+      <path fill="url(#wingFront)" d="
+        M 558 542
+        C 522 582, 476 632, 446 676
+        C 482 660, 528 628, 556 592
+        C 562 578, 564 558, 558 542 Z"/>
+
+      <!-- eye -->
+      <circle cx="704" cy="462" r="9" fill="#2B3A4A"/>
+
+      <!-- legs -->
+      <g stroke="#C9D6E6" stroke-width="7" stroke-linecap="round" fill="none">
+        <path d="M 560 600 L 540 648"/>
+        <path d="M 596 596 L 580 646"/>
+      </g>
+
+      <!-- envelope held below -->
+      <g transform="rotate(-14 546 678)">
+        <rect x="486" y="636" width="120" height="84" rx="12" fill="url(#env)"/>
+        <path d="M 486 650 L 546 692 L 606 650" fill="none" stroke="#C9482C" stroke-width="8" stroke-linejoin="round"/>
+      </g>
+    </g>
+
+    <!-- edge highlight + outer hairline -->
+    <rect x="82" y="82" width="860" height="860" rx="228" ry="228"
+          fill="none" stroke="#ffffff" stroke-opacity="0.22" stroke-width="4"/>
+    <rect x="81.5" y="81.5" width="861" height="861" rx="229" ry="229"
+          fill="none" stroke="#000000" stroke-opacity="0.18" stroke-width="3"/>
+  </g>
+</svg>

@@ -12,6 +12,10 @@ build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 __pycache__
 
+# macOS app-icon appiconset PNGs — regenerated from build/appicon.png by
+# build/darwin/generate-assets-car.sh; the compiled build/darwin/Assets.car is committed instead.
+build/darwin/Assets.xcassets/appicon.appiconset/icon_*.png
+
 .DS_Store
 tmp/
 

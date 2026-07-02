@@ -99,16 +99,18 @@ tasks:
       - wails3 generate bindings -ts -f '{{.BUILD_FLAGS}}' -clean=true
 
   generate:icons:
-    summary: Generates Windows `.ico` and Mac `.icns` from an image; on macOS, `-iconcomposerinput appicon.icon -macassetdir darwin` also produces `Assets.car` from a `.icon` file (skipped on other platforms).
+    summary: Generates Windows `.ico` + Mac `.icns` from appicon.png; on macOS also compiles darwin/Assets.xcassets (a classic mac appiconset) into darwin/Assets.car via actool. The Icon Composer `.icon` route is avoided because its actool export fails on some machines ("Icon export exited with status 255").
     dir: build
     sources:
       - "appicon.png"
-      - "appicon.icon"
+      - "darwin/Assets.xcassets/appicon.appiconset/Contents.json"
     generates:
       - "darwin/icons.icns"
       - "windows/icon.ico"
+      - "darwin/Assets.car"
     cmds:
-      - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico -iconcomposerinput appicon.icon -macassetdir darwin
+      - wails3 generate icons -input appicon.png -macfilename darwin/icons.icns -windowsfilename windows/icon.ico
+      - '{{if eq OS "darwin"}}bash darwin/generate-assets-car.sh{{else}}echo "Skipping Assets.car generation (actool is macOS-only); using the committed darwin/Assets.car"{{end}}'
 
   dev:frontend:
     summary: Runs the frontend in development mode
