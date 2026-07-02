@@ -7,7 +7,7 @@ import { t } from "@/hooks/useI18n"
 import { decodeRawBody, formatBody } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
-import type { ResponseData } from "./EndpointDetail"
+import type { ResponseData, ScriptRunResult } from "./EndpointDetail"
 
 /** 渲染模式选项（直接展示的按钮组） */
 const renderModes = [
@@ -137,6 +137,24 @@ export function ResponsePanel(props: ResponsePanelProps) {
         </div>
       </Show>
 
+      <Show when={props.tab === "scripts"}>
+        <div class="flex-1 overflow-auto p-3">
+          <Show
+            when={props.response.scripts?.preRequest || props.response.scripts?.postResponse}
+            fallback={<div class="text-sm text-muted-foreground">{t("script.noOutput")}</div>}
+          >
+            <div class="flex flex-col gap-4">
+              <Show when={props.response.scripts?.preRequest}>
+                <ScriptResultBlock label={t("script.preRequest")} result={props.response.scripts!.preRequest!} />
+              </Show>
+              <Show when={props.response.scripts?.postResponse}>
+                <ScriptResultBlock label={t("script.postResponse")} result={props.response.scripts!.postResponse!} />
+              </Show>
+            </div>
+          </Show>
+        </div>
+      </Show>
+
       <Show when={props.tab === "actualRequest"}>
         <div class="p-3 overflow-auto">
           <pre class="text-sm font-mono whitespace-pre-wrap break-all text-foreground">
@@ -144,6 +162,83 @@ export function ResponsePanel(props: ResponsePanelProps) {
           </pre>
         </div>
       </Show>
+    </div>
+  )
+}
+
+/** 单个脚本执行结果块：标题 + 断言列表 + 控制台输出 + 错误 */
+function ScriptResultBlock(props: { label: string; result: ScriptRunResult }) {
+  const r = () => props.result
+  return (
+    <div class="border border-border rounded-md overflow-hidden">
+      {/* 标题栏 */}
+      <div class="flex items-center gap-2 px-3 py-1.5 bg-muted/50 border-b border-border text-sm">
+        <span class="font-medium">{props.label}</span>
+        <span class="text-xs text-muted-foreground">{t("script.durationMs", { ms: r().duration ?? 0 })}</span>
+      </div>
+      <div class="p-3 flex flex-col gap-3">
+        {/* 执行错误 */}
+        <Show when={r().error}>
+          <div class="text-xs">
+            <div class="font-medium text-red-600 dark:text-red-400 mb-1">{t("script.error")}</div>
+            <pre class="font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">{r().error}</pre>
+          </div>
+        </Show>
+
+        {/* 断言结果 */}
+        <Show when={r().tests && r().tests.length > 0}>
+          <div class="flex flex-col gap-1">
+            <div class="text-xs font-medium text-muted-foreground">{t("script.tests")}</div>
+            <For each={r().tests}>
+              {(test) => (
+                <div class="flex items-start gap-2 text-sm">
+                  <span
+                    class={cn(
+                      "shrink-0 text-[10px] px-1.5 py-0.5 rounded font-medium",
+                      test.passed
+                        ? "bg-green-500/15 text-green-600 dark:text-green-400"
+                        : "bg-red-500/15 text-red-600 dark:text-red-400",
+                    )}
+                  >
+                    {test.passed ? t("script.passed") : t("script.failed")}
+                  </span>
+                  <div class="min-w-0">
+                    <span class="break-all">{test.name}</span>
+                    <Show when={!test.passed && test.error}>
+                      <pre class="mt-0.5 text-xs font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">{test.error}</pre>
+                    </Show>
+                  </div>
+                </div>
+              )}
+            </For>
+          </div>
+        </Show>
+
+        {/* 控制台输出 */}
+        <Show when={r().logs && r().logs.length > 0}>
+          <div class="flex flex-col gap-1">
+            <div class="text-xs font-medium text-muted-foreground">{t("script.logs")}</div>
+            <div class="rounded bg-muted/40 p-2 flex flex-col gap-0.5">
+              <For each={r().logs}>
+                {(log) => (
+                  <pre
+                    class={cn(
+                      "text-xs font-mono whitespace-pre-wrap break-all",
+                      log.level === "error"
+                        ? "text-red-600 dark:text-red-400"
+                        : log.level === "warn"
+                          ? "text-amber-600 dark:text-amber-400"
+                          : "text-foreground",
+                    )}
+                  >
+                    {log.message}
+                  </pre>
+                )}
+              </For>
+            </div>
+          </div>
+        </Show>
+      </div>
     </div>
   )
 }

@@ -61,6 +61,8 @@ interface UnsavedRequestData {
   headers: HeaderRow[]
   bodyFields: BodyFieldRow[]
   auth: AuthState
+  preRequestScript: string
+  postResponseScript: string
 }
 
 let tempIdCounter = 0
@@ -167,6 +169,7 @@ export function ApiManagement(props: ApiManagementProps) {
     bodyType: "none" as BodyType, bodyContent: "", contentType: "",
     timeout: 30000, followRedirects: true, baseUrl: "",
     params: [], headers: [], bodyFields: [], auth: emptyAuth(),
+    preRequestScript: "", postResponseScript: "",
   }
   // 使用 createCachedStore 替代 createStore，自动缓存且保持细粒度响应式
   const [endpointData, setEndpointData] = cache.createCachedStore<EndpointData>("endpointData", { ...emptyEndpoint })
@@ -464,6 +467,7 @@ export function ApiManagement(props: ApiManagementProps) {
       path: "/", bodyType: "none" as BodyType, bodyContent: "", contentType: "",
       timeout: 30000, followRedirects: true, baseUrl: "",
       params: [], headers: [], bodyFields: [], auth: emptyAuth(),
+      preRequestScript: "", postResponseScript: "",
     }
     setUnsavedRequests(prev => ({ ...prev, [tempId]: unsaved }))
     setRequestTabs(prev => [...prev, { id: tempId, name: unsaved.name, method: unsaved.method, saved: false, dirty: false }])
@@ -473,6 +477,7 @@ export function ApiManagement(props: ApiManagementProps) {
       bodyType: unsaved.bodyType, bodyContent: unsaved.bodyContent, contentType: unsaved.contentType,
       timeout: unsaved.timeout, followRedirects: unsaved.followRedirects, baseUrl: unsaved.baseUrl,
       params: [], headers: [], bodyFields: [], auth: emptyAuth(),
+      preRequestScript: "", postResponseScript: "",
     } as EndpointData)
     setResponseData(null)
   }
@@ -514,6 +519,8 @@ export function ApiManagement(props: ApiManagementProps) {
           headers: fromHeaderModels(detail.headers),
           bodyFields: fromBodyFieldModels(detail.bodyFields),
           auth: fromAuthModel(detail.auth),
+          preRequestScript: detail.preRequestScript || "",
+          postResponseScript: detail.postResponseScript || "",
         } as EndpointData)
         if (detail.response) {
           const ti = detail.response.timing ? JSON.parse(detail.response.timing) : { total: 0, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0, ttfb: 0 }
@@ -543,6 +550,7 @@ export function ApiManagement(props: ApiManagementProps) {
         timeout: unsaved.timeout, followRedirects: unsaved.followRedirects, baseUrl: unsaved.baseUrl,
         params: unsaved.params ?? [], headers: unsaved.headers ?? [],
         bodyFields: unsaved.bodyFields ?? [], auth: unsaved.auth ?? emptyAuth(),
+        preRequestScript: unsaved.preRequestScript ?? "", postResponseScript: unsaved.postResponseScript ?? "",
       } as EndpointData)
     }
   }
@@ -581,6 +589,7 @@ export function ApiManagement(props: ApiManagementProps) {
       sendData.bodyContent = ep.bodyContent; sendData.contentType = ep.contentType
       sendData.bodyFields = toBodyFieldModels(ep.bodyFields); sendData.auth = toAuthModel(ep.auth)
       sendData.timeout = ep.timeout; sendData.followRedirects = ep.followRedirects
+      sendData.preRequestScript = ep.preRequestScript; sendData.postResponseScript = ep.postResponseScript
 
       const resp = await HTTPService.SendRequest(sendData)
       if (resp) {
@@ -590,6 +599,7 @@ export function ApiManagement(props: ApiManagementProps) {
           size: resp.size, body: resp.body, rawBody: resp.rawBody, headers: resp.headers as any,
           cookies: resp.cookies as any || [], contentType: resp.contentType,
           actualRequest: resp.actualRequest,
+          scripts: (resp.scripts as any) || undefined,
         })
       }
     } catch (e) {
@@ -631,6 +641,7 @@ export function ApiManagement(props: ApiManagementProps) {
         id: ep.id, name: ep.name, method: ep.method, path: ep.path,
         bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
         timeout: ep.timeout, followRedirects: ep.followRedirects,
+        preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
       })
@@ -652,6 +663,7 @@ export function ApiManagement(props: ApiManagementProps) {
         id: "", name, method: ep.method, path: ep.path,
         bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
         timeout: ep.timeout, followRedirects: ep.followRedirects,
+        preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
       })

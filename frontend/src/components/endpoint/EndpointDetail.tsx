@@ -21,6 +21,7 @@ import { EndpointSettingsEditor } from "./EndpointSettingsEditor"
 import { HeadersEditor } from "./HeadersEditor"
 import { ParamsEditor } from "./ParamsEditor"
 import { ResponsePanel } from "./ResponsePanel"
+import { ScriptEditor } from "./ScriptEditor"
 
 /** HTTP 方法选项（用于 Combobox） */
 const methodOptions: ComboboxOption[] = [
@@ -54,6 +55,7 @@ function getRequestTabs() {
     { key: "body", label: t("endpoint.body") },
     { key: "headers", label: t("endpoint.headers") },
     { key: "auth", label: t("endpoint.auth") },
+    { key: "script", label: t("endpoint.scripts") },
     { key: "settings", label: t("endpoint.settings") },
   ]
 }
@@ -64,6 +66,7 @@ function getResponseTabs() {
     { key: "body", label: t("response.body") },
     { key: "headers", label: t("response.headers") },
     { key: "cookies", label: t("response.cookies") },
+    { key: "scripts", label: t("response.scripts") },
     { key: "actualRequest", label: t("response.actualRequest") },
   ]
 }
@@ -83,6 +86,10 @@ export interface EndpointData {
   headers: HeaderRow[]
   bodyFields: BodyFieldRow[]
   auth: AuthState
+  /** 前置脚本（请求发送前执行） */
+  preRequestScript: string
+  /** 后置脚本（响应返回后执行） */
+  postResponseScript: string
 }
 
 /** 查询参数行（前端编辑态，id 仅用于列表 key，不入库） */
@@ -129,6 +136,34 @@ export function emptyAuth(): AuthState {
   return { type: "none", username: "", password: "", token: "" }
 }
 
+/** 脚本控制台输出 */
+export interface ScriptLog {
+  level: string
+  message: string
+}
+
+/** 单条断言结果 */
+export interface ScriptTest {
+  name: string
+  passed: boolean
+  error?: string
+}
+
+/** 单个脚本（前置或后置）的执行结果 */
+export interface ScriptRunResult {
+  executed: boolean
+  logs: ScriptLog[]
+  tests: ScriptTest[]
+  error?: string
+  duration: number
+}
+
+/** 前置/后置脚本执行结果集合 */
+export interface ScriptResultsData {
+  preRequest?: ScriptRunResult
+  postResponse?: ScriptRunResult
+}
+
 export interface ResponseData {
   statusCode: number
   timing: { total: number; dnsLookup: number; tlsHandshake: number; tcpConnect: number; ttfb: number }
@@ -140,6 +175,8 @@ export interface ResponseData {
   cookies: any[]
   contentType: string
   actualRequest: any
+  /** 前置/后置脚本执行结果（无脚本时缺省） */
+  scripts?: ScriptResultsData
   /** 请求失败时的错误信息（如协议错误、连接失败等）；有值时展示错误而非正常响应 */
   error?: string
 }
@@ -391,6 +428,11 @@ export function EndpointDetail(props: EndpointDetailProps) {
               />
               case "headers": return <HeadersEditor value={ep().headers} onChange={(v) => props.onChange?.({ headers: v })} />
               case "auth": return <AuthEditor value={ep().auth} onChange={(v) => props.onChange?.({ auth: v })} />
+              case "script": return <ScriptEditor
+                preRequestScript={ep().preRequestScript}
+                postResponseScript={ep().postResponseScript}
+                onChange={(patch) => props.onChange?.(patch)}
+              />
               case "settings": return <EndpointSettingsEditor
                 timeout={ep().timeout}
                 followRedirects={ep().followRedirects}
