@@ -32,6 +32,11 @@ const swagger2Doc = `{
 
 const openapi3Doc = `{
   "openapi": "3.0.1",
+  "info": {"title": "订单服务", "description": "d"},
+  "servers": [
+    {"url": "https://test.example.com", "description": "测试环境"},
+    {"url": "https://new-env.example.com", "description": "预发环境"}
+  ],
   "paths": {
     "/user/create": {
       "post": {
@@ -149,14 +154,56 @@ func TestImportOpenAPIToModule(t *testing.T) {
 	if preview.DuplicateCount != 0 {
 		t.Errorf("首次导入不应有重复项，实际 %d", preview.DuplicateCount)
 	}
+	if preview.ModuleName != "订单服务" {
+		t.Errorf("预览模块名 = %q，期望 订单服务", preview.ModuleName)
+	}
+	if len(preview.Servers) != 2 {
+		t.Fatalf("预览服务器数 = %d，期望 2", len(preview.Servers))
+	}
+	// 「测试环境」为项目默认环境，应标记为已存在；「预发环境」为新环境
+	for _, srv := range preview.Servers {
+		if srv.Name == "测试环境" && !srv.EnvironmentSame {
+			t.Errorf("测试环境应标记为已存在")
+		}
+		if srv.Name == "预发环境" && srv.EnvironmentSame {
+			t.Errorf("预发环境应标记为新环境")
+		}
+	}
 
-	// 导入
-	res, err := ie.ImportOpenAPIToModule(m.ID, openapi3Doc, false)
+	// 导入（含覆盖模块名与导入环境/前置 URL）
+	res, err := ie.ImportOpenAPIToModule(m.ID, openapi3Doc, OpenAPIImportOptions{
+		Overwrite: false, OverwriteModuleName: true, ImportServers: true,
+	})
 	if err != nil {
 		t.Fatalf("ImportOpenAPIToModule err=%v", err)
 	}
 	if res.Created != 2 {
 		t.Errorf("创建数 = %d，期望 2", res.Created)
+	}
+	if !res.ModuleRenamed {
+		t.Errorf("应重命名模块")
+	}
+	if res.EnvironmentsCreated != 1 {
+		t.Errorf("新建环境数 = %d，期望 1（预发环境）", res.EnvironmentsCreated)
+	}
+	if res.BaseURLsSet != 2 {
+		t.Errorf("设置前置 URL 数 = %d，期望 2", res.BaseURLsSet)
+	}
+	// 校验模块已改名
+	renamed, _ := NewModuleService(db).GetModule(m.ID)
+	if renamed.Name != "订单服务" {
+		t.Errorf("模块名 = %q，期望 订单服务", renamed.Name)
+	}
+	// 校验前置 URL 已设置（测试环境）
+	urls, _ := NewModuleService(db).GetModuleBaseURLs(m.ID)
+	var foundURL bool
+	for _, u := range urls {
+		if u.BaseURL == "https://test.example.com" {
+			foundURL = true
+		}
+	}
+	if !foundURL {
+		t.Errorf("未找到测试环境前置 URL，urls=%+v", urls)
 	}
 
 	// 再次预览应检测到重复
@@ -166,13 +213,13 @@ func TestImportOpenAPIToModule(t *testing.T) {
 	}
 
 	// 忽略重复导入
-	resSkip, _ := ie.ImportOpenAPIToModule(m.ID, openapi3Doc, false)
+	resSkip, _ := ie.ImportOpenAPIToModule(m.ID, openapi3Doc, OpenAPIImportOptions{Overwrite: false})
 	if resSkip.Skipped != 2 || resSkip.Created != 0 {
 		t.Errorf("忽略导入结果 = %+v，期望 skipped=2 created=0", resSkip)
 	}
 
 	// 覆盖导入
-	resOver, _ := ie.ImportOpenAPIToModule(m.ID, openapi3Doc, true)
+	resOver, _ := ie.ImportOpenAPIToModule(m.ID, openapi3Doc, OpenAPIImportOptions{Overwrite: true})
 	if resOver.Overwritten != 2 {
 		t.Errorf("覆盖导入结果 = %+v，期望 overwritten=2", resOver)
 	}

@@ -13,6 +13,7 @@ import type {
 } from "@/../bindings/post-pigeon/internal/services"
 import {
   EndpointService,
+  EnvironmentService,
   FolderService,
   HTTPService,
   ImportExportService,
@@ -32,7 +33,7 @@ import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
 import { type BodyType, type HTTPMethod } from "@/lib/types"
-import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, setCurrentEnvironment } from "@/stores/app"
+import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, notifyBaseUrlsChanged, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
 
 // ---- 类型定义 ----
 
@@ -209,6 +210,10 @@ export function ApiManagement(props: ApiManagementProps) {
   const [openApiJson, setOpenApiJson] = createSignal<string>("")
   const [openApiPreview, setOpenApiPreview] = createSignal<OpenAPIPreview | null>(null)
   const [openApiOverwrite, setOpenApiOverwrite] = createSignal(false)
+  // 覆盖模块名称（默认开启，仅当文档提供标题且与当前不同时展示）
+  const [openApiOverwriteModuleName, setOpenApiOverwriteModuleName] = createSignal(true)
+  // 导入环境与前置 URL（默认开启，仅当文档提供 servers 时展示）
+  const [openApiImportServers, setOpenApiImportServers] = createSignal(true)
   const [openApiImporting, setOpenApiImporting] = createSignal(false)
   const [openApiError, setOpenApiError] = createSignal("")
   // 当前端点所属模块的所有环境前置 URL 列表（供环境切换下拉使用）
@@ -587,7 +592,18 @@ export function ApiManagement(props: ApiManagementProps) {
           actualRequest: resp.actualRequest,
         })
       }
-    } catch (e) { console.error("发送请求失败", e) } finally { setSending(false) }
+    } catch (e) {
+      // 请求失败（如协议错误、连接失败、超时等）：将错误信息展示到响应框，而非仅打印到控制台
+      console.error("发送请求失败", e)
+      const message = e instanceof Error ? e.message : String(e)
+      setResponseData({
+        statusCode: 0,
+        timing: { total: 0, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0, ttfb: 0 },
+        size: 0, body: "", headers: {}, cookies: [], contentType: "",
+        actualRequest: null,
+        error: message,
+      })
+    } finally { setSending(false) }
   }
 
   // ---- 保存逻辑 ----
@@ -814,6 +830,8 @@ export function ApiManagement(props: ApiManagementProps) {
       if (!file) return
       setOpenApiModuleId(node.id)
       setOpenApiOverwrite(false)
+      setOpenApiOverwriteModuleName(true)
+      setOpenApiImportServers(true)
       setOpenApiError("")
       setOpenApiPreview(null)
       setOpenApiJson("")
@@ -836,9 +854,19 @@ export function ApiManagement(props: ApiManagementProps) {
     if (!moduleId || !openApiJson()) return
     setOpenApiImporting(true)
     try {
-      await ImportExportService.ImportOpenAPIToModule(moduleId, openApiJson(), openApiOverwrite())
+      await ImportExportService.ImportOpenAPIToModule(moduleId, openApiJson(), {
+        overwrite: openApiOverwrite(),
+        overwriteModuleName: openApiOverwriteModuleName(),
+        importServers: openApiImportServers(),
+      })
       setOpenApiOpen(false)
+      // 模块名/环境/前置 URL 可能变化：刷新树、项目环境列表，并通知 baseUrl 变更
       await loadTree()
+      try {
+        const envs = await EnvironmentService.ListEnvironments(props.projectId)
+        setProjectEnvironmentsList(props.projectId, envs || [])
+      } catch { /* 刷新环境列表失败时忽略 */ }
+      notifyBaseUrlsChanged()
     } catch (e) {
       console.error("导入接口文档失败", e)
       setOpenApiError(t("openapi.importFailed"))
@@ -1060,19 +1088,50 @@ export function ApiManagement(props: ApiManagementProps) {
                 <div class="shrink-0 text-sm text-muted-foreground">
                   {t("openapi.summary", { total: preview().total, dup: preview().duplicateCount })}
                 </div>
-                {/* 冲突处理方式选择（仅当存在重复项时显示） */}
-                <Show when={preview().duplicateCount > 0}>
-                  <div class="shrink-0 flex flex-col gap-2 border border-border rounded-md p-3">
+                {/* 导入选项：模块名称、环境与前置 URL */}
+                <div class="shrink-0 flex flex-col gap-2 border border-border rounded-md p-3">
+                  {/* 覆盖模块名称（仅当文档提供标题且与当前不同时显示） */}
+                  <Show when={preview().moduleName && preview().moduleName !== preview().currentModuleName}>
                     <label class="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="radio" name="openapi-conflict" checked={!openApiOverwrite()} onChange={() => setOpenApiOverwrite(false)} />
-                      <span>{t("openapi.skipDuplicates")}</span>
+                      <input type="checkbox" checked={openApiOverwriteModuleName()} onChange={(e) => setOpenApiOverwriteModuleName(e.currentTarget.checked)} />
+                      <span>{t("openapi.overwriteModuleName", { name: preview().moduleName })}</span>
                     </label>
+                  </Show>
+                  {/* 导入环境与前置 URL（仅当文档提供 servers 时显示） */}
+                  <Show when={preview().servers.length > 0}>
                     <label class="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="radio" name="openapi-conflict" checked={openApiOverwrite()} onChange={() => setOpenApiOverwrite(true)} />
-                      <span>{t("openapi.overwriteDuplicates")}</span>
+                      <input type="checkbox" checked={openApiImportServers()} onChange={(e) => setOpenApiImportServers(e.currentTarget.checked)} />
+                      <span>{t("openapi.importServers")}</span>
                     </label>
-                  </div>
-                </Show>
+                    {/* 服务器/环境列表 */}
+                    <div class="ml-6 flex flex-col gap-1">
+                      <For each={preview().servers}>
+                        {(srv) => (
+                          <div class="flex items-center gap-2 text-xs text-muted-foreground">
+                            <span class="shrink-0 font-medium text-foreground">{srv.name || t("openapi.allEnvironments")}</span>
+                            <span class="flex-1 min-w-0 truncate font-mono" title={srv.url}>{srv.url || "—"}</span>
+                            <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-muted">
+                              {srv.environmentSame ? t("openapi.envExists") : (srv.name ? t("openapi.envNew") : "")}
+                            </span>
+                          </div>
+                        )}
+                      </For>
+                    </div>
+                  </Show>
+                  {/* 冲突处理方式选择（仅当存在重复项时显示） */}
+                  <Show when={preview().duplicateCount > 0}>
+                    <div class="flex flex-col gap-2 pt-1 border-t border-border/50 mt-1">
+                      <label class="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="radio" name="openapi-conflict" checked={!openApiOverwrite()} onChange={() => setOpenApiOverwrite(false)} />
+                        <span>{t("openapi.skipDuplicates")}</span>
+                      </label>
+                      <label class="flex items-center gap-2 text-sm cursor-pointer">
+                        <input type="radio" name="openapi-conflict" checked={openApiOverwrite()} onChange={() => setOpenApiOverwrite(true)} />
+                        <span>{t("openapi.overwriteDuplicates")}</span>
+                      </label>
+                    </div>
+                  </Show>
+                </div>
                 {/* 接口预览列表 */}
                 <div class="flex-1 min-h-0 overflow-auto border border-border rounded-md bg-input">
                   <For each={preview().items}>

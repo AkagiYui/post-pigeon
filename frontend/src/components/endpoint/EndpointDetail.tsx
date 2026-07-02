@@ -140,6 +140,8 @@ export interface ResponseData {
   cookies: any[]
   contentType: string
   actualRequest: any
+  /** 请求失败时的错误信息（如协议错误、连接失败等）；有值时展示错误而非正常响应 */
+  error?: string
 }
 
 /** 环境前置 URL 条目 */
@@ -410,27 +412,44 @@ export function EndpointDetail(props: EndpointDetailProps) {
             </div>
           }
         >
-          <Tabs
-            tabs={getResponseTabs()}
-            value={activeResponseTab()}
-            onChange={setActiveResponseTab}
-            extra={
-              <div class="flex items-center gap-3 text-xs text-muted-foreground">
-                <Badge class={getStatusColor(props.response!.statusCode)}>
-                  {props.response!.statusCode}
-                </Badge>
-                <span>{formatTiming(props.response!.timing?.total || 0)}</span>
-                <span>{formatSize(props.response!.size || 0)}</span>
+          {/* 请求失败：展示错误信息，而非正常的响应标签页 */}
+          <Show
+            when={!props.response!.error}
+            fallback={
+              <div class="flex flex-col h-full">
+                <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
+                  <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
+                </div>
+                <div class="flex-1 overflow-auto p-3">
+                  <pre class="text-sm font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">
+                    {props.response!.error}
+                  </pre>
+                </div>
               </div>
             }
           >
-            {(key) => (
-              <ResponsePanel
-                tab={key}
-                response={props.response!}
-              />
-            )}
-          </Tabs>
+            <Tabs
+              tabs={getResponseTabs()}
+              value={activeResponseTab()}
+              onChange={setActiveResponseTab}
+              extra={
+                <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                  <Badge class={getStatusColor(props.response!.statusCode)}>
+                    {props.response!.statusCode}
+                  </Badge>
+                  <span>{formatTiming(props.response!.timing?.total || 0)}</span>
+                  <span>{formatSize(props.response!.size || 0)}</span>
+                </div>
+              }
+            >
+              {(key) => (
+                <ResponsePanel
+                  tab={key}
+                  response={props.response!}
+                />
+              )}
+            </Tabs>
+          </Show>
         </Show>
       </div>
     </div>

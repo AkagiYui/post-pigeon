@@ -341,11 +341,11 @@ function ProjectTab(props: { projectId: string; active: boolean; onClick: () => 
       onClick={props.onClick}
       title={displayName()}
     >
-      {/* 标题文字 - 左对齐，超出渐隐 */}
-      <span class="tab-title-fade flex-1 text-left">{displayName()}</span>
-      {/* 关闭按钮 - 位于右侧，悬停时显示 */}
+      {/* 标题文字 - 默认完整显示（超出省略号）；悬停时右侧留出关闭按钮空间 */}
+      <span class="truncate flex-1 text-left group-hover:pr-4">{displayName()}</span>
+      {/* 关闭按钮 - 绝对定位不占布局，仅悬停时出现，底色也仅在悬停时出现 */}
       <button
-        class="ml-0.5 shrink-0 opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted/80 transition-all"
+        class="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted transition-opacity"
         onClick={(e) => {
           e.stopPropagation()
           props.onClose()

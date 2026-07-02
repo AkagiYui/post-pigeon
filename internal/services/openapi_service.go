@@ -18,7 +18,23 @@ type openAPIDoc struct {
 	Swagger  string                                `json:"swagger"` // 2.0
 	OpenAPI  string                                `json:"openapi"` // 3.x
 	BasePath string                                `json:"basePath"`
+	Host     string                                `json:"host"`    // v2
+	Schemes  []string                              `json:"schemes"` // v2
+	Info     openAPIInfo                           `json:"info"`
+	Servers  []openAPIServer                       `json:"servers"` // v3
 	Paths    map[string]map[string]json.RawMessage `json:"paths"`
+}
+
+// openAPIInfo 文档基本信息
+type openAPIInfo struct {
+	Title       string `json:"title"`
+	Description string `json:"description"`
+}
+
+// openAPIServer v3 服务器条目（url + 描述，描述常对应环境名）
+type openAPIServer struct {
+	URL         string `json:"url"`
+	Description string `json:"description"`
 }
 
 // openAPIOperation 单个接口操作
@@ -85,6 +101,19 @@ type parsedEndpoint struct {
 	BodyFields  []models.EndpointBodyField
 }
 
+// parsedServer 解析出的服务器（环境名 + baseURL）
+type parsedServer struct {
+	Name string // 环境名（来自 server.description），v2 单服务器时为空
+	URL  string // baseURL（scheme://host）
+}
+
+// parsedDoc 文档解析结果
+type parsedDoc struct {
+	ModuleName string // 文档标题（info.title）
+	Endpoints  []parsedEndpoint
+	Servers    []parsedServer
+}
+
 // OpenAPIPreviewItem 预览项，供前端确认导入
 type OpenAPIPreviewItem struct {
 	Name      string `json:"name"`
@@ -93,18 +122,38 @@ type OpenAPIPreviewItem struct {
 	Duplicate bool   `json:"duplicate"` // 目标模块中是否已存在同名同方法的接口
 }
 
+// OpenAPIServerInfo 预览中的服务器/环境信息
+type OpenAPIServerInfo struct {
+	Name            string `json:"name"`            // 环境名（server 描述）
+	URL             string `json:"url"`             // baseURL
+	EnvironmentSame bool   `json:"environmentSame"` // 项目中是否已存在同名环境
+}
+
 // OpenAPIPreview OpenAPI 导入预览
 type OpenAPIPreview struct {
-	Total          int                  `json:"total"`
-	DuplicateCount int                  `json:"duplicateCount"`
-	Items          []OpenAPIPreviewItem `json:"items"`
+	Total             int                  `json:"total"`
+	DuplicateCount    int                  `json:"duplicateCount"`
+	Items             []OpenAPIPreviewItem `json:"items"`
+	ModuleName        string               `json:"moduleName"`        // 文档标题（可用于覆盖模块名），空表示文档未提供
+	CurrentModuleName string               `json:"currentModuleName"` // 目标模块当前名称
+	Servers           []OpenAPIServerInfo  `json:"servers"`           // 文档中的服务器/环境
+}
+
+// OpenAPIImportOptions OpenAPI 导入选项
+type OpenAPIImportOptions struct {
+	Overwrite           bool `json:"overwrite"`           // 覆盖重名重方法的接口（false 时跳过）
+	OverwriteModuleName bool `json:"overwriteModuleName"` // 用文档标题覆盖模块名称
+	ImportServers       bool `json:"importServers"`       // 创建/覆盖环境与模块前置 URL
 }
 
 // OpenAPIImportResult OpenAPI 导入结果
 type OpenAPIImportResult struct {
-	Created     int `json:"created"`
-	Overwritten int `json:"overwritten"`
-	Skipped     int `json:"skipped"`
+	Created             int  `json:"created"`
+	Overwritten         int  `json:"overwritten"`
+	Skipped             int  `json:"skipped"`
+	ModuleRenamed       bool `json:"moduleRenamed"`       // 是否重命名了模块
+	EnvironmentsCreated int  `json:"environmentsCreated"` // 新建的环境数
+	BaseURLsSet         int  `json:"baseUrlsSet"`         // 设置的模块前置 URL 数
 }
 
 // paramExample 提取参数示例值并转为字符串
@@ -181,8 +230,17 @@ func buildExampleValue(schema openAPISchema) interface{} {
 	}
 }
 
-// parseOpenAPI 解析 OpenAPI/Swagger 文档为端点列表
+// parseOpenAPI 解析 OpenAPI/Swagger 文档为端点列表（保留供测试与内部复用）
 func parseOpenAPI(jsonStr string) ([]parsedEndpoint, error) {
+	doc, err := parseOpenAPIDoc(jsonStr)
+	if err != nil {
+		return nil, err
+	}
+	return doc.Endpoints, nil
+}
+
+// parseOpenAPIDoc 解析 OpenAPI/Swagger 文档，返回端点、模块名与服务器信息
+func parseOpenAPIDoc(jsonStr string) (*parsedDoc, error) {
 	var doc openAPIDoc
 	if err := json.Unmarshal([]byte(jsonStr), &doc); err != nil {
 		return nil, fmt.Errorf("解析接口文档失败: %w", err)
@@ -194,7 +252,10 @@ func parseOpenAPI(jsonStr string) ([]parsedEndpoint, error) {
 		return nil, fmt.Errorf("接口文档中没有可导入的接口")
 	}
 
-	var result []parsedEndpoint
+	result := &parsedDoc{
+		ModuleName: strings.TrimSpace(doc.Info.Title),
+		Servers:    extractServers(&doc),
+	}
 	for path, methods := range doc.Paths {
 		fullPath := joinPath(doc.BasePath, path)
 		for method, raw := range methods {
@@ -209,11 +270,37 @@ func parseOpenAPI(jsonStr string) ([]parsedEndpoint, error) {
 				continue
 			}
 
-			ep := buildParsedEndpoint(fullPath, methodLower, op)
-			result = append(result, ep)
+			result.Endpoints = append(result.Endpoints, buildParsedEndpoint(fullPath, methodLower, op))
 		}
 	}
 	return result, nil
+}
+
+// extractServers 提取文档中的服务器/环境信息
+// v3：读取 servers[]（url + description）；v2：由 schemes + host 合成单个服务器
+func extractServers(doc *openAPIDoc) []parsedServer {
+	var servers []parsedServer
+	if len(doc.Servers) > 0 {
+		for _, s := range doc.Servers {
+			servers = append(servers, parsedServer{
+				Name: strings.TrimSpace(s.Description),
+				URL:  strings.TrimRight(strings.TrimSpace(s.URL), "/"),
+			})
+		}
+		return servers
+	}
+	// Swagger 2.0：host + schemes 合成 baseURL（basePath 已并入各接口路径，此处不重复）
+	if doc.Host != "" {
+		scheme := "https"
+		if len(doc.Schemes) > 0 && doc.Schemes[0] != "" {
+			scheme = doc.Schemes[0]
+		}
+		servers = append(servers, parsedServer{
+			Name: "",
+			URL:  scheme + "://" + doc.Host,
+		})
+	}
+	return servers
 }
 
 // buildParsedEndpoint 将单个操作转换为 parsedEndpoint
@@ -385,19 +472,28 @@ func dupKey(method, name string) string {
 	return strings.ToUpper(method) + "\x00" + name
 }
 
-// PreviewOpenAPIImport 预览 OpenAPI 导入，标记与目标模块中已有接口重名重方法的项
+// PreviewOpenAPIImport 预览 OpenAPI 导入，标记与目标模块中已有接口重名重方法的项，
+// 并返回文档标题、服务器/环境信息，供前端选择是否覆盖模块名、导入环境与前置 URL
 func (s *ImportExportService) PreviewOpenAPIImport(moduleID string, jsonStr string) (*OpenAPIPreview, error) {
-	endpoints, err := parseOpenAPI(jsonStr)
+	doc, err := parseOpenAPIDoc(jsonStr)
 	if err != nil {
 		return nil, err
+	}
+
+	// 目标模块（获取当前名称与所属项目）
+	var module models.Module
+	if err := s.db.Where("id = ?", moduleID).First(&module).Error; err != nil {
+		return nil, fmt.Errorf("目标模块不存在: %w", err)
 	}
 
 	existing := s.existingEndpointKeys(moduleID)
 
 	preview := &OpenAPIPreview{
-		Items: make([]OpenAPIPreviewItem, 0, len(endpoints)),
+		Items:             make([]OpenAPIPreviewItem, 0, len(doc.Endpoints)),
+		ModuleName:        doc.ModuleName,
+		CurrentModuleName: module.Name,
 	}
-	for _, ep := range endpoints {
+	for _, ep := range doc.Endpoints {
 		dup := existing[dupKey(ep.Method, ep.Name)]
 		if dup {
 			preview.DuplicateCount++
@@ -410,7 +506,29 @@ func (s *ImportExportService) PreviewOpenAPIImport(moduleID string, jsonStr stri
 		})
 	}
 	preview.Total = len(preview.Items)
+
+	// 服务器/环境预览：标记项目中是否已存在同名环境
+	existingEnvNames := s.existingEnvNames(module.ProjectID)
+	for _, srv := range doc.Servers {
+		preview.Servers = append(preview.Servers, OpenAPIServerInfo{
+			Name:            srv.Name,
+			URL:             srv.URL,
+			EnvironmentSame: srv.Name != "" && existingEnvNames[srv.Name],
+		})
+	}
+
 	return preview, nil
+}
+
+// existingEnvNames 返回项目中已有环境名称集合
+func (s *ImportExportService) existingEnvNames(projectID string) map[string]bool {
+	var envs []models.Environment
+	s.db.Where("project_id = ?", projectID).Find(&envs)
+	names := make(map[string]bool, len(envs))
+	for _, e := range envs {
+		names[e.Name] = true
+	}
+	return names
 }
 
 // existingEndpointKeys 返回模块中已有端点的重复检测键集合
@@ -425,21 +543,38 @@ func (s *ImportExportService) existingEndpointKeys(moduleID string) map[string]b
 }
 
 // ImportOpenAPIToModule 将 OpenAPI/Swagger 文档导入到指定模块（导入到模块根级）
-// overwrite=true 时，对重名重方法的接口先删除已有再导入；overwrite=false 时跳过重复项
-func (s *ImportExportService) ImportOpenAPIToModule(moduleID string, jsonStr string, overwrite bool) (*OpenAPIImportResult, error) {
+// opts.Overwrite=true 时对重名重方法接口先删除已有再导入，否则跳过；
+// opts.OverwriteModuleName=true 时用文档标题覆盖模块名；
+// opts.ImportServers=true 时按文档 servers 创建/复用环境并设置模块前置 URL。
+func (s *ImportExportService) ImportOpenAPIToModule(moduleID string, jsonStr string, opts OpenAPIImportOptions) (*OpenAPIImportResult, error) {
 	// 校验模块存在
 	var module models.Module
 	if err := s.db.Where("id = ?", moduleID).First(&module).Error; err != nil {
 		return nil, fmt.Errorf("目标模块不存在: %w", err)
 	}
 
-	endpoints, err := parseOpenAPI(jsonStr)
+	doc, err := parseOpenAPIDoc(jsonStr)
 	if err != nil {
 		return nil, err
 	}
 
 	result := &OpenAPIImportResult{}
 	err = s.db.Transaction(func(tx *gorm.DB) error {
+		// 覆盖模块名称
+		if opts.OverwriteModuleName && doc.ModuleName != "" && doc.ModuleName != module.Name {
+			if err := tx.Model(&models.Module{}).Where("id = ?", moduleID).Update("name", doc.ModuleName).Error; err != nil {
+				return err
+			}
+			result.ModuleRenamed = true
+		}
+
+		// 导入环境与模块前置 URL
+		if opts.ImportServers && len(doc.Servers) > 0 {
+			if err := s.importServers(tx, module.ProjectID, moduleID, doc.Servers, result); err != nil {
+				return err
+			}
+		}
+
 		// 加载模块现有端点，建立 key -> ID 列表映射
 		var existingList []models.Endpoint
 		if err := tx.Where("module_id = ?", moduleID).Find(&existingList).Error; err != nil {
@@ -456,10 +591,10 @@ func (s *ImportExportService) ImportOpenAPIToModule(moduleID string, jsonStr str
 		tx.Model(&models.Endpoint{}).Where("module_id = ? AND folder_id IS NULL", moduleID).
 			Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
 
-		for _, ep := range endpoints {
+		for _, ep := range doc.Endpoints {
 			key := dupKey(ep.Method, ep.Name)
 			if ids, dup := existing[key]; dup {
-				if !overwrite {
+				if !opts.Overwrite {
 					result.Skipped++
 					continue
 				}
@@ -486,8 +621,75 @@ func (s *ImportExportService) ImportOpenAPIToModule(moduleID string, jsonStr str
 		return nil, err
 	}
 
-	slog.Info("OpenAPI 已导入", "moduleID", moduleID, "created", result.Created, "overwritten", result.Overwritten, "skipped", result.Skipped)
+	slog.Info("OpenAPI 已导入", "moduleID", moduleID,
+		"created", result.Created, "overwritten", result.Overwritten, "skipped", result.Skipped,
+		"moduleRenamed", result.ModuleRenamed, "envsCreated", result.EnvironmentsCreated, "baseUrlsSet", result.BaseURLsSet)
 	return result, nil
+}
+
+// importServers 根据文档 servers 创建/复用环境并设置模块前置 URL
+func (s *ImportExportService) importServers(tx *gorm.DB, projectID string, moduleID string, servers []parsedServer, result *OpenAPIImportResult) error {
+	// 加载项目现有环境：名称 -> ID
+	var envs []models.Environment
+	if err := tx.Where("project_id = ?", projectID).Find(&envs).Error; err != nil {
+		return err
+	}
+	envByName := make(map[string]string, len(envs))
+	var allEnvIDs []string
+	for _, e := range envs {
+		envByName[e.Name] = e.ID
+		allEnvIDs = append(allEnvIDs, e.ID)
+	}
+
+	for _, srv := range servers {
+		if srv.URL == "" {
+			continue // 无 URL 不设置前置 URL
+		}
+		if srv.Name != "" {
+			// 命名服务器：匹配同名环境，缺失则创建
+			envID, ok := envByName[srv.Name]
+			if !ok {
+				newEnv := models.Environment{ProjectID: projectID, Name: srv.Name}
+				if err := tx.Create(&newEnv).Error; err != nil {
+					return err
+				}
+				envID = newEnv.ID
+				envByName[srv.Name] = envID
+				allEnvIDs = append(allEnvIDs, envID)
+				result.EnvironmentsCreated++
+			}
+			if err := setModuleBaseURLInTx(tx, moduleID, envID, srv.URL); err != nil {
+				return err
+			}
+			result.BaseURLsSet++
+		} else {
+			// 无名服务器（v2 单一 host）：为项目下所有环境设置相同前置 URL
+			for _, envID := range allEnvIDs {
+				if err := setModuleBaseURLInTx(tx, moduleID, envID, srv.URL); err != nil {
+					return err
+				}
+				result.BaseURLsSet++
+			}
+		}
+	}
+	return nil
+}
+
+// setModuleBaseURLInTx 在事务内 upsert 模块在指定环境下的前置 URL
+func setModuleBaseURLInTx(tx *gorm.DB, moduleID string, environmentID string, baseURL string) error {
+	var existing models.ModuleBaseURL
+	result := tx.Where("module_id = ? AND environment_id = ?", moduleID, environmentID).First(&existing)
+	if result.Error == gorm.ErrRecordNotFound {
+		return tx.Create(&models.ModuleBaseURL{
+			ModuleID:      moduleID,
+			EnvironmentID: environmentID,
+			BaseURL:       baseURL,
+		}).Error
+	}
+	if result.Error != nil {
+		return result.Error
+	}
+	return tx.Model(&existing).Update("base_url", baseURL).Error
 }
 
 // createParsedEndpoint 在事务内创建一个解析出的端点（导入到模块根级）
