@@ -27,6 +27,9 @@ type EndpointDetail struct {
 	Headers    []models.EndpointHeader    `json:"headers"`
 	Auth       *models.EndpointAuth       `json:"auth"`
 	Response   *models.Response           `json:"response"`
+	Operations []models.Operation         `json:"operations"`
+	Examples   []models.ResponseExample   `json:"examples"`
+	Schemas    []models.ResponseSchema    `json:"schemas"`
 }
 
 // GetEndpoint 获取端点完整详情
@@ -55,6 +58,12 @@ func (s *EndpointService) GetEndpoint(id string) (*EndpointDetail, error) {
 	if err := s.db.Where("endpoint_id = ?", id).First(&resp).Error; err == nil {
 		detail.Response = &resp
 	}
+
+	// 加载前置/后置操作、响应示例、响应定义
+	s.db.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerEndpoint, id).
+		Order("stage ASC, sort_order ASC").Find(&detail.Operations)
+	s.db.Where("endpoint_id = ?", id).Order("sort_order ASC").Find(&detail.Examples)
+	s.db.Where("endpoint_id = ?", id).Order("sort_order ASC").Find(&detail.Schemas)
 
 	return detail, nil
 }
@@ -103,6 +112,11 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 			"follow_redirects":     data.FollowRedirects,
 			"pre_request_script":   data.PreRequestScript,
 			"post_response_script": data.PostResponseScript,
+			"doc_content":          data.DocContent,
+			"status":               data.Status,
+			"tags":                 data.Tags,
+			"description":          data.Description,
+			"inherit_operations":   data.InheritOperations,
 		}).Error; err != nil {
 			return err
 		}
@@ -162,9 +176,97 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 			}
 		}
 
+		// 保存前置/后置操作：先删除端点自身操作再创建
+		if data.Operations != nil {
+			if err := tx.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerEndpoint, data.ID).
+				Delete(&models.Operation{}).Error; err != nil {
+				return err
+			}
+			for i := range data.Operations {
+				data.Operations[i].ID = ""
+				data.Operations[i].OwnerType = string(models.OperationOwnerEndpoint)
+				data.Operations[i].OwnerID = data.ID
+				if err := tx.Create(&data.Operations[i]).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		// 保存响应示例
+		if data.Examples != nil {
+			if err := tx.Where("endpoint_id = ?", data.ID).Delete(&models.ResponseExample{}).Error; err != nil {
+				return err
+			}
+			for i := range data.Examples {
+				data.Examples[i].ID = ""
+				data.Examples[i].EndpointID = data.ID
+				if err := tx.Create(&data.Examples[i]).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		// 保存响应定义
+		if data.Schemas != nil {
+			if err := tx.Where("endpoint_id = ?", data.ID).Delete(&models.ResponseSchema{}).Error; err != nil {
+				return err
+			}
+			for i := range data.Schemas {
+				data.Schemas[i].ID = ""
+				data.Schemas[i].EndpointID = data.ID
+				if err := tx.Create(&data.Schemas[i]).Error; err != nil {
+					return err
+				}
+			}
+		}
+
 		slog.Info("端点数据已保存", "id", data.ID)
 		return nil
 	})
+}
+
+// CreateDocument 创建文档类型端点（Markdown 内容）。
+func (s *EndpointService) CreateDocument(moduleID string, folderID *string, name string) (*models.Endpoint, error) {
+	var maxSort int
+	query := s.db.Model(&models.Endpoint{}).Where("module_id = ?", moduleID)
+	if folderID != nil {
+		query = query.Where("folder_id = ?", *folderID)
+	} else {
+		query = query.Where("folder_id IS NULL")
+	}
+	query.Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
+
+	doc := &models.Endpoint{
+		ModuleID: moduleID, FolderID: folderID, Name: name,
+		Type: string(models.EndpointTypeDoc), Method: "GET", Path: "/",
+		DocContent: "", SortOrder: maxSort + 1, InheritOperations: false,
+	}
+	if err := s.db.Create(doc).Error; err != nil {
+		return nil, fmt.Errorf("创建文档失败: %w", err)
+	}
+	slog.Info("文档已创建", "id", doc.ID, "name", doc.Name)
+	return doc, nil
+}
+
+// SaveDocument 保存文档内容与名称。
+func (s *EndpointService) SaveDocument(id string, name string, content string) error {
+	return s.db.Model(&models.Endpoint{}).Where("id = ?", id).Updates(map[string]interface{}{
+		"name":        name,
+		"doc_content": content,
+	}).Error
+}
+
+// CreateTypedEndpoint 创建指定类型的端点（http/websocket/sse）。
+func (s *EndpointService) CreateTypedEndpoint(moduleID string, folderID *string, name, method, path, epType string) (*models.Endpoint, error) {
+	ep, err := s.CreateEndpoint(moduleID, folderID, name, method, path)
+	if err != nil {
+		return nil, err
+	}
+	if epType != "" && epType != string(models.EndpointTypeHTTP) {
+		s.db.Model(&models.Endpoint{}).Where("id = ?", ep.ID).Update("type", epType)
+		ep.Type = epType
+	}
+	return ep, nil
 }
 
 // DeleteEndpoint 删除端点及其关联数据
@@ -183,6 +285,15 @@ func (s *EndpointService) DeleteEndpoint(id string) error {
 			return err
 		}
 		if err := tx.Where("endpoint_id = ?", id).Delete(&models.Response{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("endpoint_id = ?", id).Delete(&models.ResponseExample{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("endpoint_id = ?", id).Delete(&models.ResponseSchema{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerEndpoint, id).Delete(&models.Operation{}).Error; err != nil {
 			return err
 		}
 		if err := tx.Where("id = ?", id).Delete(&models.Endpoint{}).Error; err != nil {
@@ -218,10 +329,20 @@ type EndpointSaveData struct {
 	FollowRedirects    bool                       `json:"followRedirects"`
 	PreRequestScript   string                     `json:"preRequestScript"`
 	PostResponseScript string                     `json:"postResponseScript"`
+	// 新增元数据与文档/操作
+	Type              string `json:"type"`
+	DocContent        string `json:"docContent"`
+	Status            string `json:"status"`
+	Tags              string `json:"tags"`
+	Description       string `json:"description"`
+	InheritOperations bool   `json:"inheritOperations"`
 	Params             []models.EndpointParam     `json:"params"`
 	BodyFields      []models.EndpointBodyField `json:"bodyFields"`
 	Headers         []models.EndpointHeader    `json:"headers"`
 	Auth            *models.EndpointAuth       `json:"auth"`
+	Operations      []models.Operation         `json:"operations"`
+	Examples        []models.ResponseExample   `json:"examples"`
+	Schemas         []models.ResponseSchema    `json:"schemas"`
 }
 
 // SaveResponse 保存端点响应（upsert）

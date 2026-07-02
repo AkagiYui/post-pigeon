@@ -14,12 +14,16 @@ type Folder struct {
 	ParentID  *string   `gorm:"index" json:"parentId"`
 	Name      string    `gorm:"not null" json:"name"`
 	SortOrder int       `gorm:"default:0" json:"sortOrder"`
+	// AuthType/AuthData 文件夹级默认认证，供下级接口 inherit
+	AuthType string `gorm:"default:inherit" json:"authType"` // inherit, none, basic, bearer, apikey
+	AuthData string `gorm:"type:text" json:"authData"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 
 	// 关联（不存储，仅用于查询）
-	Children  []Folder   `gorm:"foreignKey:ParentID" json:"children,omitempty"`
-	Endpoints []Endpoint `gorm:"foreignKey:FolderID" json:"endpoints,omitempty"`
+	Children   []Folder    `gorm:"foreignKey:ParentID" json:"children,omitempty"`
+	Endpoints  []Endpoint  `gorm:"foreignKey:FolderID" json:"endpoints,omitempty"`
+	Operations []Operation `gorm:"-" json:"operations,omitempty"`
 }
 
 // BeforeCreate 创建前自动生成 UUID

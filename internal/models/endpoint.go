@@ -16,6 +16,18 @@ const (
 	BodyTypeURLEncoded BodyType = "x-www-form-urlencoded"
 	BodyTypeJSON       BodyType = "json"
 	BodyTypeText       BodyType = "text"
+	BodyTypeXML        BodyType = "xml"    // application/xml
+	BodyTypeBinary     BodyType = "binary" // 原始二进制（单文件），BodyContent 存 {"fileName":..,"content":<base64>}
+)
+
+// EndpointType 端点类型：普通 HTTP 接口、Markdown 文档、WebSocket、SSE
+type EndpointType string
+
+const (
+	EndpointTypeHTTP      EndpointType = "http"
+	EndpointTypeDoc       EndpointType = "doc"
+	EndpointTypeWebSocket EndpointType = "websocket"
+	EndpointTypeSSE       EndpointType = "sse"
 )
 
 // HTTPMethod 常见的 HTTP 方法
@@ -31,12 +43,13 @@ const (
 	MethodOptions HTTPMethod = "OPTIONS"
 )
 
-// Endpoint 端点，属于模块或文件夹
+// Endpoint 端点，属于模块或文件夹。通过 Type 区分 HTTP 接口 / 文档 / WebSocket / SSE。
 type Endpoint struct {
 	ID              string    `gorm:"primaryKey" json:"id"`
 	ModuleID        string    `gorm:"not null;index" json:"moduleId"`
 	FolderID        *string   `gorm:"index" json:"folderId"`
 	Name            string    `gorm:"not null" json:"name"`
+	Type            string    `gorm:"default:http" json:"type"` // http, doc, websocket, sse
 	Method          string    `gorm:"not null;default:GET" json:"method"`
 	Path            string    `gorm:"not null;default:/" json:"path"`
 	BodyType        string    `gorm:"default:none" json:"bodyType"`
@@ -44,20 +57,31 @@ type Endpoint struct {
 	ContentType     string    `json:"contentType"`
 	Timeout         int       `gorm:"default:30000" json:"timeout"`
 	FollowRedirects bool      `gorm:"default:true" json:"followRedirects"`
-	// PreRequestScript 前置脚本，请求发送前执行（JavaScript）
+	// 文档正文（Type=doc 时的 Markdown 内容）
+	DocContent string `gorm:"type:text" json:"docContent"`
+	// 接口元数据
+	Status      string `json:"status"`                 // developing, released, deprecated, ...
+	Tags        string `gorm:"type:text" json:"tags"`  // JSON 字符串数组
+	Description string `gorm:"type:text" json:"description"`
+	// InheritOperations 是否继承上级（文件夹/模块）的前置后置操作，默认继承
+	InheritOperations bool `gorm:"default:true" json:"inheritOperations"`
+	// PreRequestScript 前置脚本，请求发送前执行（JavaScript）——旧字段，保留以兼容历史数据
 	PreRequestScript string `gorm:"type:text" json:"preRequestScript"`
-	// PostResponseScript 后置脚本，响应返回后执行（JavaScript）
-	PostResponseScript string `gorm:"type:text" json:"postResponseScript"`
-	SortOrder          int    `gorm:"default:0" json:"sortOrder"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	// PostResponseScript 后置脚本，响应返回后执行（JavaScript）——旧字段，保留以兼容历史数据
+	PostResponseScript string    `gorm:"type:text" json:"postResponseScript"`
+	SortOrder          int       `gorm:"default:0" json:"sortOrder"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
 
 	// 关联
-	Params     []EndpointParam     `json:"params,omitempty"`
-	BodyFields []EndpointBodyField `json:"bodyFields,omitempty"`
-	Headers    []EndpointHeader    `json:"headers,omitempty"`
-	Auth       *EndpointAuth       `json:"auth,omitempty"`
-	Response   *Response           `json:"response,omitempty"`
+	Params      []EndpointParam    `json:"params,omitempty"`
+	BodyFields  []EndpointBodyField `json:"bodyFields,omitempty"`
+	Headers     []EndpointHeader    `json:"headers,omitempty"`
+	Auth        *EndpointAuth       `json:"auth,omitempty"`
+	Response    *Response           `json:"response,omitempty"`
+	Operations  []Operation         `gorm:"-" json:"operations,omitempty"`
+	Examples    []ResponseExample   `json:"examples,omitempty"`
+	Schemas     []ResponseSchema    `json:"schemas,omitempty"`
 }
 
 // BeforeCreate 创建前自动生成 UUID
@@ -68,15 +92,22 @@ func (e *Endpoint) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
-// EndpointParam 端点查询参数
+// EndpointParam 端点参数。Type 表示参数位置：query（查询）、path（路径）、cookie。
+// 请求头参数单独存于 EndpointHeader。
 type EndpointParam struct {
 	ID          string `gorm:"primaryKey" json:"id"`
 	EndpointID  string `gorm:"not null;index" json:"endpointId"`
-	Type        string `gorm:"not null;default:query" json:"type"` // query
+	Type        string `gorm:"not null;default:query" json:"type"` // query, path, cookie
 	Name        string `gorm:"not null" json:"name"`
 	Value       string `json:"value"`
 	Description string `json:"description"`
 	Enabled     bool   `json:"enabled"`
+	// DataType 值类型：string, integer, number, boolean, array, object, file
+	DataType string `gorm:"default:string" json:"dataType"`
+	// Required 是否必填
+	Required bool `json:"required"`
+	// Example 示例值
+	Example string `json:"example"`
 }
 
 // BeforeCreate 创建前自动生成 UUID
@@ -113,6 +144,10 @@ type EndpointHeader struct {
 	Value       string `json:"value"`
 	Description string `json:"description"`
 	Enabled     bool   `json:"enabled"`
+	// Required 是否必填
+	Required bool `json:"required"`
+	// Example 示例值
+	Example string `json:"example"`
 }
 
 // BeforeCreate 创建前自动生成 UUID
@@ -127,16 +162,18 @@ func (e *EndpointHeader) BeforeCreate(tx *gorm.DB) error {
 type AuthType string
 
 const (
-	AuthTypeNone   AuthType = "none"
-	AuthTypeBasic  AuthType = "basic"
-	AuthTypeBearer AuthType = "bearer"
+	AuthTypeNone    AuthType = "none"
+	AuthTypeBasic   AuthType = "basic"
+	AuthTypeBearer  AuthType = "bearer"
+	AuthTypeAPIKey  AuthType = "apikey"
+	AuthTypeInherit AuthType = "inherit" // 继承上级（文件夹/模块）的认证
 )
 
 // EndpointAuth 端点认证信息
 type EndpointAuth struct {
 	ID         string `gorm:"primaryKey" json:"id"`
 	EndpointID string `gorm:"primaryKey" json:"endpointId"`
-	Type       string `gorm:"default:none" json:"type"` // none, basic, bearer
+	Type       string `gorm:"default:none" json:"type"` // none, basic, bearer, apikey, inherit
 	Data       string `json:"data"`                     // JSON 格式存储认证数据
 }
 
@@ -157,4 +194,11 @@ type BasicAuthData struct {
 // BearerAuthData Bearer Token 认证数据
 type BearerAuthData struct {
 	Token string `json:"token"`
+}
+
+// APIKeyAuthData API Key 认证数据（可放入请求头 / 查询参数 / Cookie）
+type APIKeyAuthData struct {
+	Key   string `json:"key"`   // 参数名
+	Value string `json:"value"` // 参数值
+	In    string `json:"in"`    // header, query, cookie
 }

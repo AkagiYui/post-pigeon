@@ -90,7 +90,12 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 
 	// 载入环境变量到内存变量存储；前置脚本读写的是这份存储，
 	// 请求结束后再把增量持久化回数据库。
+	// 全局变量（项目级，跨环境）：优先级低于环境变量
+	globalVars := s.loadGlobalVars(data.ModuleID)
 	envVars := map[string]string{}
+	for k, v := range globalVars {
+		envVars[k] = v
+	}
 	if data.EnvironmentID != "" {
 		if vars, err := envService.GetEnvironmentVariables(data.EnvironmentID); err == nil {
 			for _, v := range vars {
@@ -104,9 +109,25 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	}
 	stores := scripting.Stores{
 		Environment: scripting.NewVarStore(envVars),
-		Globals:     scripting.NewVarStore(nil),
+		Globals:     scripting.NewVarStore(globalVars),
 		Collection:  scripting.NewVarStore(nil),
 	}
+
+	// 已保存端点：以「前置/后置操作」组合出的脚本覆盖前端传入的脚本，
+	// 并把模块自动参数、cookie/path 参数、继承认证一并纳入。
+	var loadedEndpoint *models.Endpoint
+	if data.EndpointID != "" {
+		var ep models.Endpoint
+		if err := s.db.Where("id = ?", data.EndpointID).First(&ep).Error; err == nil {
+			loadedEndpoint = &ep
+			data.PreRequestScript = composeStageScript(s.db, &ep, models.OperationStagePre)
+			data.PostResponseScript = composeStageScript(s.db, &ep, models.OperationStagePost)
+		}
+	}
+	// 模块自动参数并入请求（query/cookie 计入 Params，header 计入 Headers）
+	modParams, modHeaders := s.loadModuleParams(data.ModuleID)
+	data.Params = append(data.Params, modParams...)
+	data.Headers = append(data.Headers, modHeaders...)
 
 	scriptResults := &ScriptResults{}
 
@@ -151,6 +172,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 
 	// 组合 URL（前置脚本可能已改写整条 URL）
 	fullURL := resolveVars(reqCtx.URL, vars)
+	// 路径参数：替换 URL 中的 {name} 占位符
+	fullURL = applyPathParams(fullURL, data.Params, vars)
 
 	// 解析 URL 中的查询参数
 	parsedURL, err := url.Parse(fullURL)
@@ -191,14 +214,26 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		}
 	}
 
+	// Cookie 参数：并入 Cookie 请求头
+	for _, param := range data.Params {
+		if param.Enabled && param.Type == "cookie" {
+			req.AddCookie(&http.Cookie{Name: param.Name, Value: resolveVars(param.Value, vars)})
+		}
+	}
+
 	// 设置请求体
 	if err := s.setRequestBody(req, data, vars); err != nil {
 		return nil, err
 	}
 
-	// 设置认证信息
-	if data.Auth != nil && data.Auth.Type != string(models.AuthTypeNone) {
-		if err := s.setAuthHeader(req, data.Auth); err != nil {
+	// 设置认证信息：解析端点认证的继承（inherit / 空 -> 文件夹链 -> 模块）
+	effectiveAuth := data.Auth
+	if loadedEndpoint != nil {
+		effectiveAuth = resolveEffectiveAuth(s.db, loadedEndpoint, data.Auth)
+	}
+	if effectiveAuth != nil && effectiveAuth.Type != string(models.AuthTypeNone) &&
+		effectiveAuth.Type != string(models.AuthTypeInherit) {
+		if err := s.setAuthHeader(req, effectiveAuth, vars); err != nil {
 			return nil, err
 		}
 	}
@@ -355,8 +390,8 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 		// 无请求体
 		return nil
 
-	case string(models.BodyTypeJSON), string(models.BodyTypeText):
-		// JSON 或纯文本
+	case string(models.BodyTypeJSON), string(models.BodyTypeText), string(models.BodyTypeXML):
+		// JSON / 纯文本 / XML
 		resolvedContent := resolveVars(data.BodyContent, vars)
 		req.Body = io.NopCloser(strings.NewReader(resolvedContent))
 		req.GetBody = func() (io.ReadCloser, error) {
@@ -367,8 +402,28 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 			req.Header.Set("Content-Type", data.ContentType)
 		} else if data.BodyType == string(models.BodyTypeJSON) {
 			req.Header.Set("Content-Type", "application/json")
+		} else if data.BodyType == string(models.BodyTypeXML) {
+			req.Header.Set("Content-Type", "application/xml")
 		} else {
 			req.Header.Set("Content-Type", "text/plain")
+		}
+
+	case string(models.BodyTypeBinary):
+		// 原始二进制：BodyContent 约定为 {"fileName":..,"content":<base64>}
+		_, content, ok := parseFileField(data.BodyContent)
+		if !ok {
+			// 兼容：直接把 BodyContent 当作原始文本发送
+			content = []byte(data.BodyContent)
+		}
+		req.Body = io.NopCloser(bytes.NewReader(content))
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(content)), nil
+		}
+		req.ContentLength = int64(len(content))
+		if data.ContentType != "" {
+			req.Header.Set("Content-Type", data.ContentType)
+		} else {
+			req.Header.Set("Content-Type", "application/octet-stream")
 		}
 
 	case string(models.BodyTypeFormData):
@@ -432,23 +487,78 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 }
 
 // setAuthHeader 设置认证请求头
-func (s *HTTPService) setAuthHeader(req *http.Request, auth *models.EndpointAuth) error {
+func (s *HTTPService) setAuthHeader(req *http.Request, auth *models.EndpointAuth, vars map[string]string) error {
 	switch auth.Type {
 	case string(models.AuthTypeBasic):
 		var data models.BasicAuthData
 		if err := models.FromJSON(auth.Data, &data); err != nil {
 			return fmt.Errorf("解析 Basic Auth 数据失败: %w", err)
 		}
-		req.SetBasicAuth(data.Username, data.Password)
+		req.SetBasicAuth(resolveVars(data.Username, vars), resolveVars(data.Password, vars))
 
 	case string(models.AuthTypeBearer):
 		var data models.BearerAuthData
 		if err := models.FromJSON(auth.Data, &data); err != nil {
 			return fmt.Errorf("解析 Bearer Token 数据失败: %w", err)
 		}
-		req.Header.Set("Authorization", "Bearer "+data.Token)
+		req.Header.Set("Authorization", "Bearer "+resolveVars(data.Token, vars))
+
+	case string(models.AuthTypeAPIKey):
+		var data models.APIKeyAuthData
+		if err := models.FromJSON(auth.Data, &data); err != nil {
+			return fmt.Errorf("解析 API Key 数据失败: %w", err)
+		}
+		applyAPIKeyAuth(req, data, vars)
 	}
 	return nil
+}
+
+// loadGlobalVars 加载模块所属项目的全局变量（启用的）。
+func (s *HTTPService) loadGlobalVars(moduleID string) map[string]string {
+	out := map[string]string{}
+	if moduleID == "" {
+		return out
+	}
+	var module models.Module
+	if err := s.db.Select("project_id").Where("id = ?", moduleID).First(&module).Error; err != nil {
+		return out
+	}
+	var vars []models.GlobalVariable
+	s.db.Where("project_id = ? AND enabled = ?", module.ProjectID, true).Find(&vars)
+	for _, v := range vars {
+		out[v.Key] = v.Value
+	}
+	return out
+}
+
+// loadModuleParams 加载模块级自动参数：query/cookie 返回为 EndpointParam，header 返回为 EndpointHeader。
+func (s *HTTPService) loadModuleParams(moduleID string) ([]models.EndpointParam, []models.EndpointHeader) {
+	var params []models.EndpointParam
+	var headers []models.EndpointHeader
+	if moduleID == "" {
+		return params, headers
+	}
+	var mps []models.ModuleParam
+	s.db.Where("module_id = ? AND enabled = ?", moduleID, true).Order("sort_order ASC").Find(&mps)
+	for _, mp := range mps {
+		switch mp.Type {
+		case "header":
+			headers = append(headers, models.EndpointHeader{Name: mp.Name, Value: mp.Value, Enabled: true})
+		default: // query, cookie
+			params = append(params, models.EndpointParam{Type: mp.Type, Name: mp.Name, Value: mp.Value, Enabled: true})
+		}
+	}
+	return params, headers
+}
+
+// applyPathParams 将 URL 中的 {name} 占位符替换为对应路径参数的值。
+func applyPathParams(u string, params []models.EndpointParam, vars map[string]string) string {
+	for _, p := range params {
+		if p.Type == "path" && p.Enabled && p.Name != "" {
+			u = strings.ReplaceAll(u, "{"+p.Name+"}", resolveVars(p.Value, vars))
+		}
+	}
+	return u
 }
 
 // saveResponseAndHistory 保存响应和请求历史

@@ -54,9 +54,18 @@ func main() {
 	httpService := services.NewHTTPService(db)
 	historyService := services.NewRequestHistoryService(db)
 	importExportService := services.NewImportExportService(db)
+	apifoxService := services.NewApifoxService(db)
+	globalVariableService := services.NewGlobalVariableService(db)
+	scriptLibraryService := services.NewScriptLibraryService(db)
+	scopeSettingsService := services.NewScopeSettingsService(db)
+	webSocketService := services.NewWebSocketService()
+	sseService := services.NewSSEService()
 
 	// 注册数据变更事件
 	application.RegisterEvent[string]("data:changed")
+	// 注册 WebSocket / SSE 流式事件
+	application.RegisterEvent[services.StreamEvent](services.WSEventName)
+	application.RegisterEvent[services.StreamEvent](services.SSEEventName)
 
 	// 窗口状态持久化服务
 	windowStateService := services.NewWindowStateService(db)
@@ -76,6 +85,12 @@ func main() {
 			application.NewService(httpService),
 			application.NewService(historyService),
 			application.NewService(importExportService),
+			application.NewService(apifoxService),
+			application.NewService(globalVariableService),
+			application.NewService(scriptLibraryService),
+			application.NewService(scopeSettingsService),
+			application.NewService(webSocketService),
+			application.NewService(sseService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),

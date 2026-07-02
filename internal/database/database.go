@@ -40,8 +40,53 @@ func Initialize(dbPath string) (*gorm.DB, error) {
 		return nil, fmt.Errorf("项目排序迁移失败: %w", err)
 	}
 
+	// 将历史端点的前置/后置脚本迁移为前置/后置操作
+	if err := migrateScriptsToOperations(db); err != nil {
+		return nil, fmt.Errorf("脚本迁移失败: %w", err)
+	}
+
 	slog.Info("数据库初始化完成")
 	return db, nil
+}
+
+// migrateScriptsToOperations 将端点上旧的 PreRequestScript/PostResponseScript 字段
+// 转换为对应的 script 类型操作（仅在该端点尚无同阶段操作时执行，避免重复迁移）。
+func migrateScriptsToOperations(db *gorm.DB) error {
+	var endpoints []models.Endpoint
+	if err := db.Where("(pre_request_script != '' AND pre_request_script IS NOT NULL) OR (post_response_script != '' AND post_response_script IS NOT NULL)").
+		Find(&endpoints).Error; err != nil {
+		return err
+	}
+	if len(endpoints) == 0 {
+		return nil
+	}
+	for _, ep := range endpoints {
+		var existing int64
+		db.Model(&models.Operation{}).
+			Where("owner_type = ? AND owner_id = ?", models.OperationOwnerEndpoint, ep.ID).
+			Count(&existing)
+		if existing > 0 {
+			continue
+		}
+		if s := ep.PreRequestScript; s != "" {
+			db.Create(&models.Operation{
+				OwnerType: string(models.OperationOwnerEndpoint), OwnerID: ep.ID,
+				Stage: string(models.OperationStagePre), Type: string(models.OpTypeScript),
+				Name: "前置脚本", Enabled: true, SortOrder: 0,
+				Data: models.ToJSON(models.ScriptOperationData{Script: s}),
+			})
+		}
+		if s := ep.PostResponseScript; s != "" {
+			db.Create(&models.Operation{
+				OwnerType: string(models.OperationOwnerEndpoint), OwnerID: ep.ID,
+				Stage: string(models.OperationStagePost), Type: string(models.OpTypeScript),
+				Name: "后置脚本", Enabled: true, SortOrder: 0,
+				Data: models.ToJSON(models.ScriptOperationData{Script: s}),
+			})
+		}
+	}
+	slog.Info("端点脚本已迁移为操作", "count", len(endpoints))
+	return nil
 }
 
 // migrateProjectSortOrder 为现有项目初始化排序值
@@ -77,14 +122,20 @@ func autoMigrate(db *gorm.DB) error {
 		&models.Project{},
 		&models.Environment{},
 		&models.EnvironmentVariable{},
+		&models.GlobalVariable{},
 		&models.Module{},
 		&models.ModuleBaseURL{},
+		&models.ModuleParam{},
 		&models.Folder{},
 		&models.Endpoint{},
 		&models.EndpointParam{},
 		&models.EndpointBodyField{},
 		&models.EndpointHeader{},
 		&models.EndpointAuth{},
+		&models.Operation{},
+		&models.ResponseExample{},
+		&models.ResponseSchema{},
+		&models.ScriptLibrary{},
 		&models.Response{},
 		&models.RequestHistory{},
 		&models.Settings{},
