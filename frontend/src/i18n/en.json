@@ -219,6 +219,8 @@
     "openapi.importTitle": "Import OpenAPI Document",
     "openapi.summary": "{total} endpoints total, {dup} conflict with existing (same name & method)",
     "openapi.duplicate": "Duplicate",
+    "openapi.selectAll": "Select all",
+    "openapi.selectedCount": "{count}/{total} selected",
     "openapi.skipDuplicates": "Skip duplicates (keep existing)",
     "openapi.overwriteDuplicates": "Overwrite existing",
     "openapi.overwriteModuleName": "Rename module to \"{name}\"",

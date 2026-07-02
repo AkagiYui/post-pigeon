@@ -1,6 +1,6 @@
 // 项目设置路由
 // 使用左右分栏标签页，包含基本设置和环境设置
-import { createFileRoute, useParams, useRouter } from "@tanstack/solid-router"
+import { createFileRoute, useParams } from "@tanstack/solid-router"
 import { Cog, Globe } from "lucide-solid"
 import { createSignal, onMount } from "solid-js"
 
@@ -30,7 +30,6 @@ export const Route = createFileRoute("/project/$id/settings")({
  */
 function ProjectSettingsPage() {
   const params = useParams({ from: "/project/$id/settings" })
-  const router = useRouter()
   const projectId = () => params().id
 
   // ---- 路由状态缓存（自动保存/恢复） ----
@@ -41,31 +40,39 @@ function ProjectSettingsPage() {
   const [description, setDescription] = cache.createCachedSignal("description", "")
   const [saving, setSaving] = createSignal(false)
   const [error, setError] = createSignal("")
+  // 已保存的原始值，用于判断表单是否发生变动
+  const [savedName, setSavedName] = createSignal("")
+  const [savedDescription, setSavedDescription] = createSignal("")
+  const isDirty = () => name().trim() !== savedName() || description().trim() !== savedDescription()
 
-  // 初始加载：优先恢复缓存，否则从后端获取
+  // 初始加载：优先恢复缓存中的输入内容，但后端已保存值始终以接口返回为准（用于判断是否变动）
   onMount(async () => {
-    if (!cache.loadAll()) {
-      try {
-        const id = projectId()
-        if (!id) return
-        const project = await ProjectService.GetProject(id)
-        if (project) {
+    const restoredFromCache = cache.loadAll()
+    try {
+      const id = projectId()
+      if (!id) return
+      const project = await ProjectService.GetProject(id)
+      if (project) {
+        setSavedName((project.name || "").trim())
+        setSavedDescription((project.description || "").trim())
+        if (!restoredFromCache) {
           setName(project.name || "")
           setDescription(project.description || "")
         }
-      } catch (e) {
-        console.error("加载项目信息失败", e)
-        setError(t("project.loadFailed"))
       }
+    } catch (e) {
+      console.error("加载项目信息失败", e)
+      setError(t("project.loadFailed"))
     }
   })
   // 组件卸载时自动保存所有注册的缓存状态
   cache.autoSaveAll()
 
-  /** 保存项目设置 */
+  /** 保存项目设置（保存后停留在设置页，不自动跳转） */
   const handleSave = async () => {
     const id = projectId()
     if (!id) return
+    if (!isDirty() || saving()) return
     if (!name().trim()) {
       setError(t("project.nameRequired"))
       return
@@ -74,11 +81,16 @@ function ProjectSettingsPage() {
     try {
       setSaving(true)
       setError("")
-      await ProjectService.UpdateProject(id, name().trim(), description().trim())
+      const trimmedName = name().trim()
+      const trimmedDescription = description().trim()
+      await ProjectService.UpdateProject(id, trimmedName, trimmedDescription)
       // 更新缓存的项目名称
-      setProjectNames(prev => ({ ...prev, [id]: name().trim() }))
-      // 保存成功后返回项目主页
-      router.navigate({ to: "/project/$id", params: { id } })
+      setProjectNames(prev => ({ ...prev, [id]: trimmedName }))
+      // 更新已保存值，使按钮回到禁用状态
+      setName(trimmedName)
+      setDescription(trimmedDescription)
+      setSavedName(trimmedName)
+      setSavedDescription(trimmedDescription)
     } catch (e) {
       console.error("保存项目设置失败", e)
       setError(t("project.saveFailed"))
@@ -156,14 +168,7 @@ function ProjectSettingsPage() {
 
                     {/* 操作按钮 */}
                     <div class="flex justify-end gap-2 pt-2">
-                      <Button
-                        variant="outline"
-                        onClick={() => router.navigate({ to: "/project/$id", params: { id: projectId() } })}
-                        disabled={saving()}
-                      >
-                        {t("common.cancel")}
-                      </Button>
-                      <Button variant="default" onClick={handleSave} disabled={saving()}>
+                      <Button variant="default" onClick={handleSave} disabled={saving() || !isDirty()}>
                         {saving() ? t("common.saving") : t("common.save")}
                       </Button>
                     </div>

@@ -116,6 +116,7 @@ type parsedDoc struct {
 
 // OpenAPIPreviewItem 预览项，供前端确认导入
 type OpenAPIPreviewItem struct {
+	Index     int    `json:"index"` // 在文档解析结果中的序号，导入时用于选择性导入
 	Name      string `json:"name"`
 	Method    string `json:"method"`
 	Path      string `json:"path"`
@@ -141,9 +142,10 @@ type OpenAPIPreview struct {
 
 // OpenAPIImportOptions OpenAPI 导入选项
 type OpenAPIImportOptions struct {
-	Overwrite           bool `json:"overwrite"`           // 覆盖重名重方法的接口（false 时跳过）
-	OverwriteModuleName bool `json:"overwriteModuleName"` // 用文档标题覆盖模块名称
-	ImportServers       bool `json:"importServers"`       // 创建/覆盖环境与模块前置 URL
+	Overwrite           bool  `json:"overwrite"`           // 覆盖重名重方法的接口（false 时跳过）
+	OverwriteModuleName bool  `json:"overwriteModuleName"` // 用文档标题覆盖模块名称
+	ImportServers       bool  `json:"importServers"`       // 创建/覆盖环境与模块前置 URL
+	SelectedIndexes     []int `json:"selectedIndexes"`     // 勾选导入的接口序号（对应预览项 Index）；为 nil 时导入全部，便于兼容旧调用方
 }
 
 // OpenAPIImportResult OpenAPI 导入结果
@@ -493,12 +495,13 @@ func (s *ImportExportService) PreviewOpenAPIImport(moduleID string, jsonStr stri
 		ModuleName:        doc.ModuleName,
 		CurrentModuleName: module.Name,
 	}
-	for _, ep := range doc.Endpoints {
+	for i, ep := range doc.Endpoints {
 		dup := existing[dupKey(ep.Method, ep.Name)]
 		if dup {
 			preview.DuplicateCount++
 		}
 		preview.Items = append(preview.Items, OpenAPIPreviewItem{
+			Index:     i,
 			Name:      ep.Name,
 			Method:    ep.Method,
 			Path:      ep.Path,
@@ -591,7 +594,18 @@ func (s *ImportExportService) ImportOpenAPIToModule(moduleID string, jsonStr str
 		tx.Model(&models.Endpoint{}).Where("module_id = ? AND folder_id IS NULL", moduleID).
 			Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
 
-		for _, ep := range doc.Endpoints {
+		var selected map[int]bool
+		if opts.SelectedIndexes != nil {
+			selected = make(map[int]bool, len(opts.SelectedIndexes))
+			for _, idx := range opts.SelectedIndexes {
+				selected[idx] = true
+			}
+		}
+
+		for i, ep := range doc.Endpoints {
+			if selected != nil && !selected[i] {
+				continue
+			}
 			key := dupKey(ep.Method, ep.Name)
 			if ids, dup := existing[key]; dup {
 				if !opts.Overwrite {

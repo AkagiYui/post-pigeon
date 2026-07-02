@@ -219,6 +219,8 @@ export function ApiManagement(props: ApiManagementProps) {
   const [openApiImportServers, setOpenApiImportServers] = createSignal(true)
   const [openApiImporting, setOpenApiImporting] = createSignal(false)
   const [openApiError, setOpenApiError] = createSignal("")
+  // 勾选导入的接口序号（默认全选，用户可取消勾选以忽略某些接口）
+  const [openApiSelectedIndexes, setOpenApiSelectedIndexes] = createSignal<Set<number>>(new Set())
   // 当前端点所属模块的所有环境前置 URL 列表（供环境切换下拉使用）
   const [environmentBaseUrls, setEnvironmentBaseUrls] = createSignal<EnvironmentBaseURLOption[]>([])
 
@@ -847,12 +849,15 @@ export function ApiManagement(props: ApiManagementProps) {
       setOpenApiError("")
       setOpenApiPreview(null)
       setOpenApiJson("")
+      setOpenApiSelectedIndexes(new Set<number>())
       setOpenApiOpen(true)
       try {
         const text = await file.text()
         setOpenApiJson(text)
         const preview = await ImportExportService.PreviewOpenAPIImport(node.id, text)
         setOpenApiPreview(preview)
+        // 默认全选所有接口
+        setOpenApiSelectedIndexes(new Set((preview?.items ?? []).map(item => item.index)))
       } catch (e) {
         console.error("解析接口文档失败", e)
         setOpenApiError(t("openapi.parseFailed"))
@@ -870,6 +875,7 @@ export function ApiManagement(props: ApiManagementProps) {
         overwrite: openApiOverwrite(),
         overwriteModuleName: openApiOverwriteModuleName(),
         importServers: openApiImportServers(),
+        selectedIndexes: Array.from(openApiSelectedIndexes()),
       })
       setOpenApiOpen(false)
       // 模块名/环境/前置 URL 可能变化：刷新树、项目环境列表，并通知 baseUrl 变更
@@ -1144,17 +1150,47 @@ export function ApiManagement(props: ApiManagementProps) {
                     </div>
                   </Show>
                 </div>
-                {/* 接口预览列表 */}
+                {/* 接口预览列表：可勾选每个接口是否导入 */}
+                <div class="shrink-0 flex items-center gap-2 text-xs text-muted-foreground px-1">
+                  <label class="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={openApiSelectedIndexes().size === preview().items.length && preview().items.length > 0}
+                      ref={(el) => {
+                        createEffect(() => {
+                          el.indeterminate = openApiSelectedIndexes().size > 0 && openApiSelectedIndexes().size < preview().items.length
+                        })
+                      }}
+                      onChange={(e) => {
+                        setOpenApiSelectedIndexes(
+                          e.currentTarget.checked ? new Set<number>(preview().items.map(i => i.index)) : new Set<number>(),
+                        )
+                      }}
+                    />
+                    <span>{t("openapi.selectAll")}</span>
+                  </label>
+                  <span>{t("openapi.selectedCount", { count: openApiSelectedIndexes().size, total: preview().items.length })}</span>
+                </div>
                 <div class="flex-1 min-h-0 overflow-auto border border-border rounded-md bg-input">
                   <For each={preview().items}>
                     {(item) => (
-                      <div class="flex items-center gap-2 px-3 py-1.5 text-sm border-b border-border/50 last:border-b-0">
+                      <label class="flex items-center gap-2 px-3 py-1.5 text-sm border-b border-border/50 last:border-b-0 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={openApiSelectedIndexes().has(item.index)}
+                          onChange={(e) => {
+                            const next = new Set(openApiSelectedIndexes())
+                            if (e.currentTarget.checked) next.add(item.index)
+                            else next.delete(item.index)
+                            setOpenApiSelectedIndexes(next)
+                          }}
+                        />
                         <span class="font-mono text-xs font-semibold w-14 shrink-0 text-accent">{item.method}</span>
                         <span class="flex-1 min-w-0 truncate" title={item.path}>{item.name}</span>
                         <Show when={item.duplicate}>
                           <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">{t("openapi.duplicate")}</span>
                         </Show>
-                      </div>
+                      </label>
                     )}
                   </For>
                 </div>
@@ -1163,7 +1199,7 @@ export function ApiManagement(props: ApiManagementProps) {
           </Show>
           <div class="flex justify-end gap-2 pt-2 shrink-0">
             <Button variant="outline" onClick={() => setOpenApiOpen(false)}>{t("common.cancel")}</Button>
-            <Button onClick={confirmImportOpenAPI} disabled={!openApiPreview() || (openApiPreview()?.total ?? 0) === 0 || openApiImporting()}>
+            <Button onClick={confirmImportOpenAPI} disabled={!openApiPreview() || openApiSelectedIndexes().size === 0 || openApiImporting()}>
               {openApiImporting() ? t("common.saving") : t("openapi.confirmImport")}
             </Button>
           </div>

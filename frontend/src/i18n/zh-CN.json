@@ -219,6 +219,8 @@
     "openapi.importTitle": "导入 OpenAPI 接口文档",
     "openapi.summary": "共 {total} 个接口，其中 {dup} 个与已有接口重名重方法",
     "openapi.duplicate": "重复",
+    "openapi.selectAll": "全选",
+    "openapi.selectedCount": "已选 {count}/{total}",
     "openapi.skipDuplicates": "忽略重复接口（保留已有）",
     "openapi.overwriteDuplicates": "覆盖已有接口",
     "openapi.overwriteModuleName": "将模块名称改为「{name}」",

@@ -234,6 +234,52 @@ func TestImportOpenAPIToModule(t *testing.T) {
 	}
 }
 
+// TestImportOpenAPISelectedIndexes 验证仅导入用户勾选的接口
+func TestImportOpenAPISelectedIndexes(t *testing.T) {
+	db := newTestDB(t)
+	ie := NewImportExportService(db)
+	p := mustCreateProject(t, db, "选择导入项目")
+	m := defaultModule(t, db, p.ID)
+
+	preview, err := ie.PreviewOpenAPIImport(m.ID, openapi3Doc)
+	if err != nil {
+		t.Fatalf("PreviewOpenAPIImport err=%v", err)
+	}
+	if preview.Total != 2 {
+		t.Fatalf("预览总数 = %d，期望 2", preview.Total)
+	}
+
+	// 仅勾选第一个接口
+	res, err := ie.ImportOpenAPIToModule(m.ID, openapi3Doc, OpenAPIImportOptions{
+		SelectedIndexes: []int{preview.Items[0].Index},
+	})
+	if err != nil {
+		t.Fatalf("ImportOpenAPIToModule err=%v", err)
+	}
+	if res.Created != 1 {
+		t.Errorf("创建数 = %d，期望 1", res.Created)
+	}
+
+	tree, _ := NewProjectService(db).GetProjectTree(m.ProjectID)
+	if len(tree[0].Endpoints) != 1 {
+		t.Errorf("选择性导入后模块端点数 = %d，期望 1", len(tree[0].Endpoints))
+	}
+	if tree[0].Endpoints[0].Name != preview.Items[0].Name {
+		t.Errorf("导入的接口名 = %q，期望 %q", tree[0].Endpoints[0].Name, preview.Items[0].Name)
+	}
+
+	// 勾选空数组时不应导入任何接口
+	resNone, err := ie.ImportOpenAPIToModule(m.ID, openapi3Doc, OpenAPIImportOptions{
+		SelectedIndexes: []int{},
+	})
+	if err != nil {
+		t.Fatalf("ImportOpenAPIToModule err=%v", err)
+	}
+	if resNone.Created != 0 || resNone.Skipped != 0 {
+		t.Errorf("空选择导入结果 = %+v，期望 created=0 skipped=0", resNone)
+	}
+}
+
 func TestDuplicateAndMoveEndpoint(t *testing.T) {
 	db := newTestDB(t)
 	es := NewEndpointService(db)
