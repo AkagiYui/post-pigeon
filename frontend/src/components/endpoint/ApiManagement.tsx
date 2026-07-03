@@ -303,6 +303,8 @@ export function ApiManagement(props: ApiManagementProps) {
   const [apifoxPreview, setApifoxPreview] = createSignal<ApifoxPreview | null>(null)
   const [apifoxImporting, setApifoxImporting] = createSignal(false)
   const [apifoxError, setApifoxError] = createSignal("")
+  // Apifox 逐项选择导入的下标集合（默认全选）
+  const [apifoxSelectedIndexes, setApifoxSelectedIndexes] = createSignal<Set<number>>(new Set())
   // 模块/文件夹设置对话框
   const [scopeSettingsOpen, setScopeSettingsOpen] = createSignal(false)
   const [scopeSettingsNode, setScopeSettingsNode] = createSignal<TreeNode | null>(null)
@@ -415,6 +417,7 @@ export function ApiManagement(props: ApiManagementProps) {
   // ---- 树映射函数 ----
   const mapModule = (m: ModuleTree): TreeNode => ({
     id: m.id, type: "module", name: m.name,
+    endpointDisplay: (m.endpointDisplay === "url" ? "url" : "name"),
     children: [
       ...(m.folders || []).map(mapFolder),
       ...(m.endpoints || []).map(mapEndpoint),
@@ -431,7 +434,7 @@ export function ApiManagement(props: ApiManagementProps) {
 
   const mapEndpoint = (e: any): TreeNode => ({
     id: e.id, type: "endpoint", name: e.name, method: e.method as HTTPMethod,
-    endpointType: (e.type as EndpointType) || "http",
+    endpointType: (e.type as EndpointType) || "http", path: e.path,
   })
 
   /** 通过节点 ID 查找所属模块 ID */
@@ -1020,6 +1023,7 @@ export function ApiManagement(props: ApiManagementProps) {
       setApifoxError("")
       setApifoxPreview(null)
       setApifoxJson("")
+      setApifoxSelectedIndexes(new Set<number>())
       setApifoxOpen(true)
       try {
         const text = await file.text()
@@ -1030,6 +1034,8 @@ export function ApiManagement(props: ApiManagementProps) {
           return
         }
         setApifoxPreview(preview)
+        // 默认全选所有可导入项
+        setApifoxSelectedIndexes(new Set((preview?.items ?? []).map(item => item.index)))
       } catch (e) {
         console.error("解析 Apifox 文件失败", e)
         setApifoxError(t("apifox.parseFailed"))
@@ -1042,7 +1048,7 @@ export function ApiManagement(props: ApiManagementProps) {
     if (!apifoxJson()) return
     setApifoxImporting(true)
     try {
-      await ApifoxService.ImportApifox(props.projectId, apifoxJson())
+      await ApifoxService.ImportApifox(props.projectId, apifoxJson(), Array.from(apifoxSelectedIndexes()))
       setApifoxOpen(false)
       await loadTree()
       try {
@@ -1071,6 +1077,40 @@ export function ApiManagement(props: ApiManagementProps) {
         await loadSavedEndpointData(doc.id)
       }
     } catch (e) { console.error("创建文档失败", e) }
+  }
+
+  // ---- 新建 WebSocket / SSE 端点（直接创建并打开） ----
+  const handleCreateTyped = async (parentNodeId: string | undefined, _type: "module" | "folder" | undefined, endpointType: "websocket" | "sse") => {
+    const location = parentNodeId && findNodeInTree(treeData(), parentNodeId) ? parentNodeId : getEffectiveSaveLocation()
+    if (!location) { console.error(t("module.notSelected")); return }
+    const { moduleId, folderId } = resolveSaveLocation(location)
+    if (!moduleId) return
+    const name = endpointType === "websocket" ? t("endpoint.newWebSocket") : t("endpoint.newSSE")
+    try {
+      const ep = await EndpointService.CreateTypedEndpoint(moduleId, folderId ?? null, name, "GET", "", endpointType)
+      await loadTree()
+      if (ep) {
+        setRequestTabs(prev => [...prev, { id: ep.id, name: ep.name, method: "GET" as HTTPMethod, saved: true, dirty: false }])
+        setActiveTabId(ep.id)
+        await loadSavedEndpointData(ep.id)
+      }
+    } catch (e) { console.error("创建端点失败", e) }
+  }
+
+  // ---- 设置模块下接口显示方式（名称 / URL） ----
+  const handleSetEndpointDisplay = async (moduleId: string, mode: "name" | "url") => {
+    try {
+      await ModuleService.SetEndpointDisplay(moduleId, mode)
+      await loadTree()
+    } catch (e) { console.error("设置接口显示方式失败", e) }
+  }
+
+  // ---- 端点拖拽排序 ----
+  const handleReorderEndpoints = async (orderedIds: string[]) => {
+    try {
+      await EndpointService.ReorderEndpoints(orderedIds)
+      await loadTree()
+    } catch (e) { console.error("排序端点失败", e) }
   }
 
   // ---- 打开模块/文件夹设置 ----
@@ -1104,12 +1144,15 @@ export function ApiManagement(props: ApiManagementProps) {
             onSelect={handleSelectNode} onCollapse={() => setSidebarCollapsed(true)}
             onCreateModule={openCreateModule}
             onCreateEndpoint={(parentId) => createUnsavedTab(parentId)} onCreateFolder={openCreateFolder}
+            onCreateTyped={handleCreateTyped}
             onRename={handleTreeRename} onCopy={handleTreeCopy}
             onDelete={handleTreeDelete} onMove={handleTreeMove}
             onImportOpenAPI={handleImportOpenAPI}
             onImportApifox={handleImportApifox}
             onCreateDocument={handleCreateDocument}
             onOpenSettings={openScopeSettings}
+            onSetEndpointDisplay={handleSetEndpointDisplay}
+            onReorderEndpoints={handleReorderEndpoints}
             defaultModuleId={defaultModuleId()}
             expandedIds={expandedIds()} onExpandedChange={setExpandedIds}
           />
@@ -1400,19 +1443,19 @@ export function ApiManagement(props: ApiManagementProps) {
       </Dialog>
 
       {/* Apifox 导入对话框 */}
-      <Dialog open={apifoxOpen()} onClose={() => setApifoxOpen(false)} title={t("apifox.importTitle")} closeOnEsc closeOnOverlayClick width="480px">
-        <div class="px-6 py-4 flex flex-col gap-3">
+      <Dialog open={apifoxOpen()} onClose={() => setApifoxOpen(false)} title={t("apifox.importTitle")} closeOnEsc closeOnOverlayClick width="560px">
+        <div class="px-6 py-4 flex flex-col h-[70vh] gap-3">
           <Show when={apifoxError()}>
-            <div class="text-sm text-red-500 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded-md">{apifoxError()}</div>
+            <div class="text-sm text-red-500 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded-md shrink-0">{apifoxError()}</div>
           </Show>
           <Show when={!apifoxError() && !apifoxPreview()}>
-            <div class="py-8 flex items-center justify-center text-muted-foreground">{t("common.loading")}</div>
+            <div class="flex-1 flex items-center justify-center text-muted-foreground">{t("common.loading")}</div>
           </Show>
           <Show when={apifoxPreview()}>
             {(preview) => (
-              <div class="flex flex-col gap-2">
-                <p class="text-sm text-muted-foreground">{t("apifox.summaryHint", { name: preview().projectName })}</p>
-                <div class="grid grid-cols-2 gap-2 text-sm">
+              <>
+                <p class="text-sm text-muted-foreground shrink-0">{t("apifox.summaryHint", { name: preview().projectName })}</p>
+                <div class="grid grid-cols-4 gap-2 text-sm shrink-0">
                   <ApifoxStat label={t("apifox.stat.modules")} value={preview().modules} />
                   <ApifoxStat label={t("apifox.stat.endpoints")} value={preview().endpoints} />
                   <ApifoxStat label={t("apifox.stat.folders")} value={preview().folders} />
@@ -1422,13 +1465,56 @@ export function ApiManagement(props: ApiManagementProps) {
                   <ApifoxStat label={t("apifox.stat.globalVars")} value={preview().globalVars} />
                   <ApifoxStat label={t("apifox.stat.scripts")} value={preview().scripts} />
                 </div>
-                <p class="text-xs text-muted-foreground mt-1">{t("apifox.dedupHint")}</p>
-              </div>
+                {/* 逐项选择 */}
+                <div class="shrink-0 flex items-center gap-2 text-xs text-muted-foreground px-1">
+                  <label class="flex items-center gap-2 cursor-pointer select-none">
+                    <input
+                      type="checkbox"
+                      checked={apifoxSelectedIndexes().size === preview().items.length && preview().items.length > 0}
+                      ref={(el) => {
+                        createEffect(() => {
+                          el.indeterminate = apifoxSelectedIndexes().size > 0 && apifoxSelectedIndexes().size < preview().items.length
+                        })
+                      }}
+                      onChange={(e) => setApifoxSelectedIndexes(e.currentTarget.checked ? new Set<number>(preview().items.map(i => i.index)) : new Set<number>())}
+                    />
+                    <span>{t("openapi.selectAll")}</span>
+                  </label>
+                  <span>{t("openapi.selectedCount", { count: apifoxSelectedIndexes().size, total: preview().items.length })}</span>
+                </div>
+                <div class="flex-1 min-h-0 overflow-auto border border-border rounded-md bg-input">
+                  <For each={preview().items}>
+                    {(item) => (
+                      <label class="flex items-center gap-2 px-3 py-1.5 text-sm border-b border-border/50 last:border-b-0 cursor-pointer">
+                        <input
+                          type="checkbox"
+                          checked={apifoxSelectedIndexes().has(item.index)}
+                          onChange={(e) => {
+                            const next = new Set(apifoxSelectedIndexes())
+                            if (e.currentTarget.checked) next.add(item.index)
+                            else next.delete(item.index)
+                            setApifoxSelectedIndexes(next)
+                          }}
+                        />
+                        <span class="shrink-0 w-16 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-center">{apifoxKindLabel(item.kind)}</span>
+                        <Show when={item.kind === "http" || item.kind === "request"}>
+                          <span class="font-mono text-xs font-semibold w-12 shrink-0 text-accent">{item.method}</span>
+                        </Show>
+                        <span class="flex-1 min-w-0 truncate" title={item.path}>{item.name}</span>
+                        <Show when={item.folderPath}>
+                          <span class="shrink-0 text-[10px] text-muted-foreground truncate max-w-40" title={item.folderPath}>{item.folderPath}</span>
+                        </Show>
+                      </label>
+                    )}
+                  </For>
+                </div>
+                <p class="text-xs text-muted-foreground shrink-0">{t("apifox.dedupHint")}</p>
+              </>
             )}
           </Show>
-          <div class="flex justify-end gap-2 pt-2">
+          <div class="flex justify-end gap-2 pt-2 shrink-0">
             <Button variant="outline" onClick={() => setApifoxOpen(false)}>{t("common.cancel")}</Button>
-            <Button onClick={confirmImportApifox} disabled={!apifoxPreview() || apifoxImporting()}>
+            <Button onClick={confirmImportApifox} disabled={!apifoxPreview() || apifoxSelectedIndexes().size === 0 || apifoxImporting()}>
               {apifoxImporting() ? t("common.saving") : t("apifox.confirmImport")}
             </Button>
           </div>
@@ -1473,6 +1559,17 @@ export function ApiManagement(props: ApiManagementProps) {
       </Show>
     </>
   )
+}
+
+/** Apifox 预览项类型标签 */
+function apifoxKindLabel(kind: string): string {
+  switch (kind) {
+    case "http": return t("apifox.kind.http")
+    case "websocket": return t("apifox.kind.websocket")
+    case "doc": return t("apifox.kind.doc")
+    case "request": return t("apifox.kind.request")
+    default: return kind
+  }
 }
 
 /** Apifox 导入预览的单项统计 */

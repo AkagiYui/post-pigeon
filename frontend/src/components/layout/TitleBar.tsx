@@ -341,8 +341,8 @@ function ProjectTab(props: { projectId: string; active: boolean; onClick: () => 
       onClick={props.onClick}
       title={displayName()}
     >
-      {/* 标题文字 - 默认完整显示（超出省略号）；悬停时右侧留出关闭按钮空间 */}
-      <span class="truncate flex-1 text-left group-hover:pr-4">{displayName()}</span>
+      {/* 标题文字 - 始终为关闭按钮预留空间，避免关闭按钮淡出时文字回流到其下方造成闪烁 */}
+      <span class="truncate flex-1 text-left pr-4">{displayName()}</span>
       {/* 关闭按钮 - 绝对定位不占布局，仅悬停时出现，底色也仅在悬停时出现 */}
       <button
         class="absolute right-1.5 top-1/2 -translate-y-1/2 opacity-0 group-hover:opacity-100 p-0.5 rounded-sm hover:bg-muted transition-opacity"

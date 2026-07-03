@@ -1,6 +1,6 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
-import { ArrowUpDown, Copy, Ellipsis, FileDown, FilePlusCorner, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Pencil, Plus, Radio, Search, Settings2, Trash2, Webhook } from "lucide-solid"
+import { ArrowUpDown, Check, Copy, Ellipsis, FileDown, FilePlusCorner, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Pencil, Plus, Radio, Search, Settings2, Trash2, Webhook } from "lucide-solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
 import { Badge } from "@/components/ui/badge"
@@ -20,6 +20,10 @@ export interface TreeNode {
   method?: HTTPMethod
   /** 端点类型：http / doc / websocket / sse（仅 type=endpoint 时有效） */
   endpointType?: EndpointType
+  /** 端点路径（仅 type=endpoint 时有效，供"接口显示为 URL"使用） */
+  path?: string
+  /** 接口显示方式：name（默认）/ url（仅 type=module 时有效，向下继承） */
+  endpointDisplay?: "name" | "url"
   children?: TreeNode[]
   parentId?: string
 }
@@ -35,6 +39,8 @@ export interface EndpointTreeProps {
   onCreateModule?: () => void
   /** 创建端点回调 */
   onCreateEndpoint?: (parentId: string | undefined, type: "module" | "folder") => void
+  /** 创建 WebSocket / SSE 端点回调 */
+  onCreateTyped?: (parentId: string | undefined, type: "module" | "folder", endpointType: "websocket" | "sse") => void
   /** 创建文件夹回调 */
   onCreateFolder?: (parentId: string | undefined, type: "module" | "folder") => void
   /** 搜索框文字变更 */
@@ -57,6 +63,10 @@ export interface EndpointTreeProps {
   onCreateDocument?: (parentId: string | undefined, type: "module" | "folder") => void
   /** 打开模块/文件夹设置（认证/自动参数/前置后置操作） */
   onOpenSettings?: (node: TreeNode) => void
+  /** 设置模块下接口显示方式（name 名称 / url 路径） */
+  onSetEndpointDisplay?: (moduleId: string, mode: "name" | "url") => void
+  /** 端点拖拽排序：orderedIds 为拖拽后同容器内的兄弟端点顺序 */
+  onReorderEndpoints?: (orderedIds: string[]) => void
   /** 默认模块 ID：默认模块不可删除、不可移动 */
   defaultModuleId?: string
   /** 外部控制的展开节点 ID 列表（配合 onExpandedChange 使用，用于路由状态缓存） */
@@ -70,10 +80,65 @@ export interface EndpointTreeProps {
 /**
  * EndpointTree 接口树形面板
  */
+/** 端点拖拽排序状态与回调 */
+export interface TreeDnd {
+  dragId: () => string | null
+  overId: () => string | null
+  overPos: () => "before" | "after"
+  start: (id: string) => void
+  over: (id: string, pos: "before" | "after") => void
+  drop: () => void
+  end: () => void
+}
+
+/** 在树中查找直接包含指定 id 的兄弟数组（返回同一数组引用用于判断是否同容器） */
+function findSiblingArray(nodes: TreeNode[], id: string): TreeNode[] | null {
+  if (nodes.some(n => n.id === id)) return nodes
+  for (const n of nodes) {
+    if (n.children) {
+      const r = findSiblingArray(n.children, id)
+      if (r) return r
+    }
+  }
+  return null
+}
+
 export function EndpointTree(props: EndpointTreeProps) {
   const [searchQuery, setSearchQuery] = createSignal("")
   // 使用 string[] 而非 Set<string>，便于与外部缓存系统（序列化为 JSON）交互
   const [internalExpandedIds, setInternalExpandedIds] = createSignal<string[]>([])
+
+  // ---- 端点拖拽排序 ----
+  const [dragId, setDragId] = createSignal<string | null>(null)
+  const [overId, setOverId] = createSignal<string | null>(null)
+  const [overPos, setOverPos] = createSignal<"before" | "after">("before")
+
+  const handleDrop = () => {
+    const dId = dragId()
+    const oId = overId()
+    if (!dId || !oId || dId === oId) return
+    const dSibs = findSiblingArray(props.data, dId)
+    const oSibs = findSiblingArray(props.data, oId)
+    // 仅允许同容器内的端点互相排序
+    if (!dSibs || dSibs !== oSibs) return
+    const ids = dSibs.filter(n => n.type === "endpoint").map(n => n.id)
+    const from = ids.indexOf(dId)
+    if (from < 0) return
+    ids.splice(from, 1)
+    let to = ids.indexOf(oId)
+    if (to < 0) return
+    if (overPos() === "after") to += 1
+    ids.splice(to, 0, dId)
+    props.onReorderEndpoints?.(ids)
+  }
+
+  const dnd: TreeDnd = {
+    dragId, overId, overPos,
+    start: (id) => { setDragId(id); setOverId(null) },
+    over: (id, pos) => { setOverId(id); setOverPos(pos) },
+    drop: handleDrop,
+    end: () => { setDragId(null); setOverId(null) },
+  }
 
   // 统一获取展开 ID 列表：优先使用外部 prop，否则使用内部状态
   const getExpandedList = () => props.expandedIds ?? internalExpandedIds()
@@ -177,6 +242,18 @@ export function EndpointTree(props: EndpointTreeProps) {
               onClick: () => props.onCreateEndpoint?.(undefined, "module"),
             },
             {
+              key: "new-websocket",
+              label: t("endpoint.createWebSocket"),
+              icon: <Webhook class="h-4 w-4 text-teal-500 shrink-0" />,
+              onClick: () => props.onCreateTyped?.(undefined, "module", "websocket"),
+            },
+            {
+              key: "new-sse",
+              label: t("endpoint.createSSE"),
+              icon: <Radio class="h-4 w-4 text-pink-500 shrink-0" />,
+              onClick: () => props.onCreateTyped?.(undefined, "module", "sse"),
+            },
+            {
               key: "new-document",
               label: t("doc.create"),
               icon: <FileText class="h-4 w-4 text-violet-500 shrink-0" />,
@@ -213,6 +290,7 @@ export function EndpointTree(props: EndpointTreeProps) {
               onToggle={toggleExpand}
               handlers={props}
               defaultModuleId={props.defaultModuleId}
+              dnd={dnd}
             />
           )}
         </For>
@@ -224,34 +302,47 @@ export function EndpointTree(props: EndpointTreeProps) {
 /** 创建节点的完整菜单项（右键菜单和弹出菜单共享） */
 function createAllMenuItems(
   node: TreeNode,
-  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onOpenSettings">,
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onOpenSettings" | "onSetEndpointDisplay">,
   isProtected: boolean,
 ): MenuItem[] {
   const items: MenuItem[] = []
 
-  // 模块和文件夹：新建接口、新建文件夹、新建文档
+  // 模块和文件夹：新建接口、WebSocket、SSE、文件夹、文档
   if (node.type === "module" || node.type === "folder") {
+    const scope = node.type as "module" | "folder"
     items.push(
       {
         key: "new-endpoint",
         label: t("endpoint.create"),
         icon: <FilePlusCorner class="h-4 w-4 text-blue-500 shrink-0" />,
-        onClick: () => handlers.onCreateEndpoint?.(node.id, node.type as "module" | "folder"),
+        onClick: () => handlers.onCreateEndpoint?.(node.id, scope),
+      },
+      {
+        key: "new-websocket",
+        label: t("endpoint.createWebSocket"),
+        icon: <Webhook class="h-4 w-4 text-teal-500 shrink-0" />,
+        onClick: () => handlers.onCreateTyped?.(node.id, scope, "websocket"),
+      },
+      {
+        key: "new-sse",
+        label: t("endpoint.createSSE"),
+        icon: <Radio class="h-4 w-4 text-pink-500 shrink-0" />,
+        onClick: () => handlers.onCreateTyped?.(node.id, scope, "sse"),
       },
       {
         key: "new-folder",
         label: t("folder.create"),
         icon: <FolderPlus class="h-4 w-4 text-amber-500 shrink-0" />,
-        onClick: () => handlers.onCreateFolder?.(node.id, node.type as "module" | "folder"),
+        onClick: () => handlers.onCreateFolder?.(node.id, scope),
       },
       {
         key: "new-document",
         label: t("doc.create"),
         icon: <FileText class="h-4 w-4 text-violet-500 shrink-0" />,
-        onClick: () => handlers.onCreateDocument?.(node.id, node.type as "module" | "folder"),
+        onClick: () => handlers.onCreateDocument?.(node.id, scope),
       },
     )
-    // 模块节点：支持导入 OpenAPI 接口文档
+    // 模块节点：导入 OpenAPI + 接口显示方式切换
     if (node.type === "module") {
       items.push({
         key: "import-openapi",
@@ -259,6 +350,22 @@ function createAllMenuItems(
         icon: <FileDown class="h-4 w-4 text-emerald-500 shrink-0" />,
         onClick: () => handlers.onImportOpenAPI?.(node),
       })
+      const mode = node.endpointDisplay === "url" ? "url" : "name"
+      items.push(
+        { key: "sep-display", label: "", separator: true },
+        {
+          key: "display-name",
+          label: t("module.displayAsName"),
+          icon: mode === "name" ? <Check class="h-4 w-4 text-accent shrink-0" /> : <span class="w-4 shrink-0" />,
+          onClick: () => handlers.onSetEndpointDisplay?.(node.id, "name"),
+        },
+        {
+          key: "display-url",
+          label: t("module.displayAsUrl"),
+          icon: mode === "url" ? <Check class="h-4 w-4 text-accent shrink-0" /> : <span class="w-4 shrink-0" />,
+          onClick: () => handlers.onSetEndpointDisplay?.(node.id, "url"),
+        },
+      )
     }
     // 模块/文件夹级设置：认证、自动参数、前置/后置操作
     items.push({
@@ -316,12 +423,51 @@ function TreeNodeItem(props: {
   expandedIds: Set<string>
   onSelect?: (node: TreeNode) => void
   onToggle: (id: string) => void
-  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onOpenSettings">
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onOpenSettings" | "onSetEndpointDisplay">
   defaultModuleId?: string
+  /** 由祖先模块向下继承的接口显示方式 */
+  displayMode?: "name" | "url"
+  /** 端点拖拽排序 */
+  dnd?: TreeDnd
 }) {
   const isExpanded = () => props.expandedIds.has(props.node.id)
   const isSelected = () => props.selectedId === props.node.id
   const hasChildren = () => (props.node.children?.length || 0) > 0
+
+  // 模块节点确立显示方式并向下继承；其它节点沿用祖先值
+  const childDisplayMode = (): "name" | "url" =>
+    props.node.type === "module" ? (props.node.endpointDisplay === "url" ? "url" : "name") : (props.displayMode || "name")
+
+  // 端点标签：URL 模式显示路径，否则显示名称
+  const labelText = () =>
+    props.node.type === "endpoint" && props.displayMode === "url" ? (props.node.path || props.node.name) : props.node.name
+
+  // ---- 拖拽排序（仅端点） ----
+  const isEndpoint = () => props.node.type === "endpoint"
+  const isDragging = () => props.dnd?.dragId() === props.node.id
+  // 拖拽经过时的落点指示线（inset 阴影，避免撑高行高）
+  const dropShadow = () => {
+    const d = props.dnd
+    if (!d || d.overId() !== props.node.id || !d.dragId() || d.dragId() === props.node.id) return undefined
+    return d.overPos() === "before" ? "inset 0 2px 0 0 var(--color-accent)" : "inset 0 -2px 0 0 var(--color-accent)"
+  }
+  const handleDragStart = (e: DragEvent) => {
+    if (!isEndpoint() || !props.dnd) return
+    e.dataTransfer!.effectAllowed = "move"
+    e.dataTransfer!.setData("text/plain", props.node.id)
+    props.dnd.start(props.node.id)
+  }
+  const handleDragOver = (e: DragEvent) => {
+    if (!isEndpoint() || !props.dnd?.dragId()) return
+    e.preventDefault()
+    const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+    props.dnd.over(props.node.id, e.clientY - rect.top < rect.height / 2 ? "before" : "after")
+  }
+  const handleDrop = (e: DragEvent) => {
+    if (!isEndpoint()) return
+    e.preventDefault()
+    props.dnd?.drop()
+  }
 
   // 默认模块受保护（不可删除、不可移动）
   const isProtected = () => props.node.type === "module" && props.node.id === props.defaultModuleId
@@ -334,11 +480,17 @@ function TreeNodeItem(props: {
       <div>
         {/* 节点行 */}
         <div
+          draggable={isEndpoint()}
+          onDragStart={handleDragStart}
+          onDragOver={handleDragOver}
+          onDrop={handleDrop}
+          onDragEnd={() => props.dnd?.end()}
           class={cn(
             "flex items-center gap-1 py-1 pr-1 cursor-pointer transition-colors text-sm group",
             isSelected() ? "bg-accent-muted text-accent" : "hover:bg-muted text-foreground",
+            isDragging() && "opacity-40",
           )}
-          style={{ "padding-left": `${props.level * 16 + 8}px` }}
+          style={{ "padding-left": `${props.level * 16 + 8}px`, "box-shadow": dropShadow() }}
           onClick={() => {
             // 模块和文件夹点击切换展开/收起（即使无子节点，图标也会变化）
             if (props.node.type !== "endpoint") {
@@ -386,8 +538,8 @@ function TreeNodeItem(props: {
             </Show>
           </Show>
 
-          {/* 名称 */}
-          <span class="truncate flex-1">{props.node.name}</span>
+          {/* 名称（URL 模式下端点显示路径） */}
+          <span class="truncate flex-1">{labelText()}</span>
 
           {/* 更多操作按钮（悬停显示） */}
           <div class="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
@@ -416,6 +568,8 @@ function TreeNodeItem(props: {
                 onToggle={props.onToggle}
                 handlers={props.handlers}
                 defaultModuleId={props.defaultModuleId}
+                displayMode={childDisplayMode()}
+                dnd={props.dnd}
               />
             )}
           </For>

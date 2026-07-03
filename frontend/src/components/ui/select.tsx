@@ -1,5 +1,7 @@
 // Select 下拉选择组件
-import { createSignal, For, type JSX, Show, splitProps } from "solid-js"
+// 下拉面板通过 Portal 渲染到 body 并使用 fixed 定位，避免被祖先的 overflow 容器裁剪。
+import { createEffect, createSignal, For, onCleanup, Show, splitProps } from "solid-js"
+import { Portal } from "solid-js/web"
 
 import { cn } from "@/lib/utils"
 
@@ -53,6 +55,9 @@ const textSizeClasses = {
 export function Select(props: SelectProps) {
   const [local] = splitProps(props, ["options", "value", "onChange", "placeholder", "class", "disabled", "size", "textSize", "searchable", "hideChevron"])
   const [open, setOpen] = createSignal(false)
+  // 下拉面板定位（基于 trigger 元素，fixed 坐标）
+  const [pos, setPos] = createSignal({ left: 0, top: 0, width: 0, above: false })
+  let triggerRef: HTMLButtonElement | undefined
 
   // 当前选中项的按钮尺寸类
   const sizeCls = () => sizeClasses[local.size || "default"]
@@ -64,19 +69,51 @@ export function Select(props: SelectProps) {
     return opt?.label || local.placeholder || ""
   }
 
+  // 依据 trigger 位置与可用空间计算下拉面板坐标；空间不足时向上弹出
+  const updatePosition = () => {
+    if (!triggerRef) return
+    const rect = triggerRef.getBoundingClientRect()
+    const estimated = Math.min(local.options.length * 32 + 8, 240)
+    const below = window.innerHeight - rect.bottom
+    const above = below < estimated && rect.top > below
+    setPos({ left: rect.left, top: above ? rect.top : rect.bottom, width: rect.width, above })
+  }
+
+  const toggle = () => {
+    if (local.disabled) return
+    if (!open()) updatePosition()
+    setOpen(!open())
+  }
+
+  // 打开时：监听滚动/尺寸变化以重定位，点击外部/Esc 关闭
+  createEffect(() => {
+    if (!open()) return
+    const reposition = () => updatePosition()
+    window.addEventListener("scroll", reposition, true)
+    window.addEventListener("resize", reposition)
+    const onKey = (e: KeyboardEvent) => { if (e.key === "Escape") setOpen(false) }
+    window.addEventListener("keydown", onKey)
+    onCleanup(() => {
+      window.removeEventListener("scroll", reposition, true)
+      window.removeEventListener("resize", reposition)
+      window.removeEventListener("keydown", onKey)
+    })
+  })
+
   return (
     <div class={cn("relative", local.class)}>
       <button
+        ref={triggerRef}
         class={cn(
           "flex items-center justify-between w-full rounded-md border border-border bg-input text-foreground",
           "transition-colors hover:border-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
           "disabled:cursor-not-allowed disabled:opacity-50",
           sizeCls(),
         )}
-        onClick={() => !local.disabled && setOpen(!open())}
+        onClick={toggle}
         disabled={local.disabled}
       >
-        <span class={cn("whitespace-nowrap", !local.value && "text-muted-foreground", textSizeCls())}>
+        <span class={cn("whitespace-nowrap truncate", !local.value && "text-muted-foreground", textSizeCls())}>
           {currentLabel()}
         </span>
         <Show when={!local.hideChevron}>
@@ -87,9 +124,19 @@ export function Select(props: SelectProps) {
       </button>
 
       <Show when={open()}>
-        <>
-          <div class="fixed inset-0 z-40" onClick={() => setOpen(false)} />
-          <div class="absolute top-full left-0 right-0 z-50 mt-1 bg-surface border border-border rounded-md shadow-lg overflow-hidden max-h-60 overflow-y-auto">
+        <Portal>
+          {/* 透明遮罩：点击关闭 */}
+          <div class="fixed inset-0 z-[100]" onClick={() => setOpen(false)} />
+          <div
+            class="fixed z-[101] bg-surface border border-border rounded-md shadow-lg overflow-y-auto max-h-60"
+            style={{
+              left: `${pos().left}px`,
+              width: `${pos().width}px`,
+              ...(pos().above
+                ? { bottom: `${window.innerHeight - pos().top + 4}px` }
+                : { top: `${pos().top + 4}px` }),
+            }}
+          >
             <For each={local.options}>
               {(option) => (
                 <div
@@ -112,7 +159,7 @@ export function Select(props: SelectProps) {
               )}
             </For>
           </div>
-        </>
+        </Portal>
       </Show>
     </div>
   )

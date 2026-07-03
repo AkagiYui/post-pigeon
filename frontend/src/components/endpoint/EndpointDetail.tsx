@@ -13,7 +13,7 @@ import { Tabs } from "@/components/ui/tabs"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
 import { type AuthType, type BodyType, CONTENT_TYPES, type EndpointType, formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
-import { cn } from "@/lib/utils"
+import { cn, hasURLScheme } from "@/lib/utils"
 
 import { AuthEditor } from "./AuthEditor"
 import { BodyEditor } from "./BodyEditor"
@@ -466,8 +466,8 @@ export function EndpointDetail(props: EndpointDetailProps) {
           {/* 分隔线 */}
           <div class="w-px self-stretch bg-border shrink-0" />
 
-          {/* 前置 baseUrl 环境切换 Badge */}
-          <Show when={ep().baseUrl}>
+          {/* 前置 baseUrl 环境切换 Badge：仅当接口路径不带协议头（相对地址）时显示 */}
+          <Show when={ep().baseUrl && !hasURLScheme(ep().path)}>
             <EnvironmentBadge
               baseUrl={ep().baseUrl}
               environmentBaseUrls={props.environmentBaseUrls}
@@ -529,6 +529,9 @@ export function EndpointDetail(props: EndpointDetailProps) {
               case "settings": return <EndpointSettingsEditor
                 timeout={ep().timeout}
                 followRedirects={ep().followRedirects}
+                status={ep().status}
+                tags={ep().tags}
+                description={ep().description}
                 onChange={(patch) => props.onChange?.(patch)}
               />
               default: return null

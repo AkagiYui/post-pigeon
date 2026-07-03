@@ -6,7 +6,7 @@ import { createSignal, onMount, Show } from "solid-js"
 import { EnvironmentService, ModuleService, ProjectService } from "@/../bindings/post-pigeon/internal/services"
 import { ApiManagement } from "@/components/endpoint/ApiManagement"
 import { t } from "@/hooks/useI18n"
-import { setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
+import { getCurrentEnvironmentId, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
 
 export const Route = createFileRoute("/project/$id/")({
   component: ProjectWorkspacePage,
@@ -43,11 +43,15 @@ function ProjectWorkspacePage() {
       // 将环境列表存储到全局 store
       setProjectEnvironmentsList(currentParams.id, envList || [])
 
-      // 设置默认环境：优先选择"正式环境"，否则选择第一个环境
+      // 选择当前环境：优先沿用已持久化且仍存在的选择，否则回退默认（正式环境 > 第一个）
       if (envList && envList.length > 0) {
-        const productionEnv = envList.find((env: any) => env.name === "正式环境")
-        const defaultEnv = productionEnv || envList[0]
-        setCurrentEnvironment(currentParams.id, defaultEnv.id)
+        const persisted = getCurrentEnvironmentId(currentParams.id)
+        const persistedValid = persisted && envList.some((env: any) => env.id === persisted)
+        if (!persistedValid) {
+          const productionEnv = envList.find((env: any) => env.name === "正式环境")
+          const defaultEnv = productionEnv || envList[0]
+          setCurrentEnvironment(currentParams.id, defaultEnv.id)
+        }
       }
     } catch (e) {
       console.error("加载项目失败", e)

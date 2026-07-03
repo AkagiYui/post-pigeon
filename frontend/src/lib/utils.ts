@@ -9,3 +9,11 @@ import { twMerge } from "tailwind-merge"
 export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
+
+/**
+ * 判断路径是否已带协议头（http:// https:// ws:// wss:// 等）。
+ * 带协议头时视为绝对地址，不应再附加环境前置 URL。
+ */
+export function hasURLScheme(path: string): boolean {
+  return /^[a-zA-Z][a-zA-Z0-9+.-]*:\/\//.test((path || "").trim())
+}

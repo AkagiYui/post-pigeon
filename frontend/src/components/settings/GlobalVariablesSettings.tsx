@@ -50,7 +50,7 @@ export function GlobalVariablesSettings(props: GlobalVariablesSettingsProps) {
   }
 
   return (
-    <div class="p-6 flex flex-col gap-4 h-full">
+    <div class="flex flex-col gap-4 h-full">
       <div>
         <h2 class="text-base font-medium">{t("globalVar.title")}</h2>
         <p class="text-sm text-muted-foreground mt-1">{t("globalVar.hint")}</p>

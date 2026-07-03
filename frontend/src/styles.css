@@ -152,6 +152,14 @@ body,
   height: 100%;
   margin: 0;
   padding: 0;
+  /* 桌面应用：禁止触摸板滚到尽头时整页橡皮筋回弹 */
+  overscroll-behavior: none;
+}
+
+html,
+body {
+  /* 根层不滚动，避免整页被拖动；内部区域各自 overflow-auto 滚动 */
+  overflow: hidden;
 }
 
 body {
