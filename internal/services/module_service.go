@@ -88,6 +88,17 @@ func (s *ModuleService) UpdateModule(id string, name string) error {
 	return nil
 }
 
+// SetEndpointDisplay 设置模块下接口的显示方式（name 名称 / url 路径）。
+func (s *ModuleService) SetEndpointDisplay(id string, display string) error {
+	if display != "url" {
+		display = "name"
+	}
+	if err := s.db.Model(&models.Module{}).Where("id = ?", id).Update("endpoint_display", display).Error; err != nil {
+		return fmt.Errorf("更新接口显示方式失败: %w", err)
+	}
+	return nil
+}
+
 // DeleteModule 删除模块及其所有关联数据
 func (s *ModuleService) DeleteModule(id string) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {

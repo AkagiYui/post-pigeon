@@ -53,11 +53,31 @@ func TestApifoxImport(t *testing.T) {
 	project := mustCreateProject(t, db, "apifox-import")
 	svc := NewApifoxService(db)
 
-	res, err := svc.ImportApifox(project.ID, corpus)
+	res, err := svc.ImportApifox(project.ID, corpus, nil)
 	if err != nil {
 		t.Fatalf("导入失败: %v", err)
 	}
 	t.Logf("导入结果: %+v", res)
+
+	// 接口名称应取 name 字段而非 path（如「获取音乐」）
+	var namedEP int64
+	db.Model(&models.Endpoint{}).Where("name = ?", "获取音乐").Count(&namedEP)
+	if namedEP < 1 {
+		t.Errorf("接口应以 name 命名（获取音乐），而非 path")
+	}
+	// 以 path 命名的接口应很少（大部分有真实名称）
+	var pathNamed int64
+	db.Model(&models.Endpoint{}).Where("type = ? AND name LIKE ?", "http", ":%").Count(&pathNamed)
+	if pathNamed > 5 {
+		t.Errorf("过多接口以 path 命名，name 解析可能有误: %d", pathNamed)
+	}
+
+	// 文件夹按名称去重：WebSocket 集合镜像的同名空目录不应造成重复（如「音乐」仅 1 个）
+	var musicFolders int64
+	db.Model(&models.Folder{}).Where("name = ?", "音乐").Count(&musicFolders)
+	if musicFolders != 1 {
+		t.Errorf("同名文件夹「音乐」应去重为 1 个，实际 %d", musicFolders)
+	}
 
 	// 端点总数：apiCollection(90) + requestCollection(3)
 	var epCount int64
@@ -167,6 +187,41 @@ func TestApifoxImport(t *testing.T) {
 	db.Model(&models.ModuleBaseURL{}).Count(&baseURLCount)
 	if baseURLCount < 1 {
 		t.Errorf("应导入模块 baseUrl")
+	}
+}
+
+// TestApifoxSelectiveImport 仅导入选中的少量接口，验证按 Index 过滤生效。
+func TestApifoxSelectiveImport(t *testing.T) {
+	corpus := loadCorpus(t)
+	db := newTestDB(t)
+	project := mustCreateProject(t, db, "apifox-select")
+	svc := NewApifoxService(db)
+
+	preview, err := svc.PreviewApifox(corpus)
+	if err != nil {
+		t.Fatalf("预览失败: %v", err)
+	}
+	if len(preview.Items) < 10 {
+		t.Fatalf("预览项过少: %d", len(preview.Items))
+	}
+	// 仅选前 3 个 http 接口
+	selected := []int{}
+	for _, it := range preview.Items {
+		if it.Kind == "http" {
+			selected = append(selected, it.Index)
+			if len(selected) == 3 {
+				break
+			}
+		}
+	}
+	if _, err := svc.ImportApifox(project.ID, corpus, selected); err != nil {
+		t.Fatalf("选择性导入失败: %v", err)
+	}
+	// 仅应有 3 个接口端点被创建
+	var epCount int64
+	db.Model(&models.Endpoint{}).Where("type IN ?", []string{"http", "websocket", "doc"}).Count(&epCount)
+	if epCount != 3 {
+		t.Errorf("应仅导入 3 个选中项，实际 %d", epCount)
 	}
 }
 

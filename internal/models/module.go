@@ -16,6 +16,8 @@ type Module struct {
 	// AuthType/AuthData 模块级默认认证，供下级接口 inherit
 	AuthType string `gorm:"default:none" json:"authType"` // none, basic, bearer, apikey
 	AuthData string `gorm:"type:text" json:"authData"`
+	// EndpointDisplay 该模块下接口在树中的显示方式：name（名称，默认）或 url（路径）
+	EndpointDisplay string `gorm:"default:name" json:"endpointDisplay"`
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 

@@ -267,16 +267,29 @@ type apifoxRequestItem struct {
 
 // ApifoxPreview Apifox 导入前的内容概览
 type ApifoxPreview struct {
-	IsApifox     bool   `json:"isApifox"`
-	ProjectName  string `json:"projectName"`
-	Modules      int    `json:"modules"`
-	Folders      int    `json:"folders"`
-	Endpoints    int    `json:"endpoints"`
-	Documents    int    `json:"documents"`
-	WebSockets   int    `json:"webSockets"`
-	Environments int    `json:"environments"`
-	GlobalVars   int    `json:"globalVars"`
-	Scripts      int    `json:"scripts"`
+	IsApifox     bool               `json:"isApifox"`
+	ProjectName  string             `json:"projectName"`
+	Modules      int                `json:"modules"`
+	Folders      int                `json:"folders"`
+	Endpoints    int                `json:"endpoints"`
+	Documents    int                `json:"documents"`
+	WebSockets   int                `json:"webSockets"`
+	Environments int                `json:"environments"`
+	GlobalVars   int                `json:"globalVars"`
+	Scripts      int                `json:"scripts"`
+	// Items 可逐项选择导入的叶子列表（接口 / 文档 / WebSocket / 通用请求）
+	Items []ApifoxPreviewItem `json:"items"`
+}
+
+// ApifoxPreviewItem 预览中的单个可选择项
+type ApifoxPreviewItem struct {
+	Index      int    `json:"index"`
+	Kind       string `json:"kind"` // http, websocket, doc, request
+	Name       string `json:"name"`
+	Method     string `json:"method"`
+	Path       string `json:"path"`
+	ModuleName string `json:"moduleName"`
+	FolderPath string `json:"folderPath"`
 }
 
 // ApifoxImportResult Apifox 导入结果统计
@@ -292,6 +305,29 @@ type ApifoxImportResult struct {
 	ModuleParams int `json:"moduleParams"`
 }
 
+// apifoxFolderRef 计划中的一层文件夹（携带导入所需的认证与前置/后置操作）。
+type apifoxFolderRef struct {
+	Name string
+	Auth apifoxAuth
+	Pre  []apifoxProcessor
+	Post []apifoxProcessor
+}
+
+// apifoxLeaf 一个可被单独选择导入的叶子项（接口 / 文档 / WebSocket / 通用请求）。
+type apifoxLeaf struct {
+	Index          int
+	Kind           string // http, websocket, doc, request
+	Name           string
+	Method         string
+	Path           string
+	ModuleApifoxID string // 空表示归入默认模块（如通用请求）
+	ModuleName     string
+	Folders        []apifoxFolderRef
+	api            *apifoxAPI
+	doc            *apifoxDoc
+	request        *apifoxRequestItem
+}
+
 // importCtx 在一次导入过程中维护各种 ID 映射与统计。
 type importCtx struct {
 	tx         *gorm.DB
@@ -300,6 +336,18 @@ type importCtx struct {
 	moduleByID map[string]string // apifoxModuleID -> 我方 Module.ID
 	envByID    map[string]string // apifoxEnvID -> 我方 Environment.ID
 	result     *ApifoxImportResult
+
+	// 选择导入
+	selected  map[int]bool // 选中的叶子 Index
+	selectAll bool         // 未指定选择时全部导入
+
+	// 文件夹按名称去重（同模块+父级+名称仅一条），修复重复文件夹
+	folderCache map[string]string // moduleID|parentID|name -> folderID
+	folderSort  map[string]int    // moduleID|parentID -> 下一个 sortOrder
+	orderIn     map[string]int    // 端点所在容器 -> 下一个 sortOrder（容器 = moduleID|folderID）
+	moduleInit  map[string]bool   // apifoxModuleID 是否已应用模块级认证/操作/前置URL
+	rootByMod   map[string]apifoxCollectionRoot
+	environs    []apifoxEnvironment
 }
 
 // PreviewApifox 解析并返回 Apifox 导出文件的内容概览。
@@ -312,22 +360,35 @@ func (s *ApifoxService) PreviewApifox(jsonStr string) (*ApifoxPreview, error) {
 		return &ApifoxPreview{IsApifox: false}, nil
 	}
 
+	moduleName := map[string]string{}
+	for _, m := range exp.ModuleSettings {
+		moduleName[m.ID.String()] = m.Name
+	}
+
 	p := &ApifoxPreview{IsApifox: true, ProjectName: exp.Info.Name}
-	for _, root := range exp.APICollection {
-		f, e := countItems(root.Items)
-		p.Folders += f
-		p.Endpoints += e
+	leaves := buildLeaves(&exp, moduleName)
+	folderSet := map[string]bool{}
+	for _, lf := range leaves {
+		switch lf.Kind {
+		case "http", "request":
+			p.Endpoints++
+		case "websocket":
+			p.WebSockets++
+		case "doc":
+			p.Documents++
+		}
+		// 统计去重后的文件夹数量
+		key := lf.ModuleApifoxID
+		for _, fr := range lf.Folders {
+			key += "|" + fr.Name
+			folderSet[key] = true
+		}
+		p.Items = append(p.Items, ApifoxPreviewItem{
+			Index: lf.Index, Kind: lf.Kind, Name: lf.Name, Method: lf.Method,
+			Path: lf.Path, ModuleName: lf.ModuleName, FolderPath: folderPathString(lf.Folders),
+		})
 	}
-	for _, r := range exp.RequestCollection {
-		p.Endpoints += len(r.Items)
-	}
-	for _, root := range exp.DocCollection {
-		p.Documents += countDocs(root.Items) + countDocs(root.Children)
-	}
-	for _, root := range exp.WebSocketCollection {
-		_, e := countItems(root.Items)
-		p.WebSockets += e
-	}
+	p.Folders = len(folderSet)
 	p.Modules = len(exp.ModuleSettings)
 	p.Environments = len(exp.Environments)
 	for _, g := range exp.GlobalVariables {
@@ -337,33 +398,137 @@ func (s *ApifoxService) PreviewApifox(jsonStr string) (*ApifoxPreview, error) {
 	return p, nil
 }
 
-func countItems(items []apifoxItem) (folders, endpoints int) {
-	for _, it := range items {
-		if it.isFolder() {
-			folders++
-			f, e := countItems(it.Items)
-			folders += f
-			endpoints += e
-		} else {
-			endpoints++
-		}
+// folderPathString 将文件夹层级拼为 "a / b / c" 展示。
+func folderPathString(folders []apifoxFolderRef) string {
+	names := make([]string, 0, len(folders))
+	for _, f := range folders {
+		names = append(names, f.Name)
 	}
-	return
+	return strings.Join(names, " / ")
 }
 
-func countDocs(docs []apifoxDoc) int {
-	n := 0
-	for _, d := range docs {
-		if d.Content != "" || (len(d.Items) == 0 && len(d.Children) == 0) {
-			n++
+// buildLeaves 以确定的顺序展开导出文件中所有可导入的叶子项并编号。
+// 预览与导入共用此函数，保证下标一致。
+func buildLeaves(exp *apifoxExport, moduleName map[string]string) []apifoxLeaf {
+	leaves := make([]apifoxLeaf, 0, 64)
+	idx := 0
+
+	// API 集合：每个 root 对应一个模块，递归展开文件夹与接口
+	for ri := range exp.APICollection {
+		root := &exp.APICollection[ri]
+		modID := root.ModuleID.String()
+		var walk func(items []apifoxItem, folders []apifoxFolderRef)
+		walk = func(items []apifoxItem, folders []apifoxFolderRef) {
+			for i := range items {
+				it := &items[i]
+				if it.isFolder() {
+					fr := apifoxFolderRef{Name: it.Name, Auth: it.Auth, Pre: it.PreProcessors, Post: it.PostProcessors}
+					walk(it.Items, appendFolder(folders, fr))
+				} else {
+					leaves = append(leaves, apifoxLeaf{
+						Index: idx, Kind: "http", Name: apiLeafName(it), Method: strings.ToUpper(defaultStr(it.API.Method, "GET")),
+						Path: it.API.Path, ModuleApifoxID: modID, ModuleName: moduleName[modID],
+						Folders: cloneFolders(folders), api: it.API,
+					})
+					idx++
+				}
+			}
 		}
-		n += countDocs(d.Items) + countDocs(d.Children)
+		walk(root.Items, nil)
 	}
-	return n
+
+	// WebSocket 集合：仅收集真正的 WS 端点（空文件夹不产生叶子，避免重复空目录）
+	for ri := range exp.WebSocketCollection {
+		root := &exp.WebSocketCollection[ri]
+		modID := root.ModuleID.String()
+		var walk func(items []apifoxItem, folders []apifoxFolderRef)
+		walk = func(items []apifoxItem, folders []apifoxFolderRef) {
+			for i := range items {
+				it := &items[i]
+				if it.API != nil {
+					leaves = append(leaves, apifoxLeaf{
+						Index: idx, Kind: "websocket", Name: apiLeafName(it), Method: "GET",
+						Path: it.API.Path, ModuleApifoxID: modID, ModuleName: moduleName[modID],
+						Folders: cloneFolders(folders), api: it.API,
+					})
+					idx++
+				} else {
+					walk(it.Items, appendFolder(folders, apifoxFolderRef{Name: it.Name}))
+				}
+			}
+		}
+		walk(root.Items, nil)
+	}
+
+	// 文档集合：有正文的文档作为叶子
+	for ri := range exp.DocCollection {
+		root := &exp.DocCollection[ri]
+		var walk func(docs []apifoxDoc)
+		walk = func(docs []apifoxDoc) {
+			for i := range docs {
+				d := &docs[i]
+				if d.Content != "" {
+					leaves = append(leaves, apifoxLeaf{
+						Index: idx, Kind: "doc", Name: defaultStr(d.Name, "文档"),
+						ModuleApifoxID: d.ModuleID.String(), ModuleName: moduleName[d.ModuleID.String()], doc: d,
+					})
+					idx++
+				}
+				walk(d.Items)
+				walk(d.Children)
+			}
+		}
+		walk(root.Items)
+		walk(root.Children)
+	}
+
+	// 通用请求：视为默认模块下的普通接口
+	for ri := range exp.RequestCollection {
+		r := &exp.RequestCollection[ri]
+		for i := range r.Items {
+			it := &r.Items[i]
+			leaves = append(leaves, apifoxLeaf{
+				Index: idx, Kind: "request", Name: defaultStr(it.Name, it.Path),
+				Method: strings.ToUpper(defaultStr(it.Method, "GET")), Path: it.Path,
+				ModuleName: "默认模块", request: it,
+			})
+			idx++
+		}
+	}
+
+	return leaves
+}
+
+// apiLeafName 解析接口名称：优先 item.Name（真实名称），其次 api.name，最后回退到 path。
+func apiLeafName(it *apifoxItem) string {
+	name := it.Name
+	if strings.TrimSpace(name) == "" && it.API != nil {
+		name = it.API.Name
+	}
+	if it.API != nil {
+		return defaultStr(name, it.API.Path)
+	}
+	return defaultStr(name, "接口")
+}
+
+// appendFolder 追加一层文件夹并返回新切片（用三索引切片避免共享底层数组的别名问题）。
+func appendFolder(folders []apifoxFolderRef, fr apifoxFolderRef) []apifoxFolderRef {
+	out := folders[:len(folders):len(folders)]
+	return append(out, fr)
+}
+
+func cloneFolders(folders []apifoxFolderRef) []apifoxFolderRef {
+	if len(folders) == 0 {
+		return nil
+	}
+	out := make([]apifoxFolderRef, len(folders))
+	copy(out, folders)
+	return out
 }
 
 // ImportApifox 将 Apifox 导出内容导入到指定项目。
-func (s *ApifoxService) ImportApifox(projectID string, jsonStr string) (*ApifoxImportResult, error) {
+// selectedIndexes 为空时导入全部叶子，否则仅导入对应下标的叶子（对应预览列表 Item.Index）。
+func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedIndexes []int) (*ApifoxImportResult, error) {
 	var exp apifoxExport
 	if err := json.Unmarshal([]byte(jsonStr), &exp); err != nil {
 		return nil, fmt.Errorf("解析 Apifox 文件失败: %w", err)
@@ -381,15 +546,29 @@ func (s *ApifoxService) ImportApifox(projectID string, jsonStr string) (*ApifoxI
 	result := &ApifoxImportResult{}
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		ic := &importCtx{
-			tx:         tx,
-			projectID:  projectID,
-			moduleName: map[string]string{},
-			moduleByID: map[string]string{},
-			envByID:    map[string]string{},
-			result:     result,
+			tx:          tx,
+			projectID:   projectID,
+			moduleName:  map[string]string{},
+			moduleByID:  map[string]string{},
+			envByID:     map[string]string{},
+			result:      result,
+			selected:    map[int]bool{},
+			selectAll:   len(selectedIndexes) == 0,
+			folderCache: map[string]string{},
+			folderSort:  map[string]int{},
+			orderIn:     map[string]int{},
+			moduleInit:  map[string]bool{},
+			rootByMod:   map[string]apifoxCollectionRoot{},
+			environs:    exp.Environments,
+		}
+		for _, i := range selectedIndexes {
+			ic.selected[i] = true
 		}
 		for _, m := range exp.ModuleSettings {
 			ic.moduleName[m.ID.String()] = m.Name
+		}
+		for _, root := range exp.APICollection {
+			ic.rootByMod[root.ModuleID.String()] = root
 		}
 
 		if err := ic.importEnvironments(exp.Environments); err != nil {
@@ -398,37 +577,25 @@ func (s *ApifoxService) ImportApifox(projectID string, jsonStr string) (*ApifoxI
 		ic.importGlobalVars(exp.GlobalVariables)
 		ic.importScripts(exp.CommonScripts)
 
-		// API 集合：每个 root 对应一个模块
-		for _, root := range exp.APICollection {
-			moduleID := ic.ensureModuleByApifoxID(root.ModuleID.String())
-			ic.applyModuleAuth(moduleID, root.Auth)
-			ic.importModuleOperations(moduleID, root.PreProcessors, root.PostProcessors)
-			ic.importEnvBaseURLs(exp.Environments, root.ModuleID.String(), moduleID)
-			ic.walkItems(root.Items, moduleID, nil)
-		}
-
-		// WebSocket 集合
-		for _, root := range exp.WebSocketCollection {
-			if len(root.Items) == 0 {
+		// 逐叶子导入：文件夹按路径去重、按需创建（修复重复文件夹并跳过空目录）
+		leaves := buildLeaves(&exp, ic.moduleName)
+		for i := range leaves {
+			lf := &leaves[i]
+			if !ic.selectAll && !ic.selected[lf.Index] {
 				continue
 			}
-			moduleID := ic.ensureModuleByApifoxID(root.ModuleID.String())
-			ic.walkWebSocketItems(root.Items, moduleID, nil)
-		}
-
-		// 文档集合
-		for _, root := range exp.DocCollection {
-			ic.importDocs(root.Items, nil)
-			ic.importDocs(root.Children, nil)
-		}
-
-		// 通用请求：视为默认模块下的普通接口
-		if len(exp.RequestCollection) > 0 {
-			def := ic.ensureModule("默认模块")
-			for _, r := range exp.RequestCollection {
-				for i, item := range r.Items {
-					ic.createRequestEndpoint(def, nil, item, i)
-				}
+			moduleID := ic.ensureModuleForLeaf(lf)
+			folderID := ic.ensureFolderPath(moduleID, lf.Folders)
+			order := ic.nextOrder(moduleID, folderID)
+			switch lf.Kind {
+			case "http":
+				ic.createAPIEndpoint(moduleID, folderID, lf.Name, lf.api, order)
+			case "websocket":
+				ic.createWSEndpoint(moduleID, folderID, lf.Name, lf.api, order)
+			case "doc":
+				ic.createDocEndpoint(moduleID, folderID, lf.doc, order)
+			case "request":
+				ic.createRequestEndpoint(moduleID, folderID, *lf.request, order)
 			}
 		}
 
@@ -442,6 +609,65 @@ func (s *ApifoxService) ImportApifox(projectID string, jsonStr string) (*ApifoxI
 	}
 	slog.Info("Apifox 导入完成", "projectId", projectID, "endpoints", result.Endpoints, "modules", result.Modules)
 	return result, nil
+}
+
+// ensureModuleForLeaf 解析叶子所属模块并按需应用模块级认证/操作/前置 URL（每模块仅一次）。
+func (ic *importCtx) ensureModuleForLeaf(lf *apifoxLeaf) string {
+	if lf.ModuleApifoxID == "" {
+		return ic.ensureModule(defaultStr(lf.ModuleName, "默认模块"))
+	}
+	moduleID := ic.ensureModuleByApifoxID(lf.ModuleApifoxID)
+	if !ic.moduleInit[lf.ModuleApifoxID] {
+		ic.moduleInit[lf.ModuleApifoxID] = true
+		if root, ok := ic.rootByMod[lf.ModuleApifoxID]; ok {
+			ic.applyModuleAuth(moduleID, root.Auth)
+			ic.importModuleOperations(moduleID, root.PreProcessors, root.PostProcessors)
+		}
+		ic.importEnvBaseURLs(ic.environs, lf.ModuleApifoxID, moduleID)
+	}
+	return moduleID
+}
+
+// ensureFolderPath 按名称去重地创建/复用一条文件夹路径，返回最末层文件夹 ID（无路径返回 nil）。
+func (ic *importCtx) ensureFolderPath(moduleID string, folders []apifoxFolderRef) *string {
+	var parentID *string
+	for _, fr := range folders {
+		pkey := moduleID + "|" + ptrOrEmpty(parentID)
+		key := pkey + "|" + fr.Name
+		if id, ok := ic.folderCache[key]; ok {
+			idCopy := id
+			parentID = &idCopy
+			continue
+		}
+		t, data := convertAuth(fr.Auth)
+		folder := models.Folder{
+			ModuleID: moduleID, ParentID: parentID, Name: fr.Name,
+			SortOrder: ic.folderSort[pkey], AuthType: defaultStr(t, string(models.AuthTypeInherit)), AuthData: data,
+		}
+		ic.tx.Create(&folder)
+		ic.result.Folders++
+		ic.folderSort[pkey]++
+		ic.createOperations(models.OperationOwnerFolder, folder.ID, fr.Pre, fr.Post)
+		ic.folderCache[key] = folder.ID
+		idCopy := folder.ID
+		parentID = &idCopy
+	}
+	return parentID
+}
+
+// nextOrder 返回某容器（模块+文件夹）内下一个端点排序号。
+func (ic *importCtx) nextOrder(moduleID string, folderID *string) int {
+	key := moduleID + "|" + ptrOrEmpty(folderID)
+	n := ic.orderIn[key]
+	ic.orderIn[key] = n + 1
+	return n
+}
+
+func ptrOrEmpty(p *string) string {
+	if p == nil {
+		return ""
+	}
+	return *p
 }
 
 // ensureModule 按名称去重获取/创建模块（忽略 Apifox 的 moduleId）。
@@ -495,27 +721,8 @@ func (ic *importCtx) importModuleOperations(moduleID string, pre, post []apifoxP
 	ic.createOperations(models.OperationOwnerModule, moduleID, pre, post)
 }
 
-// walkItems 递归导入 API 集合中的文件夹与端点。
-func (ic *importCtx) walkItems(items []apifoxItem, moduleID string, parentFolderID *string) {
-	for i, it := range items {
-		if it.isFolder() {
-			t, data := convertAuth(it.Auth)
-			folder := models.Folder{
-				ModuleID: moduleID, ParentID: parentFolderID, Name: it.Name,
-				SortOrder: i, AuthType: defaultStr(t, string(models.AuthTypeInherit)), AuthData: data,
-			}
-			ic.tx.Create(&folder)
-			ic.result.Folders++
-			ic.createOperations(models.OperationOwnerFolder, folder.ID, it.PreProcessors, it.PostProcessors)
-			ic.walkItems(it.Items, moduleID, &folder.ID)
-		} else {
-			ic.createAPIEndpoint(moduleID, parentFolderID, it.API, i)
-		}
-	}
-}
-
-// createAPIEndpoint 创建一个 HTTP 端点及其所有关联数据。
-func (ic *importCtx) createAPIEndpoint(moduleID string, folderID *string, api *apifoxAPI, sortOrder int) {
+// createAPIEndpoint 创建一个 HTTP 端点及其所有关联数据。name 为已解析的接口名称。
+func (ic *importCtx) createAPIEndpoint(moduleID string, folderID *string, name string, api *apifoxAPI, sortOrder int) {
 	if api == nil {
 		return
 	}
@@ -525,7 +732,7 @@ func (ic *importCtx) createAPIEndpoint(moduleID string, folderID *string, api *a
 	ep := models.Endpoint{
 		ModuleID:          moduleID,
 		FolderID:          folderID,
-		Name:              defaultStr(api.Name, api.Path),
+		Name:              defaultStr(name, defaultStr(api.Name, api.Path)),
 		Type:              string(models.EndpointTypeHTTP),
 		Method:            strings.ToUpper(defaultStr(api.Method, "GET")),
 		Path:              api.Path,
@@ -548,6 +755,34 @@ func (ic *importCtx) createAPIEndpoint(moduleID string, folderID *string, api *a
 	ic.createEndpointAuth(ep.ID, authType, authData)
 	ic.createOperations(models.OperationOwnerEndpoint, ep.ID, api.PreProcessors, api.PostProcessors)
 	ic.createResponses(ep.ID, api.Responses, api.ResponseExamples)
+}
+
+// createWSEndpoint 创建一个 WebSocket 端点。
+func (ic *importCtx) createWSEndpoint(moduleID string, folderID *string, name string, api *apifoxAPI, sortOrder int) {
+	if api == nil {
+		return
+	}
+	ep := models.Endpoint{
+		ModuleID: moduleID, FolderID: folderID, Name: defaultStr(name, api.Path),
+		Type: string(models.EndpointTypeWebSocket), Method: "GET", Path: api.Path,
+		Timeout: 30000, FollowRedirects: true, InheritOperations: true, SortOrder: sortOrder,
+	}
+	ic.tx.Create(&ep)
+	ic.result.WebSockets++
+}
+
+// createDocEndpoint 创建一个文档类型端点（Markdown 内容）。
+func (ic *importCtx) createDocEndpoint(moduleID string, folderID *string, doc *apifoxDoc, sortOrder int) {
+	if doc == nil {
+		return
+	}
+	ep := models.Endpoint{
+		ModuleID: moduleID, FolderID: folderID, Name: defaultStr(doc.Name, "文档"),
+		Type: string(models.EndpointTypeDoc), Method: "GET", Path: "/",
+		DocContent: doc.Content, SortOrder: sortOrder, InheritOperations: false,
+	}
+	ic.tx.Create(&ep)
+	ic.result.Documents++
 }
 
 func (ic *importCtx) createParamsAndHeaders(endpointID string, p apifoxParameters) {
@@ -636,48 +871,6 @@ func (ic *importCtx) createResponses(endpointID string, responses []apifoxRespon
 }
 
 // walkWebSocketItems 递归导入 WebSocket 集合（文件夹与 WS 端点）。
-func (ic *importCtx) walkWebSocketItems(items []apifoxItem, moduleID string, parentFolderID *string) {
-	for i, it := range items {
-		if it.isFolder() && it.API == nil && len(it.Items) >= 0 && it.Name != "" && looksLikeFolder(it) {
-			folder := models.Folder{ModuleID: moduleID, ParentID: parentFolderID, Name: it.Name, SortOrder: i, AuthType: string(models.AuthTypeInherit)}
-			ic.tx.Create(&folder)
-			ic.result.Folders++
-			ic.walkWebSocketItems(it.Items, moduleID, &folder.ID)
-		} else if it.API != nil {
-			ep := models.Endpoint{
-				ModuleID: moduleID, FolderID: parentFolderID, Name: defaultStr(it.Name, it.API.Path),
-				Type: string(models.EndpointTypeWebSocket), Method: "GET", Path: it.API.Path,
-				Timeout: 30000, FollowRedirects: true, InheritOperations: true, SortOrder: i,
-			}
-			ic.tx.Create(&ep)
-			ic.result.WebSockets++
-		}
-	}
-}
-
-func looksLikeFolder(it apifoxItem) bool { return it.API == nil }
-
-// importDocs 递归导入 Markdown 文档为 doc 类型端点。
-func (ic *importCtx) importDocs(docs []apifoxDoc, parentFolderID *string) {
-	for i, d := range docs {
-		if d.Content != "" {
-			moduleID := ic.ensureModuleByApifoxID(d.ModuleID.String())
-			if moduleID == "" {
-				moduleID = ic.ensureModule("默认模块")
-			}
-			ep := models.Endpoint{
-				ModuleID: moduleID, FolderID: parentFolderID, Name: defaultStr(d.Name, "文档"),
-				Type: string(models.EndpointTypeDoc), Method: "GET", Path: "/",
-				DocContent: d.Content, SortOrder: i, InheritOperations: false,
-			}
-			ic.tx.Create(&ep)
-			ic.result.Documents++
-		}
-		ic.importDocs(d.Items, parentFolderID)
-		ic.importDocs(d.Children, parentFolderID)
-	}
-}
-
 // createRequestEndpoint 将「通用请求」项创建为默认模块下的端点。
 func (ic *importCtx) createRequestEndpoint(moduleID string, folderID *string, item apifoxRequestItem, sortOrder int) {
 	bodyType, bodyContent, contentType, bodyFields := convertBody(item.RequestBody)
@@ -938,13 +1131,4 @@ func jsonArray(items []string) string {
 	}
 	b, _ := json.Marshal(items)
 	return string(b)
-}
-
-// compactJSON 压缩 JSON（去除多余空白），失败时原样返回。
-func compactJSON(s string) string {
-	var buf bytes.Buffer
-	if err := json.Compact(&buf, []byte(s)); err != nil {
-		return s
-	}
-	return buf.String()
 }

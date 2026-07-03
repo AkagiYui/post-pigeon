@@ -511,6 +511,22 @@ func (s *EndpointService) MoveEndpoint(id string, moduleID string, folderID *str
 	return nil
 }
 
+// ReorderEndpoints 按给定顺序重排一批端点（通常为同一容器内的兄弟节点）。
+// 依据 orderedIDs 的下标批量写入 sort_order，实现拖拽排序。
+func (s *EndpointService) ReorderEndpoints(orderedIDs []string) error {
+	if len(orderedIDs) == 0 {
+		return nil
+	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for i, id := range orderedIDs {
+			if err := tx.Model(&models.Endpoint{}).Where("id = ?", id).Update("sort_order", i).Error; err != nil {
+				return fmt.Errorf("重排端点失败: %w", err)
+			}
+		}
+		return nil
+	})
+}
+
 // DuplicateEndpoint 复制端点及其所有关联数据到同一位置
 func (s *EndpointService) DuplicateEndpoint(id string) (*models.Endpoint, error) {
 	// 加载源端点完整详情

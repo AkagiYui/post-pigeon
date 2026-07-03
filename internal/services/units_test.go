@@ -13,10 +13,37 @@ func TestCombineURL(t *testing.T) {
 		{"http://x.com", "api", "http://x.com/api"},
 		{"", "/api", "/api"},
 		{"http://x.com/base", "/a/b", "http://x.com/base/a/b"},
+		// 路径自带协议头时视为绝对地址，忽略前置 URL
+		{"http://x.com", "https://api.weixin.qq.com/s", "https://api.weixin.qq.com/s"},
+		{"http://127.0.0.1", "wss://web.example.com/socket", "wss://web.example.com/socket"},
+		{"http://x.com", "http://y.com/z", "http://y.com/z"},
 	}
 	for _, c := range cases {
 		if got := combineURL(c.base, c.path); got != c.want {
 			t.Errorf("combineURL(%q,%q)=%q 期望 %q", c.base, c.path, got, c.want)
+		}
+	}
+}
+
+func TestHasURLScheme(t *testing.T) {
+	cases := []struct {
+		in   string
+		want bool
+	}{
+		{"https://a.com", true},
+		{"http://a.com", true},
+		{"wss://a.com/s", true},
+		{"ws://a.com", true},
+		{"/api/users", false},
+		{":7777/music", false},
+		{"api/users", false},
+		{"{{baseUrl}}/x", false},
+		{"", false},
+		{"://bad", false},
+	}
+	for _, c := range cases {
+		if got := hasURLScheme(c.in); got != c.want {
+			t.Errorf("hasURLScheme(%q)=%v 期望 %v", c.in, got, c.want)
 		}
 	}
 }

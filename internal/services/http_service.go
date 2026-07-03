@@ -683,12 +683,33 @@ func headersToHTTPHeader(headers []scripting.Header) http.Header {
 
 // combineURL 组合基础 URL 和路径
 func combineURL(baseURL, path string) string {
-	if baseURL == "" {
+	// 接口路径本身带协议头（http://、https://、ws://、wss:// 等）时视为绝对地址，
+	// 不再附加模块/环境的前置 URL。
+	if baseURL == "" || hasURLScheme(path) {
 		return path
 	}
 	baseURL = strings.TrimRight(baseURL, "/")
 	path = strings.TrimLeft(path, "/")
 	return baseURL + "/" + path
+}
+
+// hasURLScheme 判断字符串是否以协议头开头（如 http://、wss://、ftp://）。
+func hasURLScheme(s string) bool {
+	s = strings.TrimSpace(s)
+	i := strings.Index(s, "://")
+	if i <= 0 {
+		return false
+	}
+	// 协议名只能包含字母、数字、+、-、.，且首字符须为字母
+	for idx, r := range s[:i] {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z':
+		case (r >= '0' && r <= '9' || r == '+' || r == '-' || r == '.') && idx > 0:
+		default:
+			return false
+		}
+	}
+	return true
 }
 
 // flattenHeaders 将 http.Header 转换为 map[string]string

@@ -236,14 +236,15 @@ func (s *ProjectService) GetProjectTree(id string) ([]ModuleTree, error) {
 	var result []ModuleTree
 	for _, module := range modules {
 		tree := ModuleTree{
-			ID:        module.ID,
-			ProjectID: module.ProjectID,
-			Name:      module.Name,
-			SortOrder: module.SortOrder,
-			CreatedAt: module.CreatedAt,
-			UpdatedAt: module.UpdatedAt,
-			Folders:   []FolderTree{},
-			Endpoints: []models.Endpoint{},
+			ID:              module.ID,
+			ProjectID:       module.ProjectID,
+			Name:            module.Name,
+			SortOrder:       module.SortOrder,
+			EndpointDisplay: module.EndpointDisplay,
+			CreatedAt:       module.CreatedAt,
+			UpdatedAt:       module.UpdatedAt,
+			Folders:         []FolderTree{},
+			Endpoints:       []models.Endpoint{},
 		}
 
 		// 获取模块下直属的端点（不在任何文件夹中的）
@@ -331,14 +332,15 @@ func (s *ProjectService) buildFolderTree(folder *FolderTree) error {
 
 // ModuleTree 模块树形结构（不含 GORM 标签，避免与 models.Module 的 GORM 注解冲突）
 type ModuleTree struct {
-	ID        string            `json:"id"`
-	ProjectID string            `json:"projectId"`
-	Name      string            `json:"name"`
-	SortOrder int               `json:"sortOrder"`
-	CreatedAt time.Time         `json:"createdAt"`
-	UpdatedAt time.Time         `json:"updatedAt"`
-	Folders   []FolderTree      `json:"folders"`
-	Endpoints []models.Endpoint `json:"endpoints"`
+	ID              string            `json:"id"`
+	ProjectID       string            `json:"projectId"`
+	Name            string            `json:"name"`
+	SortOrder       int               `json:"sortOrder"`
+	EndpointDisplay string            `json:"endpointDisplay"` // name / url
+	CreatedAt       time.Time         `json:"createdAt"`
+	UpdatedAt       time.Time         `json:"updatedAt"`
+	Folders         []FolderTree      `json:"folders"`
+	Endpoints       []models.Endpoint `json:"endpoints"`
 }
 
 // FolderTree 文件夹树形结构（不含 GORM 标签，避免与 models.Folder 的 GORM 注解冲突）
