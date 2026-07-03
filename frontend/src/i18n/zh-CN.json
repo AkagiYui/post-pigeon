@@ -318,5 +318,9 @@
   "apifox.kind.http": "接口",
   "apifox.kind.websocket": "WS",
   "apifox.kind.doc": "文档",
-  "apifox.kind.request": "请求"
+  "apifox.kind.request": "请求",
+  "stream.messages": "消息",
+  "stream.streaming": "接收中…",
+  "stream.streamEnded": "流已结束",
+  "stream.stop": "停止"
 }

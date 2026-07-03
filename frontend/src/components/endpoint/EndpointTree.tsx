@@ -39,8 +39,8 @@ export interface EndpointTreeProps {
   onCreateModule?: () => void
   /** 创建端点回调 */
   onCreateEndpoint?: (parentId: string | undefined, type: "module" | "folder") => void
-  /** 创建 WebSocket / SSE 端点回调 */
-  onCreateTyped?: (parentId: string | undefined, type: "module" | "folder", endpointType: "websocket" | "sse") => void
+  /** 创建 WebSocket 端点回调 */
+  onCreateTyped?: (parentId: string | undefined, type: "module" | "folder", endpointType: "websocket") => void
   /** 创建文件夹回调 */
   onCreateFolder?: (parentId: string | undefined, type: "module" | "folder") => void
   /** 搜索框文字变更 */
@@ -248,12 +248,6 @@ export function EndpointTree(props: EndpointTreeProps) {
               onClick: () => props.onCreateTyped?.(undefined, "module", "websocket"),
             },
             {
-              key: "new-sse",
-              label: t("endpoint.createSSE"),
-              icon: <Radio class="h-4 w-4 text-pink-500 shrink-0" />,
-              onClick: () => props.onCreateTyped?.(undefined, "module", "sse"),
-            },
-            {
               key: "new-document",
               label: t("doc.create"),
               icon: <FileText class="h-4 w-4 text-violet-500 shrink-0" />,
@@ -322,12 +316,6 @@ function createAllMenuItems(
         label: t("endpoint.createWebSocket"),
         icon: <Webhook class="h-4 w-4 text-teal-500 shrink-0" />,
         onClick: () => handlers.onCreateTyped?.(node.id, scope, "websocket"),
-      },
-      {
-        key: "new-sse",
-        label: t("endpoint.createSSE"),
-        icon: <Radio class="h-4 w-4 text-pink-500 shrink-0" />,
-        onClick: () => handlers.onCreateTyped?.(node.id, scope, "sse"),
       },
       {
         key: "new-folder",

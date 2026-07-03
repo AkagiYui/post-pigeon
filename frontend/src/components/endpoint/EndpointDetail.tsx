@@ -2,9 +2,10 @@
 // 上：请求方法 + URL + 发送/保存/删除按钮
 // 中：请求设置 tabs (Params/Body/Headers/Auth/设置)
 // 下：响应信息 tabs (Body/Headers/Cookies/实际请求)
-import { Check, ChevronDown, Save, Send, Trash2 } from "lucide-solid"
-import { createEffect, createSignal, For, Match, on, onCleanup, Show, Switch } from "solid-js"
+import { Check, Plug, PlugZap, Save, Send, Trash2 } from "lucide-solid"
+import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js"
 
+import { SSEService, WebSocketService } from "@/../bindings/post-pigeon/internal/services"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
@@ -14,6 +15,7 @@ import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
 import { type AuthType, type BodyType, CONTENT_TYPES, type EndpointType, formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
 import { cn, hasURLScheme } from "@/lib/utils"
+import { markConnecting, streamStatus } from "@/stores/stream"
 
 import { AuthEditor } from "./AuthEditor"
 import { BodyEditor } from "./BodyEditor"
@@ -23,7 +25,7 @@ import { HeadersEditor } from "./HeadersEditor"
 import { OperationsEditor } from "./OperationsEditor"
 import { ParamsEditor } from "./ParamsEditor"
 import { ResponsePanel } from "./ResponsePanel"
-import { SSEPanel, WebSocketPanel } from "./StreamPanels"
+import { StreamEventLog, WebSocketResponse, wsUrl } from "./StreamPanels"
 
 /** HTTP 方法选项（用于 Combobox） */
 const methodOptions: ComboboxOption[] = [
@@ -248,6 +250,10 @@ export interface ResponseData {
   scripts?: ScriptResultsData
   /** 请求失败时的错误信息（如协议错误、连接失败等）；有值时展示错误而非正常响应 */
   error?: string
+  /** 响应为 SSE 流：以实时事件流展示（Body 为空，事件按 streamId 推送） */
+  streaming?: boolean
+  /** SSE 流连接标识 */
+  streamId?: string
 }
 
 /** 环境前置 URL 条目 */
@@ -423,14 +429,34 @@ export function EndpointDetail(props: EndpointDetailProps) {
     },
   ))
 
-  // 非 HTTP 端点（文档 / WebSocket / SSE）的头部：名称/路径 + 保存/删除
-  const NonHttpHeader = (headerProps: { showPath?: boolean }) => (
+  // ---- WebSocket：连接/断开由顶部请求行的按钮驱动，连接存活于 Go 侧 ----
+  const isWs = () => ep().type === "websocket"
+  const wsStatus = () => streamStatus(ep().id)
+  const wsHeaders = (): Record<string, string> => {
+    const h: Record<string, string> = {}
+    for (const x of ep().headers) if (x.enabled && x.name.trim()) h[x.name] = x.value
+    return h
+  }
+  const wsConnect = async () => {
+    markConnecting(ep().id)
+    try { await WebSocketService.Connect(ep().id, wsUrl(ep().baseUrl, ep().path), wsHeaders()) } catch (e) { console.error("WebSocket 连接失败", e) }
+  }
+  const wsDisconnect = async () => { try { await WebSocketService.Close(ep().id) } catch (e) { console.error(e) } }
+  // 停止普通接口的 SSE 流式响应
+  const stopStream = async () => {
+    const id = props.response?.streamId
+    if (!id) return
+    try { await SSEService.Close(id) } catch (e) { console.error(e) }
+  }
+
+  // 文档头部：名称 + 保存/删除
+  const DocHeader = () => (
     <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
       <Input
         size="sm"
-        value={headerProps.showPath ? ep().path : ep().name}
-        onInput={(e) => props.onChange?.(headerProps.showPath ? { path: e.currentTarget.value } : { name: e.currentTarget.value })}
-        placeholder={headerProps.showPath ? "wss://example.com/socket" : t("endpoint.name")}
+        value={ep().name}
+        onInput={(e) => props.onChange?.({ name: e.currentTarget.value })}
+        placeholder={t("endpoint.name")}
         class="flex-1"
       />
       <Button variant={props.isUnsaved ? "default" : "outline"} size="sm" onClick={props.onSave}>
@@ -443,15 +469,15 @@ export function EndpointDetail(props: EndpointDetailProps) {
     </div>
   )
 
-  // 按端点类型响应式路由：文档 / WebSocket / SSE 使用各自面板，其余为标准 HTTP 布局。
+  // 文档使用 Markdown 编辑器；HTTP 与 WebSocket 共用同一详情布局（仅动作按钮与响应区不同）。
   return (
-    <Switch fallback={
+    <Show when={ep().type === "doc"} fallback={
     <div class="flex flex-col h-full">
       {/* 上部：请求行 */}
       <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
         {/* 内嵌方法选择器的 URL 输入组 */}
         <div class="flex-1 flex items-stretch border border-border rounded-md bg-input">
-          {/* HTTP 方法选择器（Combobox：点击后弹出空白输入框，支持搜索筛选和自定义输入） */}
+          {/* HTTP 方法选择器 */}
           <Combobox
             options={methodOptions}
             value={ep().method}
@@ -481,18 +507,26 @@ export function EndpointDetail(props: EndpointDetailProps) {
             size="sm"
             value={ep().path}
             onInput={(e) => props.onChange?.({ path: e.currentTarget.value })}
-            placeholder="/api/endpoint"
+            placeholder={isWs() ? "wss://example.com/socket" : "/api/endpoint"}
             class="border-0 bg-transparent rounded-none flex-1 min-w-0"
           />
         </div>
 
-        {/* 操作按钮 */}
-        <Tooltip content="Ctrl+Enter">
-          <Button size="sm" onClick={props.onSend} disabled={props.sending}>
-            <Send class="h-3.5 w-3.5" />
-            {props.sending ? t("common.sending") : t("endpoint.send")}
-          </Button>
-        </Tooltip>
+        {/* 主操作：HTTP 为发送；WebSocket 为连接/断开 */}
+        <Show when={isWs()} fallback={
+          <Tooltip content="Ctrl+Enter">
+            <Button size="sm" onClick={props.onSend} disabled={props.sending}>
+              <Send class="h-3.5 w-3.5" />
+              {props.sending ? t("common.sending") : t("endpoint.send")}
+            </Button>
+          </Tooltip>
+        }>
+          <Show when={wsStatus() === "open"} fallback={
+            <Button size="sm" onClick={wsConnect}><PlugZap class="h-3.5 w-3.5" />{t("stream.connect")}</Button>
+          }>
+            <Button size="sm" variant="outline" onClick={wsDisconnect}><Plug class="h-3.5 w-3.5" />{t("stream.disconnect")}</Button>
+          </Show>
+        </Show>
         <Button variant={props.isUnsaved ? "default" : "outline"} size="sm" onClick={props.onSave}>
           <Save class="h-3.5 w-3.5" />
           {props.isUnsaved ? t("endpoint.saveToProject") : t("endpoint.save")}
@@ -502,7 +536,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
         </Button>
       </div>
 
-      {/* 中部：请求设置 */}
+      {/* 中部：请求设置（HTTP 与 WebSocket 完全一致） */}
       <div class="flex-1 overflow-hidden border-b border-border">
         <Tabs
           tabs={getRequestTabs()}
@@ -540,85 +574,74 @@ export function EndpointDetail(props: EndpointDetailProps) {
         </Tabs>
       </div>
 
-      {/* 下部：响应信息 */}
+      {/* 下部：响应区。WebSocket 为消息流；HTTP 为响应标签页或 SSE 实时事件流 */}
       <div class="flex-1 overflow-hidden min-h-50">
-        <Show
-          when={props.response}
-          fallback={
-            <div class="flex items-center justify-center h-full text-muted-foreground text-sm">
-              {t("endpoint.sendToViewResponse")}
-            </div>
-          }
-        >
-          {/* 请求失败：展示错误信息，而非正常的响应标签页 */}
+        <Show when={isWs()} fallback={
           <Show
-            when={!props.response!.error}
+            when={props.response}
             fallback={
-              <div class="flex flex-col h-full">
-                <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
-                  <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
-                </div>
-                <div class="flex-1 overflow-auto p-3">
-                  <pre class="text-sm font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">
-                    {props.response!.error}
-                  </pre>
-                </div>
+              <div class="flex items-center justify-center h-full text-muted-foreground text-sm">
+                {t("endpoint.sendToViewResponse")}
               </div>
             }
           >
-            <Tabs
-              tabs={getResponseTabs()}
-              value={activeResponseTab()}
-              onChange={setActiveResponseTab}
-              extra={
-                <div class="flex items-center gap-3 text-xs text-muted-foreground">
-                  <Badge class={getStatusColor(props.response!.statusCode)}>
-                    {props.response!.statusCode}
-                  </Badge>
-                  <span>{formatTiming(props.response!.timing?.total || 0)}</span>
-                  <span>{formatSize(props.response!.size || 0)}</span>
-                </div>
-              }
-            >
-              {(key) => (
-                <ResponsePanel
-                  tab={key}
-                  response={props.response!}
-                />
-              )}
-            </Tabs>
+            {/* SSE 流式响应：实时事件流 */}
+            <Show when={props.response!.streaming} fallback={
+              /* 请求失败：展示错误信息，而非正常的响应标签页 */
+              <Show
+                when={!props.response!.error}
+                fallback={
+                  <div class="flex flex-col h-full">
+                    <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
+                      <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
+                    </div>
+                    <div class="flex-1 overflow-auto p-3">
+                      <pre class="text-sm font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">
+                        {props.response!.error}
+                      </pre>
+                    </div>
+                  </div>
+                }
+              >
+                <Tabs
+                  tabs={getResponseTabs()}
+                  value={activeResponseTab()}
+                  onChange={setActiveResponseTab}
+                  extra={
+                    <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                      <Badge class={getStatusColor(props.response!.statusCode)}>
+                        {props.response!.statusCode}
+                      </Badge>
+                      <span>{formatTiming(props.response!.timing?.total || 0)}</span>
+                      <span>{formatSize(props.response!.size || 0)}</span>
+                    </div>
+                  }
+                >
+                  {(key) => (
+                    <ResponsePanel
+                      tab={key}
+                      response={props.response!}
+                    />
+                  )}
+                </Tabs>
+              </Show>
+            }>
+              <StreamEventLog streamId={props.response!.streamId!} onStop={stopStream} />
+            </Show>
           </Show>
+        }>
+          <WebSocketResponse connId={ep().id} />
         </Show>
       </div>
     </div>
     }>
       {/* 文档：Markdown 编辑/预览 */}
-      <Match when={ep().type === "doc"}>
-        <div class="flex flex-col h-full">
-          <NonHttpHeader />
-          <div class="flex-1 min-h-0">
-            <DocumentEditor content={ep().docContent} onChange={(v) => props.onChange?.({ docContent: v })} />
-          </div>
+      <div class="flex flex-col h-full">
+        <DocHeader />
+        <div class="flex-1 min-h-0">
+          <DocumentEditor content={ep().docContent} onChange={(v) => props.onChange?.({ docContent: v })} />
         </div>
-      </Match>
-      {/* WebSocket */}
-      <Match when={ep().type === "websocket"}>
-        <div class="flex flex-col h-full">
-          <NonHttpHeader showPath />
-          <div class="flex-1 min-h-0">
-            <WebSocketPanel connId={ep().id} baseUrl={ep().baseUrl} path={ep().path} />
-          </div>
-        </div>
-      </Match>
-      {/* SSE */}
-      <Match when={ep().type === "sse"}>
-        <div class="flex flex-col h-full">
-          <NonHttpHeader showPath />
-          <div class="flex-1 min-h-0">
-            <SSEPanel connId={ep().id} baseUrl={ep().baseUrl} path={ep().path} method={ep().method} body={ep().bodyContent} />
-          </div>
-        </div>
-      </Match>
-    </Switch>
+      </div>
+    </Show>
   )
 }

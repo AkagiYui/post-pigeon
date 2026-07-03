@@ -37,6 +37,7 @@ import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
 import { type BodyType, type EndpointType, type HTTPMethod, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
 import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, notifyBaseUrlsChanged, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
+import { clearStream } from "@/stores/stream"
 
 // ---- 类型定义 ----
 
@@ -693,16 +694,30 @@ export function ApiManagement(props: ApiManagementProps) {
       sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript)
       sendData.postResponseScript = deriveScriptFromOps(ep.operations, "post", ep.postResponseScript)
 
+      // SSE 流按 endpointId 推送事件，发送前清理上一次的缓冲
+      if (ct?.saved && ep.id) clearStream(ep.id)
       const resp = await HTTPService.SendRequest(sendData)
       if (resp) {
-        setResponseData({
-          statusCode: resp.statusCode,
-          timing: { total: resp.timing?.total || 0, dnsLookup: resp.timing?.dnsLookup || 0, tlsHandshake: resp.timing?.tlsHandshake || 0, tcpConnect: resp.timing?.tcpConnect || 0, ttfb: resp.timing?.ttfb || 0 },
-          size: resp.size, body: resp.body, rawBody: resp.rawBody, headers: resp.headers as any,
-          cookies: resp.cookies as any || [], contentType: resp.contentType,
-          actualRequest: resp.actualRequest,
-          scripts: (resp.scripts as any) || undefined,
-        })
+        if (resp.streaming) {
+          // SSE 流式响应：以实时事件流展示（事件通过 sse:event 持续推送）
+          setResponseData({
+            statusCode: resp.statusCode,
+            timing: { total: resp.timing?.total || 0, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0, ttfb: 0 },
+            size: 0, body: "", headers: resp.headers as any,
+            cookies: [], contentType: resp.contentType, actualRequest: resp.actualRequest,
+            streaming: true, streamId: resp.streamId,
+            scripts: (resp.scripts as any) || undefined,
+          })
+        } else {
+          setResponseData({
+            statusCode: resp.statusCode,
+            timing: { total: resp.timing?.total || 0, dnsLookup: resp.timing?.dnsLookup || 0, tlsHandshake: resp.timing?.tlsHandshake || 0, tcpConnect: resp.timing?.tcpConnect || 0, ttfb: resp.timing?.ttfb || 0 },
+            size: resp.size, body: resp.body, rawBody: resp.rawBody, headers: resp.headers as any,
+            cookies: resp.cookies as any || [], contentType: resp.contentType,
+            actualRequest: resp.actualRequest,
+            scripts: (resp.scripts as any) || undefined,
+          })
+        }
       }
     } catch (e) {
       // 请求失败（如协议错误、连接失败、超时等）：将错误信息展示到响应框，而非仅打印到控制台
@@ -1079,13 +1094,13 @@ export function ApiManagement(props: ApiManagementProps) {
     } catch (e) { console.error("创建文档失败", e) }
   }
 
-  // ---- 新建 WebSocket / SSE 端点（直接创建并打开） ----
-  const handleCreateTyped = async (parentNodeId: string | undefined, _type: "module" | "folder" | undefined, endpointType: "websocket" | "sse") => {
+  // ---- 新建 WebSocket 端点（直接创建并打开） ----
+  const handleCreateTyped = async (parentNodeId: string | undefined, _type: "module" | "folder" | undefined, endpointType: "websocket") => {
     const location = parentNodeId && findNodeInTree(treeData(), parentNodeId) ? parentNodeId : getEffectiveSaveLocation()
     if (!location) { console.error(t("module.notSelected")); return }
     const { moduleId, folderId } = resolveSaveLocation(location)
     if (!moduleId) return
-    const name = endpointType === "websocket" ? t("endpoint.newWebSocket") : t("endpoint.newSSE")
+    const name = t("endpoint.newWebSocket")
     try {
       const ep = await EndpointService.CreateTypedEndpoint(moduleId, folderId ?? null, name, "GET", "", endpointType)
       await loadTree()

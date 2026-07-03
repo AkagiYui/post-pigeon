@@ -318,5 +318,9 @@
   "apifox.kind.http": "API",
   "apifox.kind.websocket": "WS",
   "apifox.kind.doc": "Doc",
-  "apifox.kind.request": "Request"
+  "apifox.kind.request": "Request",
+  "stream.messages": "Messages",
+  "stream.streaming": "Streaming…",
+  "stream.streamEnded": "Stream ended",
+  "stream.stop": "Stop"
 }
