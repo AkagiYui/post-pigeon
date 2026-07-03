@@ -4,10 +4,11 @@ package services
 import (
 	"fmt"
 	"log/slog"
-	"post-pigeon/internal/models"
 	"time"
 
 	"gorm.io/gorm"
+
+	"post-pigeon/internal/models"
 )
 
 // ProjectService 项目管理服务
@@ -178,25 +179,52 @@ func (s *ProjectService) DeleteProject(id string) error {
 				if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.Response{}).Error; err != nil {
 					return err
 				}
+				if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.ResponseExample{}).Error; err != nil {
+					return err
+				}
+				if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.ResponseSchema{}).Error; err != nil {
+					return err
+				}
+				// 删除端点上的前置/后置操作
+				if err := tx.Where("owner_id IN ? AND owner_type = ?", endpointIDs, "endpoint").Delete(&models.Operation{}).Error; err != nil {
+					return err
+				}
 				// 删除端点
 				if err := tx.Where("id IN ?", endpointIDs).Delete(&models.Endpoint{}).Error; err != nil {
 					return err
 				}
 			}
 
-			// 4. 删除文件夹
-			if err := tx.Where("module_id IN ?", moduleIDs).Delete(&models.Folder{}).Error; err != nil {
+			// 4. 删除文件夹及其子文件夹（递归）
+			var folderIDs []string
+			if err := tx.Model(&models.Folder{}).Where("module_id IN ?", moduleIDs).Pluck("id", &folderIDs).Error; err != nil {
 				return err
 			}
-			// 5. 删除模块前置 URL
+			if len(folderIDs) > 0 {
+				// 先删除文件夹上的前置/后置操作
+				if err := tx.Where("owner_id IN ? AND owner_type = ?", folderIDs, "folder").Delete(&models.Operation{}).Error; err != nil {
+					return err
+				}
+				if err := tx.Where("id IN ?", folderIDs).Delete(&models.Folder{}).Error; err != nil {
+					return err
+				}
+			}
+
+			// 5. 删除模块关联数据
 			if err := tx.Where("module_id IN ?", moduleIDs).Delete(&models.ModuleBaseURL{}).Error; err != nil {
 				return err
 			}
-			// 6. 删除请求历史
+			if err := tx.Where("module_id IN ?", moduleIDs).Delete(&models.ModuleParam{}).Error; err != nil {
+				return err
+			}
 			if err := tx.Where("module_id IN ?", moduleIDs).Delete(&models.RequestHistory{}).Error; err != nil {
 				return err
 			}
-			// 7. 删除模块
+			// 删除模块上的前置/后置操作
+			if err := tx.Where("owner_id IN ? AND owner_type = ?", moduleIDs, "module").Delete(&models.Operation{}).Error; err != nil {
+				return err
+			}
+			// 6. 删除模块
 			if err := tx.Where("id IN ?", moduleIDs).Delete(&models.Module{}).Error; err != nil {
 				return err
 			}
@@ -214,6 +242,14 @@ func (s *ProjectService) DeleteProject(id string) error {
 			if err := tx.Where("id IN ?", envIDs).Delete(&models.Environment{}).Error; err != nil {
 				return err
 			}
+		}
+
+		// 删除脚本库和全局变量
+		if err := tx.Where("project_id = ?", id).Delete(&models.ScriptLibrary{}).Error; err != nil {
+			return err
+		}
+		if err := tx.Where("project_id = ?", id).Delete(&models.GlobalVariable{}).Error; err != nil {
+			return err
 		}
 
 		// 最后删除项目
