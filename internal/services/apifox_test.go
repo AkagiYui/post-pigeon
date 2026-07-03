@@ -190,6 +190,80 @@ func TestApifoxImport(t *testing.T) {
 	}
 }
 
+// TestApifoxFolderTree 验证导入后经 GetProjectTree 呈现的目录层级正确（不被 __root 平铺打乱）。
+func TestApifoxFolderTree(t *testing.T) {
+	corpus := loadCorpus(t)
+	db := newTestDB(t)
+	project := mustCreateProject(t, db, "apifox-tree")
+	if _, err := NewApifoxService(db).ImportApifox(project.ID, corpus, nil); err != nil {
+		t.Fatalf("导入失败: %v", err)
+	}
+	tree, err := NewProjectService(db).GetProjectTree(project.ID)
+	if err != nil {
+		t.Fatalf("获取树失败: %v", err)
+	}
+	// 定位默认模块
+	var def *ModuleTree
+	for i := range tree {
+		if tree[i].Name == "默认模块" {
+			def = &tree[i]
+		}
+	}
+	if def == nil {
+		t.Fatal("未找到默认模块")
+	}
+
+	// 顶级文件夹应包含这些（一级目录未被平铺到根）
+	topNames := map[string]FolderTree{}
+	for _, f := range def.Folders {
+		topNames[f.Name] = f
+	}
+	for _, want := range []string{"音乐", "utools", "车来了", "泰兴公交", "星穹铁道", "有谱么", "亲邻开门", "音源"} {
+		if _, ok := topNames[want]; !ok {
+			t.Errorf("顶级目录应包含 %q，实际顶级: %v", want, keysOf(topNames))
+		}
+	}
+	// __root 占位文件夹不应出现在树中
+	if _, ok := topNames["__root"]; ok {
+		t.Error("__root 占位文件夹不应出现在展示树中")
+	}
+	// 嵌套关系：车来了>地铁、音源>酷我、星穹铁道>游戏工具
+	assertChild(t, topNames["车来了"], "地铁")
+	assertChild(t, topNames["音源"], "酷我")
+	assertChild(t, topNames["星穹铁道"], "游戏工具")
+
+	// 根目录接口数量应远小于总数（不再把子目录接口平铺到根）
+	if len(def.Endpoints) > 20 {
+		t.Errorf("默认模块根目录接口过多(%d)，疑似目录被平铺", len(def.Endpoints))
+	}
+}
+
+func assertChild(t *testing.T, parent FolderTree, childName string) {
+	t.Helper()
+	for _, c := range parent.Children {
+		if c.Name == childName {
+			return
+		}
+	}
+	t.Errorf("目录 %q 下应包含子目录 %q，实际子目录: %v", parent.Name, childName, childNames(parent.Children))
+}
+
+func keysOf(m map[string]FolderTree) []string {
+	out := make([]string, 0, len(m))
+	for k := range m {
+		out = append(out, k)
+	}
+	return out
+}
+
+func childNames(fs []FolderTree) []string {
+	out := make([]string, 0, len(fs))
+	for _, f := range fs {
+		out = append(out, f.Name)
+	}
+	return out
+}
+
 // TestApifoxSelectiveImport 仅导入选中的少量接口，验证按 Index 过滤生效。
 func TestApifoxSelectiveImport(t *testing.T) {
 	corpus := loadCorpus(t)

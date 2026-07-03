@@ -27,11 +27,12 @@ import (
 type HTTPService struct {
 	db     *gorm.DB
 	engine *scripting.Engine
+	sse    *SSEService // 用于普通接口收到 SSE 响应时的流式输出
 }
 
-// NewHTTPService 创建 HTTP 服务实例
-func NewHTTPService(db *gorm.DB) *HTTPService {
-	return &HTTPService{db: db, engine: scripting.New()}
+// NewHTTPService 创建 HTTP 服务实例。sse 用于普通接口的 SSE 流式响应，可为 nil。
+func NewHTTPService(db *gorm.DB, sse *SSEService) *HTTPService {
+	return &HTTPService{db: db, engine: scripting.New(), sse: sse}
 }
 
 // SendRequestData 发送请求的参数
@@ -77,6 +78,15 @@ type HTTPResponseData struct {
 	ActualRequest models.ActualRequestInfo `json:"actualRequest"`
 	// Scripts 前置/后置脚本执行结果（无脚本时为 nil）
 	Scripts *ScriptResults `json:"scripts,omitempty"`
+	// Streaming 为 true 表示响应是 SSE 流，正通过 sse:event 事件持续推送（Body 为空）
+	Streaming bool `json:"streaming"`
+	// StreamID 流的连接标识，前端据此订阅并展示实时事件、可发起停止
+	StreamID string `json:"streamId"`
+}
+
+// isEventStream 判断响应 Content-Type 是否为 SSE 事件流。
+func isEventStream(contentType string) bool {
+	return strings.Contains(strings.ToLower(contentType), "text/event-stream")
 }
 
 // ListScriptLibraries 返回脚本运行时的内置库清单（名称/版本/用法等），供前端展示。
@@ -254,6 +264,38 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		}
 	}
 
+	// 显式声明 Accept: text/event-stream 时，直接以无超时连接流式发送（单次请求，避免探测式二次请求）。
+	if s.sse != nil && isEventStream(req.Header.Get("Accept")) {
+		streamID := data.EndpointID
+		if streamID == "" {
+			streamID = fmt.Sprintf("stream-%d", nowMillis())
+		}
+		_ = s.sse.Connect(SSEConnectData{
+			ConnID:  streamID,
+			URL:     req.URL.String(),
+			Method:  req.Method,
+			Headers: flattenHeaders(req.Header),
+			Body:    actualReq.Body,
+		})
+		if data.EnvironmentID != "" {
+			up, rm := stores.Environment.Changes()
+			_ = envService.ApplyVariableChanges(data.EnvironmentID, up, rm)
+		}
+		out := &HTTPResponseData{
+			StatusCode:    0,
+			Headers:       map[string][]string{},
+			ContentType:   "text/event-stream",
+			Timing:        models.TimingInfo{},
+			ActualRequest: actualReq,
+			Streaming:     true,
+			StreamID:      streamID,
+		}
+		if scriptResults.PreRequest != nil {
+			out.Scripts = scriptResults
+		}
+		return out, nil
+	}
+
 	// 创建 HTTP 客户端
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{
@@ -291,6 +333,42 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	resp, err := client.Do(req.WithContext(trace.attach(ctx)))
 	if err != nil {
 		return nil, fmt.Errorf("发送请求失败: %w", err)
+	}
+
+	// SSE 流式响应：普通接口收到 text/event-stream 时，交由流服务以无超时连接持续读取并推送事件，
+	// 返回「流式」标记而不缓冲整体响应（前端据此展示实时事件流）。
+	if s.sse != nil && isEventStream(resp.Header.Get("Content-Type")) {
+		statusCode := resp.StatusCode
+		respHeader := resp.Header
+		resp.Body.Close()
+		streamID := data.EndpointID
+		if streamID == "" {
+			streamID = fmt.Sprintf("stream-%d", nowMillis())
+		}
+		_ = s.sse.Connect(SSEConnectData{
+			ConnID:  streamID,
+			URL:     parsedURL.String(),
+			Method:  strings.ToUpper(data.Method),
+			Headers: flattenHeaders(req.Header),
+			Body:    actualReq.Body,
+		})
+		if data.EnvironmentID != "" {
+			up, rm := stores.Environment.Changes()
+			_ = envService.ApplyVariableChanges(data.EnvironmentID, up, rm)
+		}
+		out := &HTTPResponseData{
+			StatusCode:    statusCode,
+			Headers:       respHeader,
+			ContentType:   respHeader.Get("Content-Type"),
+			Timing:        models.TimingInfo{Total: time.Since(start).Milliseconds()},
+			ActualRequest: actualReq,
+			Streaming:     true,
+			StreamID:      streamID,
+		}
+		if scriptResults.PreRequest != nil {
+			out.Scripts = scriptResults
+		}
+		return out, nil
 	}
 	defer resp.Body.Close()
 

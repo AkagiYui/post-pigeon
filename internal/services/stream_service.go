@@ -206,6 +206,11 @@ func (s *SSEService) readLoop(req *http.Request, connID string) {
 		s.cleanup(connID)
 		return
 	}
+	s.streamBody(resp, connID)
+}
+
+// streamBody 读取响应体作为 SSE 事件流并推送，读到 EOF 或出错后清理连接。
+func (s *SSEService) streamBody(resp *http.Response, connID string) {
 	defer resp.Body.Close()
 
 	emitStream(SSEEventName, StreamEvent{ConnID: connID, Kind: "open", Data: fmt.Sprintf("%d", resp.StatusCode), Timestamp: nowMillis()})

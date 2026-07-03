@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/base64"
 	"encoding/json"
+	"fmt"
 	"io"
 	"net/http"
 	"net/http/httptest"
@@ -92,7 +93,7 @@ func decodeEcho(t *testing.T, body string) map[string]any {
 func TestHTTP_GET(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 
 	resp, err := hs.SendRequest(SendRequestData{
 		Method: "GET", BaseURL: srv.URL, Path: "/echo",
@@ -126,10 +127,44 @@ func TestHTTP_GET(t *testing.T) {
 	}
 }
 
+func TestHTTP_SSEStreaming(t *testing.T) {
+	db := newTestDB(t)
+	// 返回 text/event-stream 的服务器
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		w.Header().Set("Content-Type", "text/event-stream")
+		w.WriteHeader(200)
+		if fl, ok := w.(http.Flusher); ok {
+			for i := 0; i < 3; i++ {
+				fmt.Fprintf(w, "data: msg%d\n\n", i)
+				fl.Flush()
+			}
+		}
+	}))
+	defer srv.Close()
+
+	hs := NewHTTPService(db, NewSSEService())
+	resp, err := hs.SendRequest(SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/sse"})
+	if err != nil {
+		t.Fatalf("SendRequest err=%v", err)
+	}
+	if !resp.Streaming {
+		t.Errorf("SSE 响应应标记为流式")
+	}
+	if resp.StreamID == "" {
+		t.Errorf("应返回 StreamID")
+	}
+	if resp.StatusCode != 200 {
+		t.Errorf("状态码=%d", resp.StatusCode)
+	}
+	if !strings.Contains(resp.ContentType, "text/event-stream") {
+		t.Errorf("ContentType=%q", resp.ContentType)
+	}
+}
+
 func TestHTTP_QueryParams(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 
 	resp, err := hs.SendRequest(SendRequestData{
 		Method: "GET", BaseURL: srv.URL, Path: "/echo",
@@ -154,7 +189,7 @@ func TestHTTP_QueryParams(t *testing.T) {
 func TestHTTP_Headers(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 
 	resp, err := hs.SendRequest(SendRequestData{
 		Method: "GET", BaseURL: srv.URL, Path: "/echo",
@@ -179,7 +214,7 @@ func TestHTTP_Headers(t *testing.T) {
 func TestHTTP_JSONBody(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 
 	resp, err := hs.SendRequest(SendRequestData{
 		Method: "POST", BaseURL: srv.URL, Path: "/echo",
@@ -203,7 +238,7 @@ func TestHTTP_JSONBody(t *testing.T) {
 func TestHTTP_FormData(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 
 	resp, err := hs.SendRequest(SendRequestData{
 		Method: "POST", BaseURL: srv.URL, Path: "/echo",
@@ -233,7 +268,7 @@ func TestHTTP_FormData(t *testing.T) {
 func TestHTTP_FormDataFileUpload(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 
 	// 前端约定：文件字段 value = {"fileName":..,"content":<base64>}
 	fileContent := "hello-file-内容"
@@ -271,7 +306,7 @@ func TestHTTP_FormDataFileUpload(t *testing.T) {
 func TestHTTP_URLEncoded(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 
 	resp, err := hs.SendRequest(SendRequestData{
 		Method: "POST", BaseURL: srv.URL, Path: "/echo",
@@ -298,7 +333,7 @@ func TestHTTP_URLEncoded(t *testing.T) {
 func TestHTTP_BasicAuth(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 
 	resp, err := hs.SendRequest(SendRequestData{
 		Method: "GET", BaseURL: srv.URL, Path: "/echo",
@@ -318,7 +353,7 @@ func TestHTTP_BasicAuth(t *testing.T) {
 func TestHTTP_BearerAuth(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 
 	resp, err := hs.SendRequest(SendRequestData{
 		Method: "GET", BaseURL: srv.URL, Path: "/echo",
@@ -336,7 +371,7 @@ func TestHTTP_BearerAuth(t *testing.T) {
 func TestHTTP_EnvVarResolution(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 	p := mustCreateProject(t, db, "P")
 	es := NewEnvironmentService(db)
 	env, _ := es.CreateEnvironment(p.ID, "Dev")
@@ -373,7 +408,7 @@ func TestHTTP_EnvVarResolution(t *testing.T) {
 func TestHTTP_RedirectFollow(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 
 	// 跟随重定向 → 最终 200
 	resp, err := hs.SendRequest(SendRequestData{
@@ -401,7 +436,7 @@ func TestHTTP_RedirectFollow(t *testing.T) {
 func TestHTTP_Timeout(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 
 	_, err := hs.SendRequest(SendRequestData{
 		Method: "GET", BaseURL: srv.URL, Path: "/slow", Timeout: 100, // 100ms
@@ -414,7 +449,7 @@ func TestHTTP_Timeout(t *testing.T) {
 func TestHTTP_SaveResponseAndHistory(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 	p := mustCreateProject(t, db, "P")
 	m := defaultModule(t, db, p.ID)
 	es := NewEndpointService(db)
@@ -451,7 +486,7 @@ func TestHTTP_SaveResponseAndHistory(t *testing.T) {
 func TestHTTP_TimingBreakdown(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)
-	hs := NewHTTPService(db)
+	hs := NewHTTPService(db, nil)
 
 	resp, err := hs.SendRequest(SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/ttfb"})
 	if err != nil {

@@ -347,7 +347,27 @@ type importCtx struct {
 	orderIn     map[string]int    // 端点所在容器 -> 下一个 sortOrder（容器 = moduleID|folderID）
 	moduleInit  map[string]bool   // apifoxModuleID 是否已应用模块级认证/操作/前置URL
 	rootByMod   map[string]apifoxCollectionRoot
+	rootFolder  map[string]string // moduleID -> __root 占位文件夹 ID
 	environs    []apifoxEnvironment
+}
+
+// ensureRootFolder 返回模块的 __root 占位文件夹 ID（不存在则创建）。
+// 本项目约定：每个模块有一个 parent_id 为空、名为 __root 的根文件夹，
+// GetProjectTree 会把其内容平铺到模块层级并隐藏它本身。所有导入内容必须挂在其下，
+// 否则一级文件夹会被误当作根容器而被平铺，导致接口散落到根目录。
+func (ic *importCtx) ensureRootFolder(moduleID string) string {
+	if id, ok := ic.rootFolder[moduleID]; ok {
+		return id
+	}
+	var f models.Folder
+	if err := ic.tx.Where("module_id = ? AND parent_id IS NULL", moduleID).First(&f).Error; err == nil {
+		ic.rootFolder[moduleID] = f.ID
+		return f.ID
+	}
+	f = models.Folder{ModuleID: moduleID, ParentID: nil, Name: "__root", SortOrder: 0}
+	ic.tx.Create(&f)
+	ic.rootFolder[moduleID] = f.ID
+	return f.ID
 }
 
 // PreviewApifox 解析并返回 Apifox 导出文件的内容概览。
@@ -559,6 +579,7 @@ func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedI
 			orderIn:     map[string]int{},
 			moduleInit:  map[string]bool{},
 			rootByMod:   map[string]apifoxCollectionRoot{},
+			rootFolder:  map[string]string{},
 			environs:    exp.Environments,
 		}
 		for _, i := range selectedIndexes {
@@ -628,9 +649,12 @@ func (ic *importCtx) ensureModuleForLeaf(lf *apifoxLeaf) string {
 	return moduleID
 }
 
-// ensureFolderPath 按名称去重地创建/复用一条文件夹路径，返回最末层文件夹 ID（无路径返回 nil）。
+// ensureFolderPath 按名称去重地创建/复用一条文件夹路径，返回最末层文件夹 ID。
+// 起点为模块的 __root 占位文件夹，因此一级文件夹的 parent_id 指向 __root（与 UI 建目录一致），
+// 无子路径时返回 __root（根级内容），保证 GetProjectTree 正确平铺显示。
 func (ic *importCtx) ensureFolderPath(moduleID string, folders []apifoxFolderRef) *string {
-	var parentID *string
+	rootID := ic.ensureRootFolder(moduleID)
+	parentID := &rootID
 	for _, fr := range folders {
 		pkey := moduleID + "|" + ptrOrEmpty(parentID)
 		key := pkey + "|" + fr.Name

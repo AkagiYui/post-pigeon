@@ -51,15 +51,15 @@ func main() {
 	endpointService := services.NewEndpointService(db)
 	environmentService := services.NewEnvironmentService(db)
 	settingsService := services.NewSettingsService(db)
-	httpService := services.NewHTTPService(db)
+	webSocketService := services.NewWebSocketService()
+	sseService := services.NewSSEService()
+	httpService := services.NewHTTPService(db, sseService)
 	historyService := services.NewRequestHistoryService(db)
 	importExportService := services.NewImportExportService(db)
 	apifoxService := services.NewApifoxService(db)
 	globalVariableService := services.NewGlobalVariableService(db)
 	scriptLibraryService := services.NewScriptLibraryService(db)
 	scopeSettingsService := services.NewScopeSettingsService(db)
-	webSocketService := services.NewWebSocketService()
-	sseService := services.NewSSEService()
 
 	// 注册数据变更事件
 	application.RegisterEvent[string]("data:changed")
