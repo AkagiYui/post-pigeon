@@ -122,6 +122,13 @@ export function HistoryDetail(props: HistoryDetailProps) {
     }
   }
 
+  // 计时数值展示：整数原样，浮点保留两位小数（后端已改为亚毫秒精度）
+  const round2 = (v: unknown) => {
+    const n = Number(v)
+    if (!Number.isFinite(n)) return 0
+    return Number.isInteger(n) ? n : Number(n.toFixed(2))
+  }
+
   return (
     <Show
       when={!loading() && detail()}
@@ -146,7 +153,7 @@ export function HistoryDetail(props: HistoryDetailProps) {
               </span>
               <span>{formatSize(detail()!.size)}</span>
               <Show when={parseTiming(detail()!.timing)}>
-                {(timing) => <span>{t("history.totalTime", { time: timing().total })}</span>}
+                {(timing) => <span>{t("history.totalTime", { time: round2(timing().total) })}</span>}
               </Show>
             </div>
           </div>
@@ -263,11 +270,11 @@ export function HistoryDetail(props: HistoryDetailProps) {
                                           { header: t("history.timing.ttfb"), field: "ttfb" },
                                         ]}
                                         data={[{
-                                          total: `${timing().total}ms`,
-                                          dnsLookup: `${timing().dnsLookup}ms`,
-                                          tcpConnect: `${timing().tcpConnect}ms`,
-                                          tlsHandshake: `${timing().tlsHandshake}ms`,
-                                          ttfb: `${timing().ttfb}ms`,
+                                          total: `${round2(timing().total)}ms`,
+                                          dnsLookup: `${round2(timing().dnsLookup)}ms`,
+                                          tcpConnect: `${round2(timing().tcpConnect)}ms`,
+                                          tlsHandshake: `${round2(timing().tlsHandshake)}ms`,
+                                          ttfb: `${round2(timing().ttfb)}ms`,
                                         }]}
                                         compact
                                       />

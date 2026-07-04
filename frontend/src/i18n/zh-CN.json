@@ -330,5 +330,18 @@
   "stream.messages": "消息",
   "stream.streaming": "接收中…",
   "stream.streamEnded": "流已结束",
-  "stream.stop": "停止"
+  "stream.stop": "停止",
+  "folder.convertToModule": "转换为模块",
+  "folder.convertToModuleHint": "将此文件夹转换为新模块，其内容成为新模块的根内容。新模块的前置 URL 复制自当前所属模块。",
+  "endpoint.param.globalValueReadonlyHint": "全局参数值只读，请前往设置页面修改",
+  "response.expandPanel": "展开响应",
+  "timing.stalled": "准备",
+  "timing.dns": "DNS 查询",
+  "timing.tcp": "TCP 握手",
+  "timing.tls": "TLS 握手",
+  "timing.wait": "等待 (TTFB)",
+  "timing.download": "下载内容",
+  "timing.cache": "缓存",
+  "size.responseSize": "响应大小",
+  "size.requestSize": "请求大小"
 }

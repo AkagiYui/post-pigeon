@@ -607,6 +607,41 @@ func (s *EndpointService) DuplicateEndpoint(id string) (*models.Endpoint, error)
 	return newEndpoint, nil
 }
 
+// OperationStageCounts 前置/后置操作数量统计
+type OperationStageCounts struct {
+	Pre  int `json:"pre"`
+	Post int `json:"post"`
+}
+
+// GetInheritedOperationCounts 统计某端点从模块与文件夹链继承的、已启用的前置/后置操作数量
+// （不含端点自身的操作）。前端据此在参数/操作标签上显示「包含全局的」启用计数。
+func (s *EndpointService) GetInheritedOperationCounts(endpointID string) (*OperationStageCounts, error) {
+	var ep models.Endpoint
+	if err := s.db.Where("id = ?", endpointID).First(&ep).Error; err != nil {
+		return nil, fmt.Errorf("获取端点失败: %w", err)
+	}
+	countStage := func(stage models.OperationStage) int {
+		n := 0
+		for _, op := range loadOperations(s.db, models.OperationOwnerModule, ep.ModuleID, stage) {
+			if op.Enabled {
+				n++
+			}
+		}
+		for _, fid := range folderChainToRoot(s.db, ep.FolderID) {
+			for _, op := range loadOperations(s.db, models.OperationOwnerFolder, fid, stage) {
+				if op.Enabled {
+					n++
+				}
+			}
+		}
+		return n
+	}
+	return &OperationStageCounts{
+		Pre:  countStage(models.OperationStagePre),
+		Post: countStage(models.OperationStagePost),
+	}, nil
+}
+
 // EndpointToJSON 将端点导出为 JSON
 func (s *EndpointService) EndpointToJSON(endpoint *EndpointDetail) (string, error) {
 	data, err := json.MarshalIndent(endpoint, "", "  ")

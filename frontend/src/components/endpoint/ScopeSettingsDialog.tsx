@@ -4,9 +4,9 @@ import { Plus, Trash2 } from "lucide-solid"
 import { createEffect, createSignal } from "solid-js"
 
 import { ModuleParam, Operation } from "@/../bindings/post-pigeon/internal/models"
-import { ModuleSettings, FolderSettings, ScopeSettingsService } from "@/../bindings/post-pigeon/internal/services"
-import { type AuthState, emptyAuth, emptyOperation, type OperationRow } from "@/components/endpoint/EndpointDetail"
+import { FolderSettings, ModuleSettings, ScopeSettingsService } from "@/../bindings/post-pigeon/internal/services"
 import { AuthEditor } from "@/components/endpoint/AuthEditor"
+import { type AuthState, emptyAuth, emptyOperation, type OperationRow } from "@/components/endpoint/EndpointDetail"
 import { OperationsEditor } from "@/components/endpoint/OperationsEditor"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
@@ -82,7 +82,7 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
 
   // 打开或切换目标时加载设置
   const ensureLoaded = async () => {
-    const key = props.scopeType + ":" + props.scopeId
+    const key = `${props.scopeType}:${props.scopeId}`
     if (!props.open || !props.scopeId || loadedFor() === key) return
     setLoadedFor(key)
     try {

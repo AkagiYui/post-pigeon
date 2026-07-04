@@ -12,6 +12,8 @@ export interface TooltipProps {
   delay?: number
   /** 位置（不设置则自动选择） */
   placement?: "top" | "bottom" | "left" | "right"
+  /** 触发元素包裹层自定义类名（如需撑满容器宽度可传 "block w-full"） */
+  class?: string
 }
 
 /** 生成简短唯一 ID */
@@ -27,7 +29,7 @@ const uid = () => `pigeon-tooltip-${++idCounter}`
  * 确保 tooltip 永远不溢出视口，避免触发滚动条
  */
 export function Tooltip(props: TooltipProps) {
-  const [local] = splitProps(props, ["content", "children", "delay", "placement"])
+  const [local] = splitProps(props, ["content", "children", "delay", "placement", "class"])
   const [visible, setVisible] = createSignal(false)
   const [placement, setPlacement] = createSignal<"top" | "bottom" | "left" | "right">("top")
   // 安全坐标，null 表示仍在测量阶段（tooltip 在视口外不可见）
@@ -132,7 +134,7 @@ export function Tooltip(props: TooltipProps) {
 
   return (
     <div
-      class="relative inline-flex"
+      class={cn("relative inline-flex", local.class)}
       ref={triggerRef}
       // 无障碍：将 trigger 与 tooltip 关联
       aria-describedby={visible() ? tooltipId : undefined}

@@ -228,6 +228,86 @@ func (s *ModuleService) UpdateModuleSortOrder(id string, sortOrder int) error {
 	return s.db.Model(&models.Module{}).Where("id = ?", id).Update("sort_order", sortOrder).Error
 }
 
+// ConvertFolderToModule 将文件夹转换为新模块。
+// 新模块的前置 URL 复制自该文件夹原所属模块；该文件夹本身成为新模块的根文件夹，
+// 其子文件夹与接口（连同后代）一并归入新模块。
+func (s *ModuleService) ConvertFolderToModule(folderID string, newModuleName string) (*models.Module, error) {
+	var folder models.Folder
+	if err := s.db.Where("id = ?", folderID).First(&folder).Error; err != nil {
+		return nil, fmt.Errorf("获取文件夹失败: %w", err)
+	}
+	// 根文件夹（parent_id 为空）本身即模块根，无需转换
+	if folder.ParentID == nil {
+		return nil, fmt.Errorf("根文件夹无法转换为模块")
+	}
+
+	var srcModule models.Module
+	if err := s.db.Where("id = ?", folder.ModuleID).First(&srcModule).Error; err != nil {
+		return nil, fmt.Errorf("获取所属模块失败: %w", err)
+	}
+
+	var maxSort int
+	s.db.Model(&models.Module{}).Where("project_id = ?", srcModule.ProjectID).
+		Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
+
+	newModule := &models.Module{
+		ProjectID: srcModule.ProjectID,
+		Name:      newModuleName,
+		SortOrder: maxSort + 1,
+	}
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(newModule).Error; err != nil {
+			return err
+		}
+
+		// 复制原模块各环境的前置 URL 到新模块
+		var baseURLs []models.ModuleBaseURL
+		if err := tx.Where("module_id = ?", srcModule.ID).Find(&baseURLs).Error; err != nil {
+			return err
+		}
+		for _, bu := range baseURLs {
+			bu.ID = ""
+			bu.ModuleID = newModule.ID
+			if err := tx.Create(&bu).Error; err != nil {
+				return err
+			}
+		}
+
+		// 收集该文件夹及其所有后代文件夹 ID（含自身）
+		descendantIDs := (&FolderService{}).collectFolderIDs(tx, folderID)
+
+		// 该文件夹升级为新模块的根文件夹
+		if err := tx.Model(&models.Folder{}).Where("id = ?", folderID).Updates(map[string]interface{}{
+			"module_id": newModule.ID,
+			"parent_id": nil,
+			"name":      "__root",
+		}).Error; err != nil {
+			return err
+		}
+
+		// 后代文件夹与其下接口归入新模块（父子关系不变，仅归属模块变化）
+		if len(descendantIDs) > 0 {
+			if err := tx.Model(&models.Folder{}).Where("id IN ?", descendantIDs).
+				Update("module_id", newModule.ID).Error; err != nil {
+				return err
+			}
+			if err := tx.Model(&models.Endpoint{}).Where("folder_id IN ?", descendantIDs).
+				Update("module_id", newModule.ID).Error; err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		slog.Error("转换文件夹为模块失败", "error", err)
+		return nil, fmt.Errorf("转换文件夹为模块失败: %w", err)
+	}
+	slog.Info("文件夹已转换为模块", "folderID", folderID, "newModuleID", newModule.ID, "name", newModule.Name)
+	return newModule, nil
+}
+
 // GetModuleParams 获取模块的自动参数（供接口详情页展示"全局参数"分区）。
 // 返回全部参数（含未启用），前端据 type/enabled 自行筛选展示。
 func (s *ModuleService) GetModuleParams(moduleID string) ([]models.ModuleParam, error) {

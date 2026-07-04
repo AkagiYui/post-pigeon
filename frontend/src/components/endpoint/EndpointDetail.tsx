@@ -2,19 +2,20 @@
 // 上：请求方法 + URL + 发送/保存/删除按钮
 // 中：请求设置 tabs (Params/Body/Headers/Auth/设置)
 // 下：响应信息 tabs (Body/Headers/Cookies/实际请求)
-import { Check, Link2, Plug, PlugZap, Save, Send, Trash2 } from "lucide-solid"
+import { ArrowDown, ArrowUp, Check, ChevronUp, Link2, Plug, PlugZap, Save, Send, Trash2 } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from "solid-js"
 
 import { SSEService, WebSocketService } from "@/../bindings/post-pigeon/internal/services"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
+import { HoverCard } from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
 import { Tabs } from "@/components/ui/tabs"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
 import { type AuthType, type BodyType, CONTENT_TYPES, type EndpointType, formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
-import { cn, hasURLScheme } from "@/lib/utils"
+import { byteLength, cn, extractPathParams, hasURLScheme } from "@/lib/utils"
 import { markConnecting, streamStatus } from "@/stores/stream"
 
 import { AuthEditor } from "./AuthEditor"
@@ -242,9 +243,26 @@ export interface ScriptResultsData {
   postResponse?: ScriptRunResult
 }
 
+/** 请求各阶段计时（毫秒，含亚毫秒精度） */
+export interface TimingData {
+  total: number
+  dnsLookup: number
+  tlsHandshake: number
+  tcpConnect: number
+  ttfb: number
+  /** 准备/阻塞：请求开始 → 开始建立连接 */
+  stalled: number
+  /** 等待：请求发出 → 收到首字节 */
+  wait: number
+  /** 下载内容：首字节 → 读取完成 */
+  download: number
+  /** 连接是否复用（DNS/TCP/TLS 命中缓存） */
+  reused: boolean
+}
+
 export interface ResponseData {
   statusCode: number
-  timing: { total: number; dnsLookup: number; tlsHandshake: number; tcpConnect: number; ttfb: number }
+  timing: TimingData
   size: number
   body: string
   /** 原始响应字节 base64，供按字符集解码（可能缺省，如历史记录） */
@@ -300,6 +318,8 @@ export interface EndpointDetailProps {
   projectId?: string
   /** 模块级"全局" query 参数（只读展示于参数 tab） */
   globalQueryParams?: { name: string; value: string }[]
+  /** 从模块/文件夹链继承的、已启用的前置/后置操作数量（用于操作/参数 tab 计数包含"全局"部分） */
+  inheritedOpCounts?: { pre: number; post: number }
 }
 
 // 按端点 ID 持久化标签页状态，避免组件重新挂载时丢失
@@ -436,13 +456,26 @@ export function EndpointDetail(props: EndpointDetailProps) {
     },
   ))
 
-  // 前置/后置操作的启用数量（用于 tab 标题数字徽标）
-  const preOpsCount = () => ep().operations.filter(o => o.stage === "pre" && o.enabled).length
-  const postOpsCount = () => ep().operations.filter(o => o.stage === "post" && o.enabled).length
+  // 前置/后置操作的启用数量（含从模块/文件夹链继承的全局操作，用于 tab 标题数字徽标）
+  const preOpsCount = () =>
+    ep().operations.filter(o => o.stage === "pre" && o.enabled).length
+    + (ep().inheritOperations ? (props.inheritedOpCounts?.pre ?? 0) : 0)
+  const postOpsCount = () =>
+    ep().operations.filter(o => o.stage === "post" && o.enabled).length
+    + (ep().inheritOperations ? (props.inheritedOpCounts?.post ?? 0) : 0)
+
+  // 参数 tab 启用数量：接口独有的 query + 自动识别的 path + 启用的全局 query 参数
+  const paramsCount = () => {
+    const q = ep().params.filter(p => p.type === "query" && p.enabled && p.name.trim()).length
+    const path = extractPathParams(ep().path).length
+    const disabled = new Set(ep().disabledGlobalParams ?? [])
+    const g = (props.globalQueryParams ?? []).filter(gp => !disabled.has(gp.name)).length
+    return q + path + g
+  }
 
   // 请求设置标签（前置/后置操作作为顶级 tab，位于认证与设置之间）
   const requestTabs = createMemo(() => [
-    { key: "params", label: t("endpoint.params") },
+    { key: "params", label: tabLabelWithCount(t("endpoint.params"), paramsCount()) },
     { key: "cookies", label: t("endpoint.cookies") },
     { key: "body", label: t("endpoint.body") },
     { key: "headers", label: t("endpoint.headers") },
@@ -459,6 +492,43 @@ export function EndpointDetail(props: EndpointDetailProps) {
       tabStateStore.set(ep().id, { requestTab, responseTab })
     },
   ))
+
+  // ---- 响应区高度调整 / 收起 ----
+  const MIN_RESPONSE_H = 140 // 最低高度
+  const COLLAPSE_DRAG = 48 // 拖到最低高度后再往下拖这么多则收起
+  const [responseHeight, setResponseHeight] = createSignal(300)
+  const [responseCollapsed, setResponseCollapsed] = createSignal(false)
+  let containerRef: HTMLDivElement | undefined
+
+  const startResponseResize = (e: MouseEvent) => {
+    e.preventDefault()
+    const startY = e.clientY
+    const startH = responseHeight()
+    // 上限：给请求行与中部设置区至少留出空间
+    const maxH = (containerRef ? containerRef.clientHeight : window.innerHeight) - 180
+    const onMove = (ev: MouseEvent) => {
+      const next = startH + (startY - ev.clientY) // 手柄上移增高
+      if (next < MIN_RESPONSE_H - COLLAPSE_DRAG) {
+        // 拖到最低高度以下一段距离：收起，仅保留展开手柄
+        setResponseCollapsed(true)
+        cleanup()
+        return
+      }
+      setResponseHeight(Math.max(MIN_RESPONSE_H, Math.min(next, Math.max(MIN_RESPONSE_H, maxH))))
+    }
+    const cleanup = () => {
+      document.removeEventListener("mousemove", onMove)
+      document.removeEventListener("mouseup", cleanup)
+      document.body.classList.remove("dragging")
+    }
+    document.body.classList.add("dragging")
+    document.addEventListener("mousemove", onMove)
+    document.addEventListener("mouseup", cleanup)
+  }
+  onCleanup(() => document.body.classList.remove("dragging"))
+
+  // 发送请求时若响应区处于收起状态，自动展开
+  createEffect(on(() => props.sending, (s) => { if (s) setResponseCollapsed(false) }, { defer: true }))
 
   // ---- WebSocket：连接/断开由顶部请求行的按钮驱动，连接存活于 Go 侧 ----
   const isWs = () => ep().type === "websocket"
@@ -503,183 +573,215 @@ export function EndpointDetail(props: EndpointDetailProps) {
   // 文档使用 Markdown 编辑器；HTTP 与 WebSocket 共用同一详情布局（仅动作按钮与响应区不同）。
   return (
     <Show when={ep().type === "doc"} fallback={
-    <div class="flex flex-col h-full">
-      {/* 上部：请求行 */}
-      <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
-        {/* 内嵌方法选择器的 URL 输入组 */}
-        <div class="flex-1 flex items-stretch border border-border rounded-md bg-input">
-          {/* HTTP 方法选择器 */}
-          <Combobox
-            options={methodOptions}
-            value={ep().method}
-            onChange={(val) => props.onChange?.({ method: val as HTTPMethod })}
-            minWidth="78px"
-            customLabel={(val) => val}
-            displayClass={methodColors[ep().method] || defaultMethodColor}
-            optionTextClass={(val) => METHOD_COLORS[val] || "text-gray-600 dark:text-gray-400"}
-            class="rounded-l shrink-0"
-          />
-
-          {/* 分隔线 */}
-          <div class="w-px self-stretch bg-border shrink-0" />
-
-          {/* 前置 baseUrl 环境切换按钮：仅取决于接口路径是否带协议头。
-              只要是相对地址（不含协议头）就显示；当前环境该模块未设置 baseUrl 时显示"未设置"。 */}
-          <Show when={!hasURLScheme(ep().path)}>
-            <EnvironmentBadge
-              baseUrl={ep().baseUrl}
-              environmentBaseUrls={props.environmentBaseUrls}
-              currentEnvironmentId={props.currentEnvironmentId}
-              onEnvironmentChange={props.onEnvironmentChange}
+      <div class="flex flex-col h-full" ref={containerRef}>
+        {/* 上部：请求行 */}
+        <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
+          {/* 内嵌方法选择器的 URL 输入组 */}
+          <div class="flex-1 flex items-stretch border border-border rounded-md bg-input">
+            {/* HTTP 方法选择器 */}
+            <Combobox
+              options={methodOptions}
+              value={ep().method}
+              onChange={(val) => props.onChange?.({ method: val as HTTPMethod })}
+              minWidth="78px"
+              customLabel={(val) => val}
+              displayClass={methodColors[ep().method] || defaultMethodColor}
+              optionTextClass={(val) => METHOD_COLORS[val] || "text-gray-600 dark:text-gray-400"}
+              class="rounded-l shrink-0"
             />
-          </Show>
 
-          {/* 端点路径 */}
-          <Input
-            size="sm"
-            value={ep().path}
-            onInput={(e) => props.onChange?.({ path: e.currentTarget.value })}
-            placeholder={isWs() ? "wss://example.com/socket" : "/api/endpoint"}
-            class="border-0 bg-transparent rounded-none flex-1 min-w-0"
-          />
+            {/* 分隔线 */}
+            <div class="w-px self-stretch bg-border shrink-0" />
+
+            {/* 前置 baseUrl 环境切换按钮：仅取决于接口路径是否带协议头。
+              只要是相对地址（不含协议头）就显示；当前环境该模块未设置 baseUrl 时显示"未设置"。 */}
+            <Show when={!hasURLScheme(ep().path)}>
+              <EnvironmentBadge
+                baseUrl={ep().baseUrl}
+                environmentBaseUrls={props.environmentBaseUrls}
+                currentEnvironmentId={props.currentEnvironmentId}
+                onEnvironmentChange={props.onEnvironmentChange}
+              />
+            </Show>
+
+            {/* 端点路径 */}
+            <Input
+              size="sm"
+              value={ep().path}
+              onInput={(e) => props.onChange?.({ path: e.currentTarget.value })}
+              placeholder={isWs() ? "wss://example.com/socket" : "/api/endpoint"}
+              class="border-0 bg-transparent rounded-none flex-1 min-w-0"
+            />
+          </div>
+
+          {/* 主操作：HTTP 为发送；WebSocket 为连接/断开 */}
+          <Show when={isWs()} fallback={
+            <Tooltip content="Ctrl+Enter">
+              <Button size="sm" onClick={props.onSend} disabled={props.sending}>
+                <Send class="h-3.5 w-3.5" />
+                {props.sending ? t("common.sending") : t("endpoint.send")}
+              </Button>
+            </Tooltip>
+          }>
+            <Show when={wsStatus() === "open"} fallback={
+              <Button size="sm" onClick={wsConnect}><PlugZap class="h-3.5 w-3.5" />{t("stream.connect")}</Button>
+            }>
+              <Button size="sm" variant="outline" onClick={wsDisconnect}><Plug class="h-3.5 w-3.5" />{t("stream.disconnect")}</Button>
+            </Show>
+          </Show>
+          <Button variant={props.isUnsaved ? "default" : "outline"} size="sm" onClick={props.onSave}>
+            <Save class="h-3.5 w-3.5" />
+            {props.isUnsaved ? t("endpoint.saveToProject") : t("endpoint.save")}
+          </Button>
+          <Button variant="ghost" size="icon-sm" onClick={props.onDelete}>
+            <Trash2 class="h-3.5 w-3.5" />
+          </Button>
         </div>
 
-        {/* 主操作：HTTP 为发送；WebSocket 为连接/断开 */}
-        <Show when={isWs()} fallback={
-          <Tooltip content="Ctrl+Enter">
-            <Button size="sm" onClick={props.onSend} disabled={props.sending}>
-              <Send class="h-3.5 w-3.5" />
-              {props.sending ? t("common.sending") : t("endpoint.send")}
-            </Button>
-          </Tooltip>
-        }>
-          <Show when={wsStatus() === "open"} fallback={
-            <Button size="sm" onClick={wsConnect}><PlugZap class="h-3.5 w-3.5" />{t("stream.connect")}</Button>
-          }>
-            <Button size="sm" variant="outline" onClick={wsDisconnect}><Plug class="h-3.5 w-3.5" />{t("stream.disconnect")}</Button>
-          </Show>
-        </Show>
-        <Button variant={props.isUnsaved ? "default" : "outline"} size="sm" onClick={props.onSave}>
-          <Save class="h-3.5 w-3.5" />
-          {props.isUnsaved ? t("endpoint.saveToProject") : t("endpoint.save")}
-        </Button>
-        <Button variant="ghost" size="icon-sm" onClick={props.onDelete}>
-          <Trash2 class="h-3.5 w-3.5" />
-        </Button>
-      </div>
-
-      {/* 中部：请求设置（HTTP 与 WebSocket 完全一致） */}
-      <div class="flex-1 overflow-hidden border-b border-border">
-        <Tabs
-          tabs={requestTabs()}
-          value={activeRequestTab()}
-          onChange={setActiveRequestTab}
-        >
-          {(key) => {
-            switch (key) {
-              case "params": return <ParamsEditor
-                value={ep().params}
-                onChange={(v) => props.onChange?.({ params: v })}
-                globalQueryParams={props.globalQueryParams}
-                disabledGlobalParams={ep().disabledGlobalParams}
-                onDisabledGlobalParamsChange={(names) => props.onChange?.({ disabledGlobalParams: names })}
-              />
-              case "cookies": return <CookiesEditor value={ep().params} onChange={(v) => props.onChange?.({ params: v })} />
-              case "body": return <BodyEditor
-                bodyType={ep().bodyType}
-                bodyContent={ep().bodyContent}
-                contentType={ep().contentType}
-                fields={ep().bodyFields}
-                onChange={(patch) => props.onChange?.(patch)}
-              />
-              case "headers": return <HeadersEditor value={ep().headers} onChange={(v) => props.onChange?.({ headers: v })} />
-              case "auth": return <AuthEditor value={ep().auth} onChange={(v) => props.onChange?.({ auth: v })} />
-              case "preOperations": return <OperationsEditor
-                stage="pre"
-                operations={ep().operations}
-                onChange={(ops) => props.onChange?.({ operations: ops })}
-                projectId={props.projectId}
-              />
-              case "postOperations": return <OperationsEditor
-                stage="post"
-                operations={ep().operations}
-                onChange={(ops) => props.onChange?.({ operations: ops })}
-                projectId={props.projectId}
-              />
-              case "settings": return <EndpointSettingsEditor
-                timeout={ep().timeout}
-                followRedirects={ep().followRedirects}
-                status={ep().status}
-                tags={ep().tags}
-                description={ep().description}
-                onChange={(patch) => props.onChange?.(patch)}
-              />
-              default: return null
-            }
-          }}
-        </Tabs>
-      </div>
-
-      {/* 下部：响应区。WebSocket 为消息流；HTTP 为响应标签页或 SSE 实时事件流 */}
-      <div class="flex-1 overflow-hidden min-h-50">
-        <Show when={isWs()} fallback={
-          <Show
-            when={props.response}
-            fallback={
-              <div class="flex items-center justify-center h-full text-muted-foreground text-sm">
-                {t("endpoint.sendToViewResponse")}
-              </div>
-            }
+        {/* 中部：请求设置（HTTP 与 WebSocket 完全一致） */}
+        <div class="flex-1 min-h-0 overflow-hidden border-b border-border">
+          <Tabs
+            tabs={requestTabs()}
+            value={activeRequestTab()}
+            onChange={setActiveRequestTab}
           >
-            {/* SSE 流式响应：实时事件流 */}
-            <Show when={props.response!.streaming} fallback={
-              /* 请求失败：展示错误信息，而非正常的响应标签页 */
+            {(key) => {
+              switch (key) {
+                case "params": return <ParamsEditor
+                  value={ep().params}
+                  onChange={(v) => props.onChange?.({ params: v })}
+                  path={ep().path}
+                  globalQueryParams={props.globalQueryParams}
+                  disabledGlobalParams={ep().disabledGlobalParams}
+                  onDisabledGlobalParamsChange={(names) => props.onChange?.({ disabledGlobalParams: names })}
+                />
+                case "cookies": return <CookiesEditor value={ep().params} onChange={(v) => props.onChange?.({ params: v })} />
+                case "body": return <BodyEditor
+                  bodyType={ep().bodyType}
+                  bodyContent={ep().bodyContent}
+                  contentType={ep().contentType}
+                  fields={ep().bodyFields}
+                  onChange={(patch) => props.onChange?.(patch)}
+                />
+                case "headers": return <HeadersEditor value={ep().headers} onChange={(v) => props.onChange?.({ headers: v })} />
+                case "auth": return <AuthEditor value={ep().auth} onChange={(v) => props.onChange?.({ auth: v })} />
+                case "preOperations": return <OperationsEditor
+                  stage="pre"
+                  operations={ep().operations}
+                  onChange={(ops) => props.onChange?.({ operations: ops })}
+                  projectId={props.projectId}
+                />
+                case "postOperations": return <OperationsEditor
+                  stage="post"
+                  operations={ep().operations}
+                  onChange={(ops) => props.onChange?.({ operations: ops })}
+                  projectId={props.projectId}
+                />
+                case "settings": return <EndpointSettingsEditor
+                  timeout={ep().timeout}
+                  followRedirects={ep().followRedirects}
+                  status={ep().status}
+                  tags={ep().tags}
+                  description={ep().description}
+                  onChange={(patch) => props.onChange?.(patch)}
+                />
+                default: return null
+              }
+            }}
+          </Tabs>
+        </div>
+
+        {/* 下部：响应区，可拖拽调整高度、可收起为手柄。WebSocket 为消息流；HTTP 为响应标签页或 SSE 实时事件流 */}
+        <Show
+          when={!responseCollapsed()}
+          fallback={
+            <button
+              class="shrink-0 h-8 border-t border-border flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
+              onClick={() => setResponseCollapsed(false)}
+            >
+              <ChevronUp class="h-3.5 w-3.5" />
+              {t("response.expandPanel")}
+            </button>
+          }
+        >
+          {/* 拖拽手柄：上下调整响应区高度，拖到最低再往下即收起 */}
+          <div
+            class="shrink-0 h-px bg-border hover:bg-accent/40 cursor-row-resize relative group"
+            onMouseDown={startResponseResize}
+          >
+            <div class="absolute inset-x-0 -top-1.5 -bottom-1.5 z-10" />
+            <div class="absolute left-1/2 -translate-x-1/2 -top-[3px] h-[6px] w-8 rounded-full bg-border group-hover:bg-accent/60 transition-colors" />
+          </div>
+          <div class="shrink-0 overflow-hidden" style={{ height: `${responseHeight()}px` }}>
+            <Show when={isWs()} fallback={
               <Show
-                when={!props.response!.error}
+                when={props.response}
                 fallback={
-                  <div class="flex flex-col h-full">
-                    <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
-                      <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
-                    </div>
-                    <div class="flex-1 overflow-auto p-3">
-                      <pre class="text-sm font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">
-                        {props.response!.error}
-                      </pre>
-                    </div>
+                  <div class="flex items-center justify-center h-full text-muted-foreground text-sm">
+                    {t("endpoint.sendToViewResponse")}
                   </div>
                 }
               >
-                <Tabs
-                  tabs={getResponseTabs()}
-                  value={activeResponseTab()}
-                  onChange={setActiveResponseTab}
-                  extra={
-                    <div class="flex items-center gap-3 text-xs text-muted-foreground">
-                      <Badge class={getStatusColor(props.response!.statusCode)}>
-                        {props.response!.statusCode}
-                      </Badge>
-                      <span>{formatTiming(props.response!.timing?.total || 0)}</span>
-                      <span>{formatSize(props.response!.size || 0)}</span>
-                    </div>
-                  }
-                >
-                  {(key) => (
-                    <ResponsePanel
-                      tab={key}
-                      response={props.response!}
-                    />
-                  )}
-                </Tabs>
+                {/* SSE 流式响应：实时事件流 */}
+                <Show when={props.response!.streaming} fallback={
+                  /* 请求失败：展示错误信息，而非正常的响应标签页 */
+                  <Show
+                    when={!props.response!.error}
+                    fallback={
+                      <div class="flex flex-col h-full">
+                        <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
+                          <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
+                        </div>
+                        <div class="flex-1 overflow-auto p-3">
+                          <pre class="text-sm font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">
+                            {props.response!.error}
+                          </pre>
+                        </div>
+                      </div>
+                    }
+                  >
+                    <Tabs
+                      tabs={getResponseTabs()}
+                      value={activeResponseTab()}
+                      onChange={setActiveResponseTab}
+                      extra={
+                        <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                          <Badge class={getStatusColor(props.response!.statusCode)}>
+                            {props.response!.statusCode}
+                          </Badge>
+                          {/* 耗时：hover 展示各阶段耗时 */}
+                          <HoverCard content={<ResponseTimingCard timing={props.response!.timing} />}>
+                            <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
+                              {formatTiming(props.response!.timing?.total || 0)}
+                            </span>
+                          </HoverCard>
+                          {/* 大小：hover 展示请求/响应的头与体大小 */}
+                          <HoverCard content={<ResponseSizeCard response={props.response!} />}>
+                            <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
+                              {formatSize(props.response!.size || 0)}
+                            </span>
+                          </HoverCard>
+                        </div>
+                      }
+                    >
+                      {(key) => (
+                        <ResponsePanel
+                          tab={key}
+                          response={props.response!}
+                        />
+                      )}
+                    </Tabs>
+                  </Show>
+                }>
+                  <StreamEventLog streamId={props.response!.streamId!} onStop={stopStream} />
+                </Show>
               </Show>
             }>
-              <StreamEventLog streamId={props.response!.streamId!} onStop={stopStream} />
+              <WebSocketResponse connId={ep().id} />
             </Show>
-          </Show>
-        }>
-          <WebSocketResponse connId={ep().id} />
+          </div>
         </Show>
       </div>
-    </div>
     }>
       {/* 文档：Markdown 编辑/预览 */}
       <div class="flex flex-col h-full">
@@ -689,5 +791,108 @@ export function EndpointDetail(props: EndpointDetailProps) {
         </div>
       </div>
     </Show>
+  )
+}
+
+/** 响应耗时卡片：展示各阶段耗时（准备 / DNS / TCP / TLS / 等待 / 下载） */
+function ResponseTimingCard(props: { timing: TimingData }) {
+  const tm = () => props.timing
+  const phases = () => {
+    const v = tm()
+    return [
+      { label: t("timing.stalled"), value: v.stalled, cacheable: false },
+      { label: t("timing.dns"), value: v.dnsLookup, cacheable: true },
+      { label: t("timing.tcp"), value: v.tcpConnect, cacheable: true },
+      { label: t("timing.tls"), value: v.tlsHandshake, cacheable: true },
+      { label: t("timing.wait"), value: v.wait, cacheable: false },
+      { label: t("timing.download"), value: v.download, cacheable: false },
+    ]
+  }
+  const total = () => tm().total || phases().reduce((a, p) => a + Math.max(0, p.value), 0)
+  return (
+    <div class="w-64 flex flex-col gap-1.5">
+      <div class="flex items-center justify-between pb-1.5 border-b border-border">
+        <span class="text-xs font-medium text-foreground">{t("response.time")}</span>
+        <span class="text-xs font-semibold tabular-nums text-foreground">{formatTiming(total())}</span>
+      </div>
+      <For each={phases()}>
+        {(p) => {
+          const isCache = () => tm().reused && p.cacheable && p.value <= 0
+          const pct = () => total() > 0 ? Math.min(100, Math.max(0, p.value) / total() * 100) : 0
+          return (
+            <div class="flex items-center gap-2 text-xs">
+              <span class="w-16 shrink-0 text-muted-foreground truncate">{p.label}</span>
+              <div class="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
+                <Show when={!isCache() && p.value > 0}>
+                  <div class="h-full rounded-full bg-accent" style={{ width: `${pct()}%` }} />
+                </Show>
+              </div>
+              <span class="w-16 shrink-0 text-right tabular-nums text-muted-foreground">
+                {isCache() ? t("timing.cache") : formatTiming(Math.max(0, p.value))}
+              </span>
+            </div>
+          )
+        }}
+      </For>
+    </div>
+  )
+}
+
+/** 响应/请求大小卡片：分别展示请求头/体与响应头/体的大小 */
+function ResponseSizeCard(props: { response: ResponseData }) {
+  const r = () => props.response
+  // 响应头字节：按 "name: value\r\n" 估算（多值分别计入）
+  const respHeaderBytes = () => {
+    let n = 0
+    const h = r().headers || {}
+    for (const k of Object.keys(h)) {
+      const raw = (h as Record<string, string[] | string>)[k]
+      const arr = Array.isArray(raw) ? raw : [raw]
+      for (const v of arr) n += byteLength(k) + 2 + byteLength(String(v ?? "")) + 2
+    }
+    return n
+  }
+  const respBodyBytes = () => r().size || 0
+  const reqHeaderBytes = () => {
+    let n = 0
+    const h = (r().actualRequest?.headers || {}) as Record<string, string>
+    for (const k of Object.keys(h)) n += byteLength(k) + 2 + byteLength(String(h[k] ?? "")) + 2
+    return n
+  }
+  const reqBodyBytes = () => byteLength(String(r().actualRequest?.body ?? ""))
+  return (
+    <div class="w-56 flex flex-col gap-2.5 text-xs">
+      <SizeBlock
+        icon={<ArrowDown class="h-3.5 w-3.5 text-blue-500" />}
+        label={t("size.responseSize")}
+        header={respHeaderBytes()}
+        body={respBodyBytes()}
+      />
+      <div class="border-t border-border" />
+      <SizeBlock
+        icon={<ArrowUp class="h-3.5 w-3.5 text-amber-500" />}
+        label={t("size.requestSize")}
+        header={reqHeaderBytes()}
+        body={reqBodyBytes()}
+      />
+    </div>
+  )
+}
+
+/** 大小卡片的单个块：标题 + 总计，下分 Header / Body */
+function SizeBlock(props: { icon: JSX.Element; label: string; header: number; body: number }) {
+  return (
+    <div class="flex flex-col gap-1">
+      <div class="flex items-center justify-between">
+        <span class="inline-flex items-center gap-1.5 font-medium text-foreground">{props.icon}{props.label}</span>
+        <span class="font-semibold tabular-nums text-foreground">{formatSize(props.header + props.body)}</span>
+      </div>
+      <div class="flex items-center justify-between pl-5 text-muted-foreground">
+        <span>Header</span><span class="tabular-nums">{formatSize(props.header)}</span>
+      </div>
+      <div class="flex items-center justify-between pl-5 text-muted-foreground">
+        <span>Body</span><span class="tabular-nums">{formatSize(props.body)}</span>
+      </div>
+    </div>
   )
 }

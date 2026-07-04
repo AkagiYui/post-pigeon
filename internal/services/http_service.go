@@ -328,7 +328,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	}
 
 	// 计时
-	var dnsStart, dnsEnd, tlsStart, tlsEnd, connectStart, connectEnd, gotFirstByte time.Time
+	var dnsStart, dnsEnd, tlsStart, tlsEnd, connectStart, connectEnd, gotConn, wroteRequest, gotFirstByte time.Time
+	var reused bool
 	var start time.Time
 
 	trace := &httptraceCollector{
@@ -338,7 +339,10 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		tlsEnd:       &tlsEnd,
 		connectStart: &connectStart,
 		connectEnd:   &connectEnd,
+		gotConn:      &gotConn,
+		wroteRequest: &wroteRequest,
 		gotFirstByte: &gotFirstByte,
+		reused:       &reused,
 	}
 
 	// 发送请求
@@ -373,7 +377,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			StatusCode:    statusCode,
 			Headers:       respHeader,
 			ContentType:   respHeader.Get("Content-Type"),
-			Timing:        models.TimingInfo{Total: time.Since(start).Milliseconds()},
+			Timing:        models.TimingInfo{Total: durMs(time.Since(start))},
 			ActualRequest: actualReq,
 			Streaming:     true,
 			StreamID:      streamID,
@@ -385,29 +389,59 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	}
 	defer resp.Body.Close()
 
-	totalTime := time.Since(start)
-
 	// 读取响应体
 	bodyBytes, err := io.ReadAll(resp.Body)
 	if err != nil {
 		return nil, fmt.Errorf("读取响应失败: %w", err)
 	}
+	end := time.Now()
 
-	// 计算计时信息
+	// 计算计时信息（含各阶段分解，单位毫秒，保留亚毫秒精度）
 	timing := models.TimingInfo{
-		Total: totalTime.Milliseconds(),
+		Total:  durMs(end.Sub(start)),
+		Reused: reused,
 	}
 	if !dnsStart.IsZero() && !dnsEnd.IsZero() {
-		timing.DNSLookup = dnsEnd.Sub(dnsStart).Milliseconds()
+		timing.DNSLookup = durMs(dnsEnd.Sub(dnsStart))
 	}
 	if !connectStart.IsZero() && !connectEnd.IsZero() {
-		timing.TCPConnect = connectEnd.Sub(connectStart).Milliseconds()
+		timing.TCPConnect = durMs(connectEnd.Sub(connectStart))
 	}
 	if !tlsStart.IsZero() && !tlsEnd.IsZero() {
-		timing.TLSHandshake = tlsEnd.Sub(tlsStart).Milliseconds()
+		timing.TLSHandshake = durMs(tlsEnd.Sub(tlsStart))
 	}
 	if !gotFirstByte.IsZero() {
-		timing.TTFB = gotFirstByte.Sub(start).Milliseconds()
+		timing.TTFB = durMs(gotFirstByte.Sub(start))
+		// 下载内容：首字节 → 读取完成
+		timing.Download = durMs(end.Sub(gotFirstByte))
+		// 等待：请求写完 → 首字节（服务端处理）；缺请求写完时间点则回退到连接完成/开始
+		switch {
+		case !wroteRequest.IsZero():
+			timing.Wait = durMs(gotFirstByte.Sub(wroteRequest))
+		case !connectEnd.IsZero():
+			timing.Wait = durMs(gotFirstByte.Sub(connectEnd))
+		default:
+			timing.Wait = timing.TTFB
+		}
+	}
+	// 准备/阻塞：请求开始 → 开始建立连接（连接复用时接近 0）
+	switch {
+	case !dnsStart.IsZero():
+		timing.Stalled = durMs(dnsStart.Sub(start))
+	case !connectStart.IsZero():
+		timing.Stalled = durMs(connectStart.Sub(start))
+	case !gotConn.IsZero():
+		timing.Stalled = durMs(gotConn.Sub(start))
+	}
+	// 钳位，避免因时钟抖动出现的极小负值
+	if timing.Stalled < 0 {
+		timing.Stalled = 0
+	}
+	if timing.Wait < 0 {
+		timing.Wait = 0
+	}
+	if timing.Download < 0 {
+		timing.Download = 0
 	}
 
 	// 解析 Cookie
@@ -433,7 +467,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			Status:       http.StatusText(resp.StatusCode),
 			Headers:      flattenToHeaders(resp.Header),
 			Body:         string(bodyBytes),
-			ResponseTime: timing.Total,
+			ResponseTime: int64(timing.Total),
 			ResponseSize: int64(len(bodyBytes)),
 		}
 		scriptResults.PostResponse = s.engine.Run(data.PostResponseScript, scripting.Options{
@@ -869,16 +903,24 @@ func nilOrNilString(s string) *string {
 	return &s
 }
 
-// httptraceCollector 收集 HTTP 请求计时信息
+// durMs 将时间间隔转换为毫秒（float64，保留亚毫秒精度）。
+func durMs(d time.Duration) float64 {
+	return float64(d.Microseconds()) / 1000.0
+}
+
+// httptraceCollector 收集 HTTP 请求各阶段时间点
 type httptraceCollector struct {
 	dnsStart, dnsEnd         *time.Time
 	tlsStart, tlsEnd         *time.Time
 	connectStart, connectEnd *time.Time
+	gotConn                  *time.Time
+	wroteRequest             *time.Time
 	gotFirstByte             *time.Time
+	reused                   *bool
 }
 
 func (t *httptraceCollector) attach(ctx context.Context) context.Context {
-	// 安装 httptrace 钩子，记录各阶段时间点，用于计算 DNS/TCP/TLS/TTFB 分解
+	// 安装 httptrace 钩子，记录各阶段时间点，用于计算 准备/DNS/TCP/TLS/等待/下载 分解
 	trace := &httptrace.ClientTrace{
 		DNSStart: func(httptrace.DNSStartInfo) { *t.dnsStart = time.Now() },
 		DNSDone:  func(httptrace.DNSDoneInfo) { *t.dnsEnd = time.Now() },
@@ -888,9 +930,14 @@ func (t *httptraceCollector) attach(ctx context.Context) context.Context {
 				*t.connectStart = time.Now()
 			}
 		},
-		ConnectDone:          func(_, _ string, _ error) { *t.connectEnd = time.Now() },
-		TLSHandshakeStart:    func() { *t.tlsStart = time.Now() },
-		TLSHandshakeDone:     func(tls.ConnectionState, error) { *t.tlsEnd = time.Now() },
+		ConnectDone:       func(_, _ string, _ error) { *t.connectEnd = time.Now() },
+		TLSHandshakeStart: func() { *t.tlsStart = time.Now() },
+		TLSHandshakeDone:  func(tls.ConnectionState, error) { *t.tlsEnd = time.Now() },
+		GotConn: func(info httptrace.GotConnInfo) {
+			*t.gotConn = time.Now()
+			*t.reused = info.Reused
+		},
+		WroteRequest:         func(httptrace.WroteRequestInfo) { *t.wroteRequest = time.Now() },
 		GotFirstResponseByte: func() { *t.gotFirstByte = time.Now() },
 	}
 	return httptrace.WithClientTrace(ctx, trace)

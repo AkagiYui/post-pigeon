@@ -1,5 +1,7 @@
 // 请求参数编辑器（受控组件）
 // 参数 tab 按 Query / Path / 全局 Query 三块区域自上而下排列（无"位置"选择）；
+// Path 参数由接口路径自动识别（形如 {id}），无占位符时整块隐藏、也没有添加按钮。
+// 全局 Query 参数继承自模块，值只读（在设置页修改），开关仅对本接口生效。
 // Cookie 参数由独立的 CookiesEditor 编辑。三者共享同一份 ParamRow[]（按 type 区分），
 // 各编辑器改动时都会回传「完整」列表以保持彼此数据不丢失。
 import { Globe, Plus, Trash2 } from "lucide-solid"
@@ -9,13 +11,16 @@ import type { ParamRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { Table } from "@/components/ui/table"
+import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
-import { cn } from "@/lib/utils"
 import type { ParamLocation } from "@/lib/types"
+import { cn, extractPathParams } from "@/lib/utils"
 
 export interface ParamsEditorProps {
   value: ParamRow[]
   onChange: (rows: ParamRow[]) => void
+  /** 接口路径，用于自动识别 path 参数（{name} 占位符） */
+  path?: string
   /** 模块级"全局" query 参数（只读展示），来自模块自动参数 */
   globalQueryParams?: { name: string; value: string }[]
   /** 本接口禁用的全局参数名列表（仅影响本接口） */
@@ -46,6 +51,17 @@ export function ParamsEditor(props: ParamsEditorProps) {
     props.onChange([...q, ...p, ...c])
   }
 
+  // Path 参数：从接口路径中自动识别（形如 {id}）
+  const pathTokens = () => extractPathParams(props.path ?? "")
+  // 依据路径 token 派生 path 参数行：命中已存的行则沿用其值，否则新建（id 由名称派生以保持稳定）
+  const pathRows = (): ParamRow[] => {
+    const existing = rowsOf("path")
+    return pathTokens().map(name => {
+      const found = existing.find(r => r.name === name)
+      return found ?? { ...makeRow("path"), id: `__path_${name}`, name }
+    })
+  }
+
   const disabledSet = () => new Set(props.disabledGlobalParams ?? [])
   const isGlobalEnabled = (name: string) => !disabledSet().has(name)
   const toggleGlobal = (name: string, on: boolean) => {
@@ -67,17 +83,21 @@ export function ParamsEditor(props: ParamsEditorProps) {
         />
       </section>
 
-      {/* Path 参数 */}
-      <section>
-        <SectionTitle>{t("endpoint.param.pathParams")}</SectionTitle>
-        <ParamTable
-          rows={rowsOf("path")}
-          type="path"
-          onChange={(rows) => emit("path", rows)}
-        />
-      </section>
+      {/* Path 参数：仅当接口路径含 {name} 占位符时显示，名称只读、无添加按钮 */}
+      <Show when={pathTokens().length > 0}>
+        <section>
+          <SectionTitle>{t("endpoint.param.pathParams")}</SectionTitle>
+          <ParamTable
+            rows={pathRows()}
+            type="path"
+            onChange={(rows) => emit("path", rows)}
+            nameReadOnly
+            hideAdd
+          />
+        </section>
+      </Show>
 
-      {/* 全局 Query 参数（继承自模块，开关仅对本接口生效） */}
+      {/* 全局 Query 参数（继承自模块，值只读、开关仅对本接口生效） */}
       <section>
         <SectionTitle>
           <span class="inline-flex items-center gap-1.5">
@@ -90,25 +110,45 @@ export function ParamsEditor(props: ParamsEditorProps) {
           when={(props.globalQueryParams?.length ?? 0) > 0}
           fallback={<p class="text-sm text-muted-foreground py-2">{t("endpoint.param.noGlobalParams")}</p>}
         >
-          <div class="border border-border rounded-md divide-y divide-border overflow-hidden">
-            <For each={props.globalQueryParams}>
-              {(gp) => (
-                <label class={cn(
-                  "flex items-center gap-3 px-3 py-1.5 text-sm cursor-pointer select-none transition-colors hover:bg-muted/30",
-                  !isGlobalEnabled(gp.name) && "opacity-50",
-                )}>
+          <Table
+            columns={[
+              {
+                header: "", width: "32px", render: (gp) => (
                   <input
                     type="checkbox"
                     checked={isGlobalEnabled(gp.name)}
                     onChange={(e) => toggleGlobal(gp.name, e.currentTarget.checked)}
-                    class="rounded border-border shrink-0"
+                    class="rounded border-border"
                   />
-                  <span class="font-mono text-xs w-40 shrink-0 truncate" title={gp.name}>{gp.name}</span>
-                  <span class="font-mono text-xs text-muted-foreground flex-1 min-w-0 truncate" title={gp.value}>{gp.value}</span>
-                </label>
-              )}
-            </For>
-          </div>
+                ),
+              },
+              {
+                header: t("endpoint.param.name"), render: (gp) => (
+                  <Input
+                    size="sm"
+                    value={gp.name}
+                    readOnly
+                    class={cn("font-mono", !isGlobalEnabled(gp.name) && "opacity-50")}
+                  />
+                ),
+              },
+              {
+                header: t("endpoint.param.value"), render: (gp) => (
+                  // 值只读：hover 提示前往设置页面修改
+                  <Tooltip content={t("endpoint.param.globalValueReadonlyHint")} placement="top" class="block w-full">
+                    <Input
+                      size="sm"
+                      value={gp.value}
+                      readOnly
+                      class={cn("font-mono w-full cursor-help", !isGlobalEnabled(gp.name) && "opacity-50")}
+                    />
+                  </Tooltip>
+                ),
+              },
+            ]}
+            data={props.globalQueryParams ?? []}
+            compact
+          />
         </Show>
       </section>
     </div>
@@ -141,11 +181,14 @@ function SectionTitle(props: { children: any }) {
 /**
  * ParamTable 单一位置的参数表（无"位置"列）。
  * onChange 回传的是本 type 的完整行列表，由上层与其它位置合并。
+ * nameReadOnly：参数名只读（用于自动识别的 path 参数）；hideAdd：隐藏添加按钮。
  */
 function ParamTable(props: {
   rows: ParamRow[]
   type: ParamLocation
   onChange: (rows: ParamRow[]) => void
+  nameReadOnly?: boolean
+  hideAdd?: boolean
 }) {
   const addParam = () => props.onChange([...props.rows, makeRow(props.type)])
   const removeParam = (id: string) => props.onChange(props.rows.filter(p => p.id !== id))
@@ -168,7 +211,9 @@ function ParamTable(props: {
           },
           {
             header: t("endpoint.param.name"), render: (row) => (
-              <Input size="sm" value={row.name} onInput={(e) => updateParam(row.id, "name", e.currentTarget.value)} />
+              props.nameReadOnly
+                ? <Input size="sm" value={row.name} readOnly class="font-mono" />
+                : <Input size="sm" value={row.name} onInput={(e) => updateParam(row.id, "name", e.currentTarget.value)} />
             ),
           },
           {
@@ -198,9 +243,12 @@ function ParamTable(props: {
           },
           {
             header: "", width: "32px", render: (row) => (
-              <Button variant="ghost" size="icon-sm" onClick={() => removeParam(row.id)}>
-                <Trash2 class="h-3 w-3" />
-              </Button>
+              // path 参数由路径自动识别，不提供逐行删除
+              <Show when={!props.nameReadOnly}>
+                <Button variant="ghost" size="icon-sm" onClick={() => removeParam(row.id)}>
+                  <Trash2 class="h-3 w-3" />
+                </Button>
+              </Show>
             ),
           },
         ]}
@@ -208,10 +256,12 @@ function ParamTable(props: {
         compact
         emptyText={t("endpoint.param.empty")}
       />
-      <Button variant="outline" size="sm" class="mt-2" onClick={addParam}>
-        <Plus class="h-3 w-3" />
-        {t("endpoint.param.add")}
-      </Button>
+      <Show when={!props.hideAdd}>
+        <Button variant="outline" size="sm" class="mt-2" onClick={addParam}>
+          <Plus class="h-3 w-3" />
+          {t("endpoint.param.add")}
+        </Button>
+      </Show>
     </>
   )
 }

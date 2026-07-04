@@ -30,13 +30,18 @@ func (r *Response) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
-// TimingInfo 请求计时信息
+// TimingInfo 请求各阶段计时信息（单位：毫秒，保留亚毫秒精度）
 type TimingInfo struct {
-	DNSLookup    int64 `json:"dnsLookup"`    // DNS 查询耗时（毫秒）
-	TLSHandshake int64 `json:"tlsHandshake"` // TLS 握手耗时（毫秒）
-	TCPConnect   int64 `json:"tcpConnect"`   // TCP 连接耗时（毫秒）
-	TTFB         int64 `json:"ttfb"`         // 首字节时间（毫秒）
-	Total        int64 `json:"total"`        // 总耗时（毫秒）
+	DNSLookup    float64 `json:"dnsLookup"`    // DNS 查询耗时
+	TLSHandshake float64 `json:"tlsHandshake"` // TLS 握手耗时
+	TCPConnect   float64 `json:"tcpConnect"`   // TCP 连接耗时
+	TTFB         float64 `json:"ttfb"`         // 首字节时间（从请求开始到收到首字节）
+	Total        float64 `json:"total"`        // 总耗时（含内容下载）
+	// 阶段分解（供前端耗时 popover 展示）
+	Stalled  float64 `json:"stalled"`  // 准备：请求开始 → 开始建立连接（连接复用时接近 0）
+	Wait     float64 `json:"wait"`     // 等待：请求发出 → 收到首字节（服务端处理时间）
+	Download float64 `json:"download"` // 下载内容：首字节 → 响应体读取完成
+	Reused   bool    `json:"reused"`   // 连接是否复用（DNS/TCP/TLS 命中缓存）
 }
 
 // ActualRequestInfo 实际发送的请求信息

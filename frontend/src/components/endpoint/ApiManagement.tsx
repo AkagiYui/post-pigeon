@@ -11,6 +11,7 @@ import type {
   ModuleTree,
   OpenAPIPreview,
 } from "@/../bindings/post-pigeon/internal/services"
+import type { ApifoxPreview } from "@/../bindings/post-pigeon/internal/services"
 import {
   ApifoxService,
   EndpointService,
@@ -21,9 +22,8 @@ import {
   ModuleService,
   ProjectService,
 } from "@/../bindings/post-pigeon/internal/services"
-import type { ApifoxPreview } from "@/../bindings/post-pigeon/internal/services"
 import { SendRequestData } from "@/../bindings/post-pigeon/internal/services"
-import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type HeaderRow, type OperationRow, type ParamRow, type ResponseData } from "@/components/endpoint/EndpointDetail"
+import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type HeaderRow, type OperationRow, type ParamRow, type ResponseData, type TimingData } from "@/components/endpoint/EndpointDetail"
 import { EndpointTree, type TreeNode } from "@/components/endpoint/EndpointTree"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
 import { ScopeSettingsDialog } from "@/components/endpoint/ScopeSettingsDialog"
@@ -96,6 +96,26 @@ function parseStringArray(s?: string | null): string[] {
     return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []
   } catch {
     return []
+  }
+}
+
+/** 安全解析 JSON；非字符串（已是对象）时原样返回，失败或空时返回 fallback。
+ *  持久化响应的 headers/cookies/actualRequest/timing 均以 JSON 字符串入库，
+ *  需在此解析，否则对字符串做 Object.entries 会逐字符渲染出 0/1/2… 的假数据。 */
+function safeParseJSON<T>(s: unknown, fallback: T): T {
+  if (s == null) return fallback
+  if (typeof s !== "string") return s as T
+  if (s === "") return fallback
+  try { return JSON.parse(s) as T } catch { return fallback }
+}
+
+/** 将原始计时对象（后端 TimingInfo 或持久化 JSON）映射为 TimingData，缺省补零。 */
+function toTimingData(t: any): TimingData {
+  t = t || {}
+  return {
+    total: t.total || 0, dnsLookup: t.dnsLookup || 0, tlsHandshake: t.tlsHandshake || 0,
+    tcpConnect: t.tcpConnect || 0, ttfb: t.ttfb || 0,
+    stalled: t.stalled || 0, wait: t.wait || 0, download: t.download || 0, reused: !!t.reused,
   }
 }
 
@@ -277,6 +297,11 @@ export function ApiManagement(props: ApiManagementProps) {
   const [newFolderName, setNewFolderName] = createSignal("")
   const [createModuleOpen, setCreateModuleOpen] = createSignal(false)
   const [newModuleName, setNewModuleName] = createSignal("")
+  // 文件夹转换为模块对话框
+  const [convertOpen, setConvertOpen] = createSignal(false)
+  const [convertNode, setConvertNode] = createSignal<TreeNode | null>(null)
+  const [convertName, setConvertName] = createSignal("")
+  const [converting, setConverting] = createSignal(false)
   // 新建文件夹对话框：父级位置选择（默认点击的文件夹，否则根模块）
   const [createFolderLocation, setCreateFolderLocation] = createSignal<string>("")
   const [createFolderExpandedIds, setCreateFolderExpandedIds] = createSignal<string[]>([])
@@ -313,6 +338,8 @@ export function ApiManagement(props: ApiManagementProps) {
   const [environmentBaseUrls, setEnvironmentBaseUrls] = createSignal<EnvironmentBaseURLOption[]>([])
   // 当前端点所属模块的"全局" query 参数（模块自动参数中 type=query 且启用的），供参数 tab 展示
   const [globalQueryParams, setGlobalQueryParams] = createSignal<{ name: string; value: string }[]>([])
+  // 当前端点从模块/文件夹链继承的、已启用的前置/后置操作数量（供操作/参数 tab 计数包含"全局"部分）
+  const [inheritedOpCounts, setInheritedOpCounts] = createSignal<{ pre: number; post: number }>({ pre: 0, post: 0 })
   // Apifox 导入对话框
   const [apifoxOpen, setApifoxOpen] = createSignal(false)
   const [apifoxJson, setApifoxJson] = createSignal("")
@@ -374,15 +401,20 @@ export function ApiManagement(props: ApiManagementProps) {
   createEffect(on(
     () => [endpointData.id, treeData()] as const,
     async ([epId]) => {
-      if (!epId) { setGlobalQueryParams([]); return }
+      if (!epId) { setGlobalQueryParams([]); setInheritedOpCounts({ pre: 0, post: 0 }); return }
       const moduleId = findModuleIdByNodeId(treeData(), epId)
-      if (!moduleId) { setGlobalQueryParams([]); return }
+      // 未保存请求不在树中、无继承来源：全局参数与继承操作计数均清零
+      if (!moduleId) { setGlobalQueryParams([]); setInheritedOpCounts({ pre: 0, post: 0 }); return }
       try {
         const mps = await ModuleService.GetModuleParams(moduleId)
         setGlobalQueryParams((mps || [])
           .filter(p => p.type === "query" && p.enabled)
           .map(p => ({ name: p.name, value: p.value })))
       } catch { setGlobalQueryParams([]) }
+      try {
+        const counts = await EndpointService.GetInheritedOperationCounts(epId)
+        setInheritedOpCounts({ pre: counts?.pre ?? 0, post: counts?.post ?? 0 })
+      } catch { setInheritedOpCounts({ pre: 0, post: 0 }) }
     },
   ))
 
@@ -444,6 +476,36 @@ export function ApiManagement(props: ApiManagementProps) {
       await loadTree()
     } catch (e) {
       console.error("创建模块失败", e)
+    }
+  }
+
+  // ---- 打开"转换为模块"对话框（文件夹节点） ----
+  const openConvertToModule = (node: TreeNode) => {
+    if (node.type !== "folder") return
+    setConvertNode(node)
+    setConvertName(node.name) // 默认填充文件夹名称
+    setConvertOpen(true)
+  }
+
+  const handleConvertToModule = async () => {
+    const node = convertNode()
+    const name = convertName().trim()
+    if (!node || !name) return
+    setConverting(true)
+    try {
+      const created = await ModuleService.ConvertFolderToModule(node.id, name)
+      setConvertOpen(false)
+      setConvertNode(null)
+      // 该文件夹下的接口已换所属模块：关闭其已打开的标签页，避免陈旧的 moduleId
+      const subtree = collectSubtreeIds(node)
+      requestTabs().filter(t => subtree.has(t.id)).forEach(t => closeTab(t.id))
+      await loadTree()
+      // 新模块默认展开，便于用户立即看到转换结果
+      if (created) setExpandedIds([...new Set([...expandedIds(), created.id])])
+    } catch (e) {
+      console.error("转换为模块失败", e)
+    } finally {
+      setConverting(false)
     }
   }
 
@@ -654,13 +716,15 @@ export function ApiManagement(props: ApiManagementProps) {
           examples: (detail.examples as any[]) || [], schemas: (detail.schemas as any[]) || [],
         } as EndpointData)
         if (detail.response) {
-          const ti = detail.response.timing ? JSON.parse(detail.response.timing) : { total: 0, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0, ttfb: 0 }
+          // 持久化响应的 headers/cookies/actualRequest/timing 均为 JSON 字符串，需解析后再用
           setResponseData({
             statusCode: detail.response.statusCode,
-            timing: { total: ti.total || 0, dnsLookup: ti.dnsLookup || 0, tlsHandshake: ti.tlsHandshake || 0, tcpConnect: ti.tcpConnect || 0, ttfb: ti.ttfb || 0 },
-            size: detail.response.size, body: detail.response.body, headers: detail.response.headers as any,
-            cookies: detail.response.cookies as any || [], contentType: detail.response.contentType,
-            actualRequest: detail.response.actualRequest,
+            timing: toTimingData(safeParseJSON<any>(detail.response.timing, {})),
+            size: detail.response.size, body: detail.response.body,
+            headers: safeParseJSON<Record<string, string[]>>(detail.response.headers, {}),
+            cookies: safeParseJSON<any[]>(detail.response.cookies, []),
+            contentType: detail.response.contentType,
+            actualRequest: safeParseJSON<any>(detail.response.actualRequest, null),
           })
         } else setResponseData(null)
       }
@@ -736,7 +800,7 @@ export function ApiManagement(props: ApiManagementProps) {
           // SSE 流式响应：以实时事件流展示（事件通过 sse:event 持续推送）
           setResponseData({
             statusCode: resp.statusCode,
-            timing: { total: resp.timing?.total || 0, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0, ttfb: 0 },
+            timing: toTimingData(resp.timing),
             size: 0, body: "", headers: resp.headers as any,
             cookies: [], contentType: resp.contentType, actualRequest: resp.actualRequest,
             streaming: true, streamId: resp.streamId,
@@ -745,7 +809,7 @@ export function ApiManagement(props: ApiManagementProps) {
         } else {
           setResponseData({
             statusCode: resp.statusCode,
-            timing: { total: resp.timing?.total || 0, dnsLookup: resp.timing?.dnsLookup || 0, tlsHandshake: resp.timing?.tlsHandshake || 0, tcpConnect: resp.timing?.tcpConnect || 0, ttfb: resp.timing?.ttfb || 0 },
+            timing: toTimingData(resp.timing),
             size: resp.size, body: resp.body, rawBody: resp.rawBody, headers: resp.headers as any,
             cookies: resp.cookies as any || [], contentType: resp.contentType,
             actualRequest: resp.actualRequest,
@@ -759,7 +823,7 @@ export function ApiManagement(props: ApiManagementProps) {
       const message = e instanceof Error ? e.message : String(e)
       setResponseData({
         statusCode: 0,
-        timing: { total: 0, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0, ttfb: 0 },
+        timing: toTimingData(null),
         size: 0, body: "", headers: {}, cookies: [], contentType: "",
         actualRequest: null,
         error: message,
@@ -1204,6 +1268,7 @@ export function ApiManagement(props: ApiManagementProps) {
             onCreateDocument={handleCreateDocument}
             onOpenSettings={openScopeSettings}
             onSetEndpointDisplay={handleSetEndpointDisplay}
+            onConvertToModule={openConvertToModule}
             onReorderEndpoints={handleReorderEndpoints}
             defaultModuleId={defaultModuleId()}
             expandedIds={expandedIds()} onExpandedChange={setExpandedIds}
@@ -1233,6 +1298,7 @@ export function ApiManagement(props: ApiManagementProps) {
                 onEnvironmentChange={handleEnvironmentChange}
                 projectId={props.projectId}
                 globalQueryParams={globalQueryParams()}
+                inheritedOpCounts={inheritedOpCounts()}
               /> : null}
             </Tabs>
           </Show>
@@ -1592,6 +1658,28 @@ export function ApiManagement(props: ApiManagementProps) {
             </Button>
             <Button onClick={handleCreateModule} disabled={!newModuleName().trim()}>
               {t("common.confirm")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* 文件夹转换为模块对话框 */}
+      <Dialog open={convertOpen()} onClose={() => setConvertOpen(false)} title={t("folder.convertToModule")} closeOnEsc closeOnOverlayClick>
+        <div class="p-6 space-y-4">
+          <p class="text-sm text-muted-foreground">{t("folder.convertToModuleHint")}</p>
+          <div>
+            <label class="block text-sm font-medium mb-1.5">{t("module.name")}</label>
+            <Input
+              value={convertName()}
+              onInput={(e) => setConvertName(e.currentTarget.value)}
+              placeholder={t("module.name")}
+              onKeyDown={(e) => e.key === "Enter" && handleConvertToModule()}
+            />
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setConvertOpen(false)}>{t("common.cancel")}</Button>
+            <Button onClick={handleConvertToModule} disabled={!convertName().trim() || converting()}>
+              {converting() ? t("common.saving") : t("common.confirm")}
             </Button>
           </div>
         </div>

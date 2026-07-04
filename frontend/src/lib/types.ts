@@ -78,8 +78,8 @@ export function formatSize(bytes: number): string {
   return `${(bytes / (1024 * 1024)).toFixed(1)} MB`
 }
 
-/** 格式化请求耗时 */
+/** 格式化请求耗时（支持亚毫秒精度，整数不带小数） */
 export function formatTiming(ms: number): string {
-  if (ms < 1000) return `${ms} ms`
+  if (ms < 1000) return `${Number.isInteger(ms) ? ms : Number(ms.toFixed(2))} ms`
   return `${(ms / 1000).toFixed(2)} s`
 }

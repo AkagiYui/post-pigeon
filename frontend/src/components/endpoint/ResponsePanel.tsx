@@ -1,6 +1,7 @@
 // 响应面板组件
 import { createMemo, createSignal, For, Show } from "solid-js"
 
+import { CodeEditor, type CodeLanguage } from "@/components/ui/code-editor"
 import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"
 import { t } from "@/hooks/useI18n"
@@ -49,6 +50,14 @@ export function ResponsePanel(props: ResponsePanelProps) {
   })
   // pretty 模式下再按所选格式美化
   const displayBody = createMemo(() => renderMode() === "pretty" ? formatBody(decodedBody(), format()) : decodedBody())
+  // 格式化模式下按所选格式切换 CodeMirror 高亮方案
+  const bodyLanguage = (): CodeLanguage => {
+    switch (format()) {
+      case "xml": return "xml"
+      case "html": return "html"
+      default: return "json"
+    }
+  }
 
   return (
     <div class="h-full flex flex-col">
@@ -83,44 +92,52 @@ export function ResponsePanel(props: ResponsePanelProps) {
           </Show>
         </div>
         {/* 响应体内容 */}
-        <div class="flex-1 overflow-auto p-3">
+        <div class="flex-1 min-h-0 overflow-hidden">
           <Show
             when={renderMode() === "preview"}
             fallback={
-              <pre class="text-sm font-mono whitespace-pre-wrap break-all text-foreground">
-                {displayBody() || t("response.empty")}
-              </pre>
+              <Show when={displayBody()} fallback={<div class="p-3 text-sm text-muted-foreground">{t("response.empty")}</div>}>
+                {/* 格式化/原始：CodeMirror 语法高亮，按所选格式切换高亮方案 */}
+                <CodeEditor
+                  value={displayBody()}
+                  language={renderMode() === "raw" ? "text" : bodyLanguage()}
+                  readOnly
+                  class="h-full border-0 rounded-none bg-transparent"
+                />
+              </Show>
             }
           >
-            {/* 预览模式：按 Content-Type 渲染 图片 / PDF / 音频 / 视频 / HTML / XML(SVG) */}
-            {(() => {
-              const ct = (props.response.contentType || "").toLowerCase()
-              const raw = props.response.rawBody || ""
-              const dataUri = raw ? `data:${ct.split(";")[0] || "application/octet-stream"};base64,${raw}` : ""
-              if (ct.startsWith("image/")) {
-                return <img src={dataUri} alt="preview" class="max-w-full max-h-full object-contain mx-auto" />
-              }
-              if (ct.includes("pdf")) {
-                return <iframe class="w-full h-full min-h-96 border rounded bg-white" src={dataUri} title="PDF" />
-              }
-              if (ct.startsWith("audio/")) {
-                return <audio controls src={dataUri} class="w-full mt-4" />
-              }
-              if (ct.startsWith("video/")) {
-                return <video controls src={dataUri} class="max-w-full max-h-full mx-auto" />
-              }
-              // HTML / XML / SVG 等：用 iframe 渲染（srcdoc 保证同源沙箱）
-              return (
-                <Show when={decodedBody()} fallback={<div class="text-muted-foreground">{t("response.empty")}</div>}>
-                  <iframe
-                    class="w-full h-full min-h-48 border rounded bg-white"
-                    srcdoc={decodedBody()}
-                    sandbox="allow-same-origin"
-                    title="Preview"
-                  />
-                </Show>
-              )
-            })()}
+            <div class="h-full overflow-auto p-3">
+              {/* 预览模式：按 Content-Type 渲染 图片 / PDF / 音频 / 视频 / HTML / XML(SVG) */}
+              {(() => {
+                const ct = (props.response.contentType || "").toLowerCase()
+                const raw = props.response.rawBody || ""
+                const dataUri = raw ? `data:${ct.split(";")[0] || "application/octet-stream"};base64,${raw}` : ""
+                if (ct.startsWith("image/")) {
+                  return <img src={dataUri} alt="preview" class="max-w-full max-h-full object-contain mx-auto" />
+                }
+                if (ct.includes("pdf")) {
+                  return <iframe class="w-full h-full min-h-96 border rounded bg-white" src={dataUri} title="PDF" />
+                }
+                if (ct.startsWith("audio/")) {
+                  return <audio controls src={dataUri} class="w-full mt-4" />
+                }
+                if (ct.startsWith("video/")) {
+                  return <video controls src={dataUri} class="max-w-full max-h-full mx-auto" />
+                }
+                // HTML / XML / SVG 等：用 iframe 渲染（srcdoc 保证同源沙箱）
+                return (
+                  <Show when={decodedBody()} fallback={<div class="text-muted-foreground">{t("response.empty")}</div>}>
+                    <iframe
+                      class="w-full h-full min-h-48 border rounded bg-white"
+                      srcdoc={decodedBody()}
+                      sandbox="allow-same-origin"
+                      title="Preview"
+                    />
+                  </Show>
+                )
+              })()}
+            </div>
           </Show>
         </div>
       </Show>

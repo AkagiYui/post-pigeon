@@ -15,7 +15,7 @@ import { clearStream, streamMessages, streamStatus } from "@/stores/stream"
 export function wsUrl(baseUrl: string, path: string): string {
   if (!baseUrl) return path
   if (/^[a-z]+:\/\//i.test(path)) return path
-  return baseUrl.replace(/\/$/, "") + "/" + path.replace(/^\//, "")
+  return `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`
 }
 
 export function StatusDot(props: { status: string }) {

@@ -330,5 +330,18 @@
   "stream.messages": "Messages",
   "stream.streaming": "Streaming…",
   "stream.streamEnded": "Stream ended",
-  "stream.stop": "Stop"
+  "stream.stop": "Stop",
+  "folder.convertToModule": "Convert to Module",
+  "folder.convertToModuleHint": "Convert this folder into a new module. Its contents become the new module's root; the new module's base URL is copied from the current module.",
+  "endpoint.param.globalValueReadonlyHint": "Global param values are read-only — edit them on the settings page",
+  "response.expandPanel": "Expand response",
+  "timing.stalled": "Stalled",
+  "timing.dns": "DNS Lookup",
+  "timing.tcp": "TCP Handshake",
+  "timing.tls": "TLS Handshake",
+  "timing.wait": "Waiting (TTFB)",
+  "timing.download": "Content Download",
+  "timing.cache": "Cache",
+  "size.responseSize": "Response Size",
+  "size.requestSize": "Request Size"
 }

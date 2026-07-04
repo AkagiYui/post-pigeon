@@ -6,14 +6,14 @@ import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 
 import type { ScriptLibrary } from "@/../bindings/post-pigeon/internal/models"
 import { ScriptLibraryService } from "@/../bindings/post-pigeon/internal/services"
-import { type OperationRow, emptyOperation } from "@/components/endpoint/EndpointDetail"
+import { emptyOperation, type OperationRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
 import { CodeEditor } from "@/components/ui/code-editor"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { t } from "@/hooks/useI18n"
-import { cn } from "@/lib/utils"
 import type { OperationStage, OperationType } from "@/lib/types"
+import { cn } from "@/lib/utils"
 
 export interface OperationsEditorProps {
   operations: OperationRow[]

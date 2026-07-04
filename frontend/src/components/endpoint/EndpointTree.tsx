@@ -3,13 +3,12 @@
 import { ArrowUpDown, Check, Copy, Ellipsis, FileDown, FilePlusCorner, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Pencil, Plus, Radio, Search, Settings2, Trash2, Webhook } from "lucide-solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
-import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { ContextMenu, type MenuItem } from "@/components/ui/context-menu"
 import { DropdownMenu } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"
-import { type EndpointType, type HTTPMethod } from "@/lib/types"
+import { type EndpointType, type HTTPMethod, METHOD_COLORS } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 /** 树节点数据类型 */
@@ -63,6 +62,8 @@ export interface EndpointTreeProps {
   onCreateDocument?: (parentId: string | undefined, type: "module" | "folder") => void
   /** 打开模块/文件夹设置（认证/自动参数/前置后置操作） */
   onOpenSettings?: (node: TreeNode) => void
+  /** 将文件夹转换为模块（仅文件夹节点提供） */
+  onConvertToModule?: (node: TreeNode) => void
   /** 设置模块下接口显示方式（name 名称 / url 路径） */
   onSetEndpointDisplay?: (moduleId: string, mode: "name" | "url") => void
   /** 端点拖拽排序：orderedIds 为拖拽后同容器内的兄弟端点顺序 */
@@ -296,7 +297,7 @@ export function EndpointTree(props: EndpointTreeProps) {
 /** 创建节点的完整菜单项（右键菜单和弹出菜单共享） */
 function createAllMenuItems(
   node: TreeNode,
-  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onOpenSettings" | "onSetEndpointDisplay">,
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onOpenSettings" | "onSetEndpointDisplay" | "onConvertToModule">,
   isProtected: boolean,
 ): MenuItem[] {
   const items: MenuItem[] = []
@@ -362,6 +363,15 @@ function createAllMenuItems(
       icon: <Settings2 class="h-4 w-4 text-slate-500 shrink-0" />,
       onClick: () => handlers.onOpenSettings?.(node),
     })
+    // 文件夹：转换为模块（文件夹升级为独立模块）
+    if (node.type === "folder") {
+      items.push({
+        key: "convert-to-module",
+        label: t("folder.convertToModule"),
+        icon: <PackagePlus class="h-4 w-4 text-sky-500 shrink-0" />,
+        onClick: () => handlers.onConvertToModule?.(node),
+      })
+    }
     items.push({ key: "separator-1", label: "", separator: true })
   }
 
@@ -411,7 +421,7 @@ function TreeNodeItem(props: {
   expandedIds: Set<string>
   onSelect?: (node: TreeNode) => void
   onToggle: (id: string) => void
-  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onOpenSettings" | "onSetEndpointDisplay">
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onOpenSettings" | "onSetEndpointDisplay" | "onConvertToModule">
   defaultModuleId?: string
   /** 由祖先模块向下继承的接口显示方式 */
   displayMode?: "name" | "url"
@@ -520,9 +530,16 @@ function TreeNodeItem(props: {
               <Radio class="h-3.5 w-3.5 text-pink-500 shrink-0" />
             </Show>
             <Show when={(!props.node.endpointType || props.node.endpointType === "http") && props.node.method}>
-              <Badge variant={props.node.method!.toLowerCase() as any} class="text-[10px] px-1 py-0 shrink-0">
-                {props.node.method}
-              </Badge>
+              {/* 方法徽章：无底色，仅用文字颜色区分；固定宽度以对齐，最多显示 4 个字符 */}
+              <span
+                class={cn(
+                  "shrink-0 w-9 text-[10px] font-mono font-semibold uppercase leading-none tracking-tight",
+                  METHOD_COLORS[props.node.method!] || "text-gray-500 dark:text-gray-400",
+                )}
+                title={props.node.method}
+              >
+                {props.node.method!.slice(0, 4)}
+              </span>
             </Show>
           </Show>
 

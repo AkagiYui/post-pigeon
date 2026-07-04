@@ -5,7 +5,7 @@ import { javascript } from "@codemirror/lang-javascript"
 import { json } from "@codemirror/lang-json"
 import { markdown } from "@codemirror/lang-markdown"
 import { xml } from "@codemirror/lang-xml"
-import { type Extension } from "@codemirror/state"
+import { Compartment, type Extension } from "@codemirror/state"
 import { oneDark } from "@codemirror/theme-one-dark"
 import { EditorView, keymap, placeholder as cmPlaceholder } from "@codemirror/view"
 import { basicSetup } from "codemirror"
@@ -42,13 +42,15 @@ function isDark(): boolean {
 export function CodeEditor(props: CodeEditorProps) {
   let el: HTMLDivElement | undefined
   let view: EditorView | undefined
+  // 语言隔间：允许在不重建编辑器的情况下热切换高亮方案（如响应体按 JSON/XML/HTML 切换）
+  const langCompartment = new Compartment()
 
   onMount(() => {
     if (!el) return
     const extensions: Extension[] = [
       basicSetup,
       keymap.of([indentWithTab]),
-      ...langExtension(props.language ?? "javascript"),
+      langCompartment.of(langExtension(props.language ?? "javascript")),
       EditorView.lineWrapping,
       EditorView.theme({
         "&": { height: "100%", fontSize: "13px", backgroundColor: "transparent" },
@@ -73,6 +75,12 @@ export function CodeEditor(props: CodeEditorProps) {
     if (view && v !== view.state.doc.toString()) {
       view.dispatch({ changes: { from: 0, to: view.state.doc.length, insert: v } })
     }
+  })
+
+  // 语言变化时热重配置高亮方案（无需重建编辑器）
+  createEffect(() => {
+    const lang = props.language ?? "javascript"
+    if (view) view.dispatch({ effects: langCompartment.reconfigure(langExtension(lang)) })
   })
 
   onCleanup(() => view?.destroy())

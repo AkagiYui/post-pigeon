@@ -111,7 +111,7 @@ func TestHTTP_GET(t *testing.T) {
 		t.Errorf("Size = %d，期望 >0", resp.Size)
 	}
 	if resp.Timing.Total < 0 {
-		t.Errorf("Timing.Total = %d", resp.Timing.Total)
+		t.Errorf("Timing.Total = %g", resp.Timing.Total)
 	}
 	echo := decodeEcho(t, resp.Body)
 	if echo["method"] != "GET" {
@@ -492,12 +492,12 @@ func TestHTTP_TimingBreakdown(t *testing.T) {
 	if err != nil {
 		t.Fatalf("err=%v", err)
 	}
-	t.Logf("Timing: total=%d dns=%d tcp=%d tls=%d ttfb=%d",
+	t.Logf("Timing: total=%g dns=%g tcp=%g tls=%g ttfb=%g",
 		resp.Timing.Total, resp.Timing.DNSLookup, resp.Timing.TCPConnect, resp.Timing.TLSHandshake, resp.Timing.TTFB)
 	if resp.Timing.TTFB <= 0 {
-		t.Errorf("TTFB = %d，期望 > 0（httptrace 未生效）", resp.Timing.TTFB)
+		t.Errorf("TTFB = %g，期望 > 0（httptrace 未生效）", resp.Timing.TTFB)
 	}
 	if resp.Timing.Total < resp.Timing.TTFB {
-		t.Errorf("Total(%d) 不应小于 TTFB(%d)", resp.Timing.Total, resp.Timing.TTFB)
+		t.Errorf("Total(%g) 不应小于 TTFB(%g)", resp.Timing.Total, resp.Timing.TTFB)
 	}
 }
