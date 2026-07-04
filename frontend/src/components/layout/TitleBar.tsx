@@ -27,6 +27,9 @@ export function TitleBar(props: TitleBarProps) {
   const router = useRouter()
   const location = useLocation()
   const [isMac, setIsMac] = createSignal(false)
+  // 是否为无边框桌面端（Windows/Linux）。仅此场景才需要前端自绘窗口控制按钮；
+  // 浏览器环境下 window._wails 不存在，IsWindows/IsLinux 均为 false，避免误显示三大金刚。
+  const [isFramelessDesktop, setIsFramelessDesktop] = createSignal(false)
   const isFullscreen = useFullscreen()
 
   // 判断当前是否在请求历史路由
@@ -45,6 +48,7 @@ export function TitleBar(props: TitleBarProps) {
   // 检测平台
   onMount(() => {
     setIsMac(System.IsMac())
+    setIsFramelessDesktop(System.IsWindows() || System.IsLinux())
   })
 
   // Windows 端窗口控制方法
@@ -260,8 +264,8 @@ export function TitleBar(props: TitleBarProps) {
         </Tooltip>
       </div>
 
-      {/* Windows 端：窗口控制按钮（最小化、最大化/还原、关闭） */}
-      <Show when={!isMac()}>
+      {/* Windows/Linux 无边框桌面端：窗口控制按钮（最小化、最大化/还原、关闭） */}
+      <Show when={isFramelessDesktop()}>
         <div class="flex items-center shrink-0" style="--wails-draggable:no-drag">
           <button
             class="winctrl-btn"
