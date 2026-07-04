@@ -120,6 +120,11 @@ tasks:
     cmds:
       - pnpm run dev --port {{.VITE_PORT}} --strictPort
 
+  dev:wait:frontend:
+    summary: 阻塞等待 Vite 端口可连接，避免慢机器上应用先于 Vite 就绪导致资源代理 i/o timeout
+    cmds:
+      - node scripts/wait-for-vite.mjs {{.VITE_PORT}}
+
   update:build-assets:
     summary: Updates the build assets
     dir: build

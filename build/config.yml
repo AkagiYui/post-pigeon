@@ -55,6 +55,12 @@ dev_mode:
       type: blocking
     - cmd: wails3 task common:dev:frontend
       type: background
+    # 慢机器上 Vite 启动较慢，应用会先于它就绪，导致 Go 资源代理拨号
+    # "dial tcp4 127.0.0.1:9245: i/o timeout"，首屏空白需手动 location.reload()。
+    # 这里阻塞等待 Vite 端口可连接后再启动应用。
+    # once：仅首次启动执行，热重载时跳过（此时 Vite 已在运行，无需再等）。
+    - cmd: wails3 task common:dev:wait:frontend
+      type: once
     - cmd: wails3 task run
       type: primary
 
