@@ -3,9 +3,10 @@ package services
 import (
 	"fmt"
 	"log/slog"
-	"post-pigeon/internal/models"
 
 	"gorm.io/gorm"
+
+	"post-pigeon/internal/models"
 )
 
 // ModuleService 模块管理服务
@@ -125,21 +126,50 @@ func (s *ModuleService) DeleteModule(id string) error {
 			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.Response{}).Error; err != nil {
 				return err
 			}
+			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.ResponseExample{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.ResponseSchema{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.RequestHistory{}).Error; err != nil {
+				return err
+			}
+			// 删除端点级操作
+			if err := tx.Where("owner_id IN ? AND owner_type = ?", endpointIDs, models.OperationOwnerEndpoint).Delete(&models.Operation{}).Error; err != nil {
+				return err
+			}
 			if err := tx.Where("id IN ?", endpointIDs).Delete(&models.Endpoint{}).Error; err != nil {
 				return err
 			}
 		}
 
-		// 删除文件夹
-		if err := tx.Where("module_id = ?", id).Delete(&models.Folder{}).Error; err != nil {
+		// 删除文件夹（包括文件夹级操作）
+		var folderIDs []string
+		if err := tx.Model(&models.Folder{}).Where("module_id = ?", id).Pluck("id", &folderIDs).Error; err != nil {
 			return err
 		}
-		// 删除前置 URL
+		if len(folderIDs) > 0 {
+			if err := tx.Where("owner_id IN ? AND owner_type = ?", folderIDs, models.OperationOwnerFolder).Delete(&models.Operation{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("module_id = ?", id).Delete(&models.Folder{}).Error; err != nil {
+				return err
+			}
+		}
+
+		// 删除模块关联数据
 		if err := tx.Where("module_id = ?", id).Delete(&models.ModuleBaseURL{}).Error; err != nil {
 			return err
 		}
-		// 删除请求历史
+		if err := tx.Where("module_id = ?", id).Delete(&models.ModuleParam{}).Error; err != nil {
+			return err
+		}
 		if err := tx.Where("module_id = ?", id).Delete(&models.RequestHistory{}).Error; err != nil {
+			return err
+		}
+		// 删除模块上的前置/后置操作
+		if err := tx.Where("owner_id = ? AND owner_type = ?", id, models.OperationOwnerModule).Delete(&models.Operation{}).Error; err != nil {
 			return err
 		}
 		// 删除模块

@@ -3,9 +3,10 @@ package services
 import (
 	"fmt"
 	"log/slog"
-	"post-pigeon/internal/models"
 
 	"gorm.io/gorm"
+
+	"post-pigeon/internal/models"
 )
 
 // FolderService 文件夹管理服务
@@ -88,9 +89,27 @@ func (s *FolderService) DeleteFolder(id string) error {
 			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.Response{}).Error; err != nil {
 				return err
 			}
+			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.ResponseExample{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.ResponseSchema{}).Error; err != nil {
+				return err
+			}
+			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.RequestHistory{}).Error; err != nil {
+				return err
+			}
+			// 删除端点级操作
+			if err := tx.Where("owner_id IN ? AND owner_type = ?", endpointIDs, models.OperationOwnerEndpoint).Delete(&models.Operation{}).Error; err != nil {
+				return err
+			}
 			if err := tx.Where("id IN ?", endpointIDs).Delete(&models.Endpoint{}).Error; err != nil {
 				return err
 			}
+		}
+
+		// 删除文件夹级操作
+		if err := tx.Where("owner_id IN ? AND owner_type = ?", folderIDs, models.OperationOwnerFolder).Delete(&models.Operation{}).Error; err != nil {
+			return err
 		}
 
 		// 删除所有子文件夹和自身
