@@ -15,17 +15,18 @@ func copyEndpointRecord(tx *gorm.DB, src models.Endpoint, moduleID string, folde
 	}
 
 	newEndpoint := &models.Endpoint{
-		ModuleID:        moduleID,
-		FolderID:        folderID,
-		Name:            name,
-		Method:          src.Method,
-		Path:            src.Path,
-		BodyType:        src.BodyType,
-		BodyContent:     src.BodyContent,
-		ContentType:     src.ContentType,
-		Timeout:         src.Timeout,
-		FollowRedirects: src.FollowRedirects,
-		SortOrder:       src.SortOrder,
+		ModuleID:             moduleID,
+		FolderID:             folderID,
+		Name:                 name,
+		Method:               src.Method,
+		Path:                 src.Path,
+		BodyType:             src.BodyType,
+		BodyContent:          src.BodyContent,
+		ContentType:          src.ContentType,
+		Timeout:              src.Timeout,
+		FollowRedirects:      src.FollowRedirects,
+		DisabledGlobalParams: src.DisabledGlobalParams,
+		SortOrder:            src.SortOrder,
 	}
 	if err := tx.Create(newEndpoint).Error; err != nil {
 		return err

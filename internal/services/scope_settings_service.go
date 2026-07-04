@@ -20,8 +20,8 @@ func NewScopeSettingsService(db *gorm.DB) *ScopeSettingsService {
 
 // ModuleSettings 模块级设置
 type ModuleSettings struct {
-	AuthType   string              `json:"authType"`
-	AuthData   string              `json:"authData"`
+	AuthType   string               `json:"authType"`
+	AuthData   string               `json:"authData"`
 	Params     []models.ModuleParam `json:"params"`
 	Operations []models.Operation   `json:"operations"`
 }

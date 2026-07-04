@@ -45,26 +45,29 @@ const (
 
 // Endpoint 端点，属于模块或文件夹。通过 Type 区分 HTTP 接口 / 文档 / WebSocket / SSE。
 type Endpoint struct {
-	ID              string    `gorm:"primaryKey" json:"id"`
-	ModuleID        string    `gorm:"not null;index" json:"moduleId"`
-	FolderID        *string   `gorm:"index" json:"folderId"`
-	Name            string    `gorm:"not null" json:"name"`
-	Type            string    `gorm:"default:http" json:"type"` // http, doc, websocket, sse
-	Method          string    `gorm:"not null;default:GET" json:"method"`
-	Path            string    `gorm:"not null;default:/" json:"path"`
-	BodyType        string    `gorm:"default:none" json:"bodyType"`
-	BodyContent     string    `gorm:"type:text" json:"bodyContent"`
-	ContentType     string    `json:"contentType"`
-	Timeout         int       `gorm:"default:30000" json:"timeout"`
-	FollowRedirects bool      `gorm:"default:true" json:"followRedirects"`
+	ID              string  `gorm:"primaryKey" json:"id"`
+	ModuleID        string  `gorm:"not null;index" json:"moduleId"`
+	FolderID        *string `gorm:"index" json:"folderId"`
+	Name            string  `gorm:"not null" json:"name"`
+	Type            string  `gorm:"default:http" json:"type"` // http, doc, websocket, sse
+	Method          string  `gorm:"not null;default:GET" json:"method"`
+	Path            string  `gorm:"not null;default:/" json:"path"`
+	BodyType        string  `gorm:"default:none" json:"bodyType"`
+	BodyContent     string  `gorm:"type:text" json:"bodyContent"`
+	ContentType     string  `json:"contentType"`
+	Timeout         int     `gorm:"default:30000" json:"timeout"`
+	FollowRedirects bool    `gorm:"default:true" json:"followRedirects"`
 	// 文档正文（Type=doc 时的 Markdown 内容）
 	DocContent string `gorm:"type:text" json:"docContent"`
 	// 接口元数据
-	Status      string `json:"status"`                 // developing, released, deprecated, ...
-	Tags        string `gorm:"type:text" json:"tags"`  // JSON 字符串数组
+	Status      string `json:"status"`                // developing, released, deprecated, ...
+	Tags        string `gorm:"type:text" json:"tags"` // JSON 字符串数组
 	Description string `gorm:"type:text" json:"description"`
 	// InheritOperations 是否继承上级（文件夹/模块）的前置后置操作，默认继承
 	InheritOperations bool `gorm:"default:true" json:"inheritOperations"`
+	// DisabledGlobalParams 本接口禁用的全局(模块)查询参数名列表，JSON 字符串数组。
+	// 仅影响本接口是否附加对应的模块自动参数，不改变模块级参数自身的启用状态。
+	DisabledGlobalParams string `gorm:"type:text" json:"disabledGlobalParams"`
 	// PreRequestScript 前置脚本，请求发送前执行（JavaScript）——旧字段，保留以兼容历史数据
 	PreRequestScript string `gorm:"type:text" json:"preRequestScript"`
 	// PostResponseScript 后置脚本，响应返回后执行（JavaScript）——旧字段，保留以兼容历史数据
@@ -74,14 +77,14 @@ type Endpoint struct {
 	UpdatedAt          time.Time `json:"updatedAt"`
 
 	// 关联
-	Params      []EndpointParam    `json:"params,omitempty"`
-	BodyFields  []EndpointBodyField `json:"bodyFields,omitempty"`
-	Headers     []EndpointHeader    `json:"headers,omitempty"`
-	Auth        *EndpointAuth       `json:"auth,omitempty"`
-	Response    *Response           `json:"response,omitempty"`
-	Operations  []Operation         `gorm:"-" json:"operations,omitempty"`
-	Examples    []ResponseExample   `json:"examples,omitempty"`
-	Schemas     []ResponseSchema    `json:"schemas,omitempty"`
+	Params     []EndpointParam     `json:"params,omitempty"`
+	BodyFields []EndpointBodyField `json:"bodyFields,omitempty"`
+	Headers    []EndpointHeader    `json:"headers,omitempty"`
+	Auth       *EndpointAuth       `json:"auth,omitempty"`
+	Response   *Response           `json:"response,omitempty"`
+	Operations []Operation         `gorm:"-" json:"operations,omitempty"`
+	Examples   []ResponseExample   `json:"examples,omitempty"`
+	Schemas    []ResponseSchema    `json:"schemas,omitempty"`
 }
 
 // BeforeCreate 创建前自动生成 UUID

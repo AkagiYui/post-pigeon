@@ -2,8 +2,8 @@
 // 上：请求方法 + URL + 发送/保存/删除按钮
 // 中：请求设置 tabs (Params/Body/Headers/Auth/设置)
 // 下：响应信息 tabs (Body/Headers/Cookies/实际请求)
-import { Check, Plug, PlugZap, Save, Send, Trash2 } from "lucide-solid"
-import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js"
+import { Check, Link2, Plug, PlugZap, Save, Send, Trash2 } from "lucide-solid"
+import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from "solid-js"
 
 import { SSEService, WebSocketService } from "@/../bindings/post-pigeon/internal/services"
 import { Badge } from "@/components/ui/badge"
@@ -23,7 +23,7 @@ import { DocumentEditor } from "./DocumentEditor"
 import { EndpointSettingsEditor } from "./EndpointSettingsEditor"
 import { HeadersEditor } from "./HeadersEditor"
 import { OperationsEditor } from "./OperationsEditor"
-import { ParamsEditor } from "./ParamsEditor"
+import { CookiesEditor, ParamsEditor } from "./ParamsEditor"
 import { ResponsePanel } from "./ResponsePanel"
 import { StreamEventLog, WebSocketResponse, wsUrl } from "./StreamPanels"
 
@@ -52,16 +52,21 @@ const methodColors: Record<string, string> = {
 /** 自定义方法的默认颜色 */
 const defaultMethodColor = "text-gray-600 dark:text-gray-400 bg-gray-500/10 dark:bg-gray-400/10"
 
-/** 请求设置标签 */
-function getRequestTabs() {
-  return [
-    { key: "params", label: t("endpoint.params") },
-    { key: "body", label: t("endpoint.body") },
-    { key: "headers", label: t("endpoint.headers") },
-    { key: "auth", label: t("endpoint.auth") },
-    { key: "script", label: t("endpoint.operations") },
-    { key: "settings", label: t("endpoint.settings") },
-  ]
+/** 请求设置标签 key（用于持久化状态校验） */
+const REQUEST_TAB_KEYS = ["params", "cookies", "body", "headers", "auth", "preOperations", "postOperations", "settings"]
+
+/** 带数字徽标的标签标题：count>0 时在标题右侧显示计数气泡 */
+function tabLabelWithCount(label: string, count: number): JSX.Element {
+  return (
+    <span class="inline-flex items-center gap-1.5">
+      {label}
+      <Show when={count > 0}>
+        <span class="inline-flex items-center justify-center min-w-4 h-4 px-1 rounded-full bg-accent-muted text-accent text-[10px] font-medium leading-none tabular-nums">
+          {count}
+        </span>
+      </Show>
+    </span>
+  )
 }
 
 /** 响应标签 */
@@ -106,6 +111,8 @@ export interface EndpointData {
   description: string
   /** 是否继承上级前置/后置操作 */
   inheritOperations: boolean
+  /** 本接口禁用的全局(模块) query 参数名列表（仅影响本接口） */
+  disabledGlobalParams: string[]
   /** 前置/后置操作列表 */
   operations: OperationRow[]
   /** 响应示例（不在此编辑，仅透传保存以免丢失） */
@@ -291,6 +298,8 @@ export interface EndpointDetailProps {
   onEnvironmentChange?: (environmentId: string) => void
   /** 所属项目 ID（供操作编辑器读取脚本库） */
   projectId?: string
+  /** 模块级"全局" query 参数（只读展示于参数 tab） */
+  globalQueryParams?: { name: string; value: string }[]
 }
 
 // 按端点 ID 持久化标签页状态，避免组件重新挂载时丢失
@@ -342,11 +351,16 @@ function EnvironmentBadge(props: {
     <>
       <span
         ref={badgeRef}
-        class="inline-flex items-center gap-0.5 px-2 ml-1 my-1 text-xs bg-accent-muted text-accent rounded-sm cursor-pointer select-none hover:opacity-80 transition-opacity max-w-50 truncate"
+        class={cn(
+          "inline-flex items-center gap-1 px-2 ml-1 my-1 text-xs rounded-sm cursor-pointer select-none hover:opacity-80 transition-opacity min-w-0 shrink max-w-50",
+          props.baseUrl ? "bg-accent-muted text-accent" : "bg-muted text-muted-foreground",
+        )}
         onClick={handleBadgeClick}
-        title={props.baseUrl}
+        title={props.baseUrl || t("endpoint.baseUrl.notSet")}
       >
-        <span class="truncate">{props.baseUrl}</span>
+        {/* 图标始终显示；标题在空间不足时被挤压隐藏，仅剩图标 */}
+        <Link2 class="h-3 w-3 shrink-0" />
+        <span class="truncate min-w-0">{props.baseUrl || t("endpoint.baseUrl.notSet")}</span>
       </span>
 
       {/* 环境选择下拉菜单 */}
@@ -412,7 +426,8 @@ export function EndpointDetail(props: EndpointDetailProps) {
     (id) => {
       const saved = tabStateStore.get(id)
       if (saved) {
-        setActiveRequestTab(saved.requestTab)
+        // 兼容旧缓存（如已废弃的 "script" tab）：非法 key 回退到 params
+        setActiveRequestTab(REQUEST_TAB_KEYS.includes(saved.requestTab) ? saved.requestTab : "params")
         setActiveResponseTab(saved.responseTab)
       } else {
         setActiveRequestTab("params")
@@ -420,6 +435,22 @@ export function EndpointDetail(props: EndpointDetailProps) {
       }
     },
   ))
+
+  // 前置/后置操作的启用数量（用于 tab 标题数字徽标）
+  const preOpsCount = () => ep().operations.filter(o => o.stage === "pre" && o.enabled).length
+  const postOpsCount = () => ep().operations.filter(o => o.stage === "post" && o.enabled).length
+
+  // 请求设置标签（前置/后置操作作为顶级 tab，位于认证与设置之间）
+  const requestTabs = createMemo(() => [
+    { key: "params", label: t("endpoint.params") },
+    { key: "cookies", label: t("endpoint.cookies") },
+    { key: "body", label: t("endpoint.body") },
+    { key: "headers", label: t("endpoint.headers") },
+    { key: "auth", label: t("endpoint.auth") },
+    { key: "preOperations", label: tabLabelWithCount(t("op.stage.pre"), preOpsCount()) },
+    { key: "postOperations", label: tabLabelWithCount(t("op.stage.post"), postOpsCount()) },
+    { key: "settings", label: t("endpoint.settings") },
+  ])
 
   // 标签页变化时，保存到持久化存储（仅跟踪标签变化，不跟踪端点 ID 变化）
   createEffect(on(
@@ -492,8 +523,9 @@ export function EndpointDetail(props: EndpointDetailProps) {
           {/* 分隔线 */}
           <div class="w-px self-stretch bg-border shrink-0" />
 
-          {/* 前置 baseUrl 环境切换 Badge：仅当接口路径不带协议头（相对地址）时显示 */}
-          <Show when={ep().baseUrl && !hasURLScheme(ep().path)}>
+          {/* 前置 baseUrl 环境切换按钮：仅取决于接口路径是否带协议头。
+              只要是相对地址（不含协议头）就显示；当前环境该模块未设置 baseUrl 时显示"未设置"。 */}
+          <Show when={!hasURLScheme(ep().path)}>
             <EnvironmentBadge
               baseUrl={ep().baseUrl}
               environmentBaseUrls={props.environmentBaseUrls}
@@ -539,13 +571,20 @@ export function EndpointDetail(props: EndpointDetailProps) {
       {/* 中部：请求设置（HTTP 与 WebSocket 完全一致） */}
       <div class="flex-1 overflow-hidden border-b border-border">
         <Tabs
-          tabs={getRequestTabs()}
+          tabs={requestTabs()}
           value={activeRequestTab()}
           onChange={setActiveRequestTab}
         >
           {(key) => {
             switch (key) {
-              case "params": return <ParamsEditor value={ep().params} onChange={(v) => props.onChange?.({ params: v })} />
+              case "params": return <ParamsEditor
+                value={ep().params}
+                onChange={(v) => props.onChange?.({ params: v })}
+                globalQueryParams={props.globalQueryParams}
+                disabledGlobalParams={ep().disabledGlobalParams}
+                onDisabledGlobalParamsChange={(names) => props.onChange?.({ disabledGlobalParams: names })}
+              />
+              case "cookies": return <CookiesEditor value={ep().params} onChange={(v) => props.onChange?.({ params: v })} />
               case "body": return <BodyEditor
                 bodyType={ep().bodyType}
                 bodyContent={ep().bodyContent}
@@ -555,7 +594,14 @@ export function EndpointDetail(props: EndpointDetailProps) {
               />
               case "headers": return <HeadersEditor value={ep().headers} onChange={(v) => props.onChange?.({ headers: v })} />
               case "auth": return <AuthEditor value={ep().auth} onChange={(v) => props.onChange?.({ auth: v })} />
-              case "script": return <OperationsEditor
+              case "preOperations": return <OperationsEditor
+                stage="pre"
+                operations={ep().operations}
+                onChange={(ops) => props.onChange?.({ operations: ops })}
+                projectId={props.projectId}
+              />
+              case "postOperations": return <OperationsEditor
+                stage="post"
                 operations={ep().operations}
                 onChange={(ops) => props.onChange?.({ operations: ops })}
                 projectId={props.projectId}

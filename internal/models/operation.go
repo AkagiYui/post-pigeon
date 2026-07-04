@@ -43,8 +43,10 @@ type Operation struct {
 	Stage     string `gorm:"not null" json:"stage"` // pre, post
 	Type      string `gorm:"not null" json:"type"`  // script, libraryScript, assert, extractVar, wait, inherit
 	Name      string `json:"name"`
-	Enabled   bool   `gorm:"default:true" json:"enabled"`
-	SortOrder int    `gorm:"default:0" json:"sortOrder"`
+	// Enabled 是否启用。不使用 gorm default:true——否则 gorm 会把「禁用」(false 零值)
+	// 当作未设置而回退为 true，导致禁用状态无法持久化。所有创建路径均显式设置本字段。
+	Enabled   bool `json:"enabled"`
+	SortOrder int  `gorm:"default:0" json:"sortOrder"`
 	// Data 类型相关配置（JSON 字符串）
 	Data string `gorm:"type:text" json:"data"`
 }

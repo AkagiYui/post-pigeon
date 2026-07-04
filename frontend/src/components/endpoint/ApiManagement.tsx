@@ -73,6 +73,7 @@ interface UnsavedRequestData {
   tags: string
   description: string
   inheritOperations: boolean
+  disabledGlobalParams: string[]
   operations: OperationRow[]
   examples: any[]
   schemas: any[]
@@ -83,7 +84,19 @@ const endpointDefaults = {
   type: "http" as EndpointType,
   docContent: "", status: "", tags: "", description: "",
   inheritOperations: true, operations: [] as OperationRow[],
+  disabledGlobalParams: [] as string[],
   examples: [] as any[], schemas: [] as any[],
+}
+
+/** 解析 JSON 字符串数组；非法或空时返回空数组 */
+function parseStringArray(s?: string | null): string[] {
+  if (!s) return []
+  try {
+    const arr = JSON.parse(s)
+    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []
+  } catch {
+    return []
+  }
 }
 
 let tempIdCounter = 0
@@ -298,6 +311,8 @@ export function ApiManagement(props: ApiManagementProps) {
   const [openApiSelectedIndexes, setOpenApiSelectedIndexes] = createSignal<Set<number>>(new Set())
   // 当前端点所属模块的所有环境前置 URL 列表（供环境切换下拉使用）
   const [environmentBaseUrls, setEnvironmentBaseUrls] = createSignal<EnvironmentBaseURLOption[]>([])
+  // 当前端点所属模块的"全局" query 参数（模块自动参数中 type=query 且启用的），供参数 tab 展示
+  const [globalQueryParams, setGlobalQueryParams] = createSignal<{ name: string; value: string }[]>([])
   // Apifox 导入对话框
   const [apifoxOpen, setApifoxOpen] = createSignal(false)
   const [apifoxJson, setApifoxJson] = createSignal("")
@@ -351,6 +366,23 @@ export function ApiManagement(props: ApiManagementProps) {
         }))
         setEnvironmentBaseUrls(options)
       } catch { /* 获取 baseUrl 失败时忽略 */ }
+    },
+  ))
+
+  // ---- 加载当前端点所属模块的"全局" query 参数（模块自动参数）----
+  // 端点切换或树刷新（保存到项目后）时重新加载；未保存请求（不在树中）无模块，清空。
+  createEffect(on(
+    () => [endpointData.id, treeData()] as const,
+    async ([epId]) => {
+      if (!epId) { setGlobalQueryParams([]); return }
+      const moduleId = findModuleIdByNodeId(treeData(), epId)
+      if (!moduleId) { setGlobalQueryParams([]); return }
+      try {
+        const mps = await ModuleService.GetModuleParams(moduleId)
+        setGlobalQueryParams((mps || [])
+          .filter(p => p.type === "query" && p.enabled)
+          .map(p => ({ name: p.name, value: p.value })))
+      } catch { setGlobalQueryParams([]) }
     },
   ))
 
@@ -617,6 +649,7 @@ export function ApiManagement(props: ApiManagementProps) {
           docContent: detail.docContent || "",
           status: detail.status || "", tags: detail.tags || "", description: detail.description || "",
           inheritOperations: detail.inheritOperations ?? true,
+          disabledGlobalParams: parseStringArray(detail.disabledGlobalParams),
           operations: fromOperationModels(detail.operations),
           examples: (detail.examples as any[]) || [], schemas: (detail.schemas as any[]) || [],
         } as EndpointData)
@@ -651,6 +684,7 @@ export function ApiManagement(props: ApiManagementProps) {
         preRequestScript: unsaved.preRequestScript ?? "", postResponseScript: unsaved.postResponseScript ?? "",
         docContent: unsaved.docContent ?? "", status: unsaved.status ?? "", tags: unsaved.tags ?? "",
         description: unsaved.description ?? "", inheritOperations: unsaved.inheritOperations ?? true,
+        disabledGlobalParams: unsaved.disabledGlobalParams ?? [],
         operations: unsaved.operations ?? [], examples: unsaved.examples ?? [], schemas: unsaved.schemas ?? [],
       } as EndpointData)
     }
@@ -761,6 +795,7 @@ export function ApiManagement(props: ApiManagementProps) {
         preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
         type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
         description: ep.description, inheritOperations: ep.inheritOperations,
+        disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations),
@@ -787,6 +822,7 @@ export function ApiManagement(props: ApiManagementProps) {
         preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
         type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
         description: ep.description, inheritOperations: ep.inheritOperations,
+        disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
@@ -800,6 +836,7 @@ export function ApiManagement(props: ApiManagementProps) {
           preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
           type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
           description: ep.description, inheritOperations: ep.inheritOperations,
+          disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
           params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
           headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
           operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
@@ -1195,6 +1232,7 @@ export function ApiManagement(props: ApiManagementProps) {
                 environmentBaseUrls={environmentBaseUrls()}
                 onEnvironmentChange={handleEnvironmentChange}
                 projectId={props.projectId}
+                globalQueryParams={globalQueryParams()}
               /> : null}
             </Tabs>
           </Show>

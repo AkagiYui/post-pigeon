@@ -19,6 +19,8 @@ export interface OperationsEditorProps {
   operations: OperationRow[]
   onChange: (ops: OperationRow[]) => void
   projectId?: string
+  /** 固定到单一阶段（pre/post）：提供时隐藏内部阶段切换，仅编辑该阶段。 */
+  stage?: OperationStage
 }
 
 const opTypeOptions = () => [
@@ -58,7 +60,9 @@ const scopeOptions = [
 ]
 
 export function OperationsEditor(props: OperationsEditorProps) {
-  const [stage, setStage] = createSignal<OperationStage>("pre")
+  // 内部阶段状态仅在未固定阶段（未传入 props.stage）时使用
+  const [internalStage, setInternalStage] = createSignal<OperationStage>("pre")
+  const stage = () => props.stage ?? internalStage()
   const [libraries, setLibraries] = createSignal<ScriptLibrary[]>([])
 
   onMount(async () => {
@@ -106,22 +110,24 @@ export function OperationsEditor(props: OperationsEditorProps) {
 
   return (
     <div class="p-3 h-full overflow-auto flex flex-col">
-      {/* 阶段切换 */}
-      <div class="flex gap-1 mb-3 shrink-0">
-        <For each={tabs}>
-          {(tab) => (
-            <button
-              class={cn(
-                "px-2.5 py-1 text-xs rounded-md transition-colors",
-                stage() === tab.key ? "bg-accent text-white" : "bg-muted text-muted-foreground hover:text-foreground",
-              )}
-              onClick={() => setStage(tab.key)}
-            >
-              {tab.label}
-            </button>
-          )}
-        </For>
-      </div>
+      {/* 阶段切换（固定阶段时隐藏） */}
+      <Show when={!props.stage}>
+        <div class="flex gap-1 mb-3 shrink-0">
+          <For each={tabs}>
+            {(tab) => (
+              <button
+                class={cn(
+                  "px-2.5 py-1 text-xs rounded-md transition-colors",
+                  stage() === tab.key ? "bg-accent text-white" : "bg-muted text-muted-foreground hover:text-foreground",
+                )}
+                onClick={() => setInternalStage(tab.key)}
+              >
+                {tab.label}
+              </button>
+            )}
+          </For>
+        </div>
+      </Show>
 
       <div class="flex-1 flex flex-col gap-2 min-h-0">
         <For each={stageOps()} fallback={<div class="text-sm text-muted-foreground text-center py-6">{t("op.empty")}</div>}>

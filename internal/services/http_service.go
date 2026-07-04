@@ -136,6 +136,19 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	}
 	// 模块自动参数并入请求（query/cookie 计入 Params，header 计入 Headers）
 	modParams, modHeaders := s.loadModuleParams(data.ModuleID)
+	// 本接口禁用的全局(模块)查询参数：仅过滤 query 类型，按参数名匹配
+	if loadedEndpoint != nil {
+		if disabled := parseNameSet(loadedEndpoint.DisabledGlobalParams); len(disabled) > 0 {
+			kept := modParams[:0]
+			for _, p := range modParams {
+				if p.Type == "query" && disabled[p.Name] {
+					continue
+				}
+				kept = append(kept, p)
+			}
+			modParams = kept
+		}
+	}
 	data.Params = append(data.Params, modParams...)
 	data.Headers = append(data.Headers, modHeaders...)
 
@@ -704,6 +717,23 @@ func parseFileField(value string) (fileName string, content []byte, ok bool) {
 		return "", nil, false
 	}
 	return payload.FileName, decoded, true
+}
+
+// parseNameSet 将 JSON 字符串数组解析为名称集合（用于禁用全局参数名匹配）。
+// 非法或空字符串返回空 map。
+func parseNameSet(jsonArr string) map[string]bool {
+	if strings.TrimSpace(jsonArr) == "" {
+		return nil
+	}
+	var names []string
+	if err := json.Unmarshal([]byte(jsonArr), &names); err != nil {
+		return nil
+	}
+	set := make(map[string]bool, len(names))
+	for _, n := range names {
+		set[n] = true
+	}
+	return set
 }
 
 // resolveVars 替换字符串中的 {{key}} 占位符；多趟替换以支持一层嵌套。

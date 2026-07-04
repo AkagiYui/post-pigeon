@@ -228,6 +228,17 @@ func (s *ModuleService) UpdateModuleSortOrder(id string, sortOrder int) error {
 	return s.db.Model(&models.Module{}).Where("id = ?", id).Update("sort_order", sortOrder).Error
 }
 
+// GetModuleParams 获取模块的自动参数（供接口详情页展示"全局参数"分区）。
+// 返回全部参数（含未启用），前端据 type/enabled 自行筛选展示。
+func (s *ModuleService) GetModuleParams(moduleID string) ([]models.ModuleParam, error) {
+	var params []models.ModuleParam
+	err := s.db.Where("module_id = ?", moduleID).Order("sort_order ASC").Find(&params).Error
+	if err != nil {
+		return nil, fmt.Errorf("获取模块自动参数失败: %w", err)
+	}
+	return params, nil
+}
+
 // GetModuleBaseURLs 获取模块的所有前置 URL
 func (s *ModuleService) GetModuleBaseURLs(moduleID string) ([]models.ModuleBaseURL, error) {
 	var urls []models.ModuleBaseURL

@@ -102,21 +102,22 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// 更新端点基本信息
 		if err := tx.Model(&models.Endpoint{}).Where("id = ?", data.ID).Updates(map[string]interface{}{
-			"name":             data.Name,
-			"method":           data.Method,
-			"path":             data.Path,
-			"body_type":        data.BodyType,
-			"body_content":     data.BodyContent,
-			"content_type":         data.ContentType,
-			"timeout":              data.Timeout,
-			"follow_redirects":     data.FollowRedirects,
-			"pre_request_script":   data.PreRequestScript,
-			"post_response_script": data.PostResponseScript,
-			"doc_content":          data.DocContent,
-			"status":               data.Status,
-			"tags":                 data.Tags,
-			"description":          data.Description,
-			"inherit_operations":   data.InheritOperations,
+			"name":                   data.Name,
+			"method":                 data.Method,
+			"path":                   data.Path,
+			"body_type":              data.BodyType,
+			"body_content":           data.BodyContent,
+			"content_type":           data.ContentType,
+			"timeout":                data.Timeout,
+			"follow_redirects":       data.FollowRedirects,
+			"pre_request_script":     data.PreRequestScript,
+			"post_response_script":   data.PostResponseScript,
+			"doc_content":            data.DocContent,
+			"status":                 data.Status,
+			"tags":                   data.Tags,
+			"description":            data.Description,
+			"inherit_operations":     data.InheritOperations,
+			"disabled_global_params": data.DisabledGlobalParams,
 		}).Error; err != nil {
 			return err
 		}
@@ -318,17 +319,17 @@ func (s *EndpointService) SearchEndpoints(moduleID string, query string) ([]mode
 
 // EndpointSaveData 端点保存数据
 type EndpointSaveData struct {
-	ID              string                     `json:"id"`
-	Name            string                     `json:"name"`
-	Method          string                     `json:"method"`
-	Path            string                     `json:"path"`
-	BodyType        string                     `json:"bodyType"`
-	BodyContent     string                     `json:"bodyContent"`
-	ContentType        string                     `json:"contentType"`
-	Timeout            int                        `json:"timeout"`
-	FollowRedirects    bool                       `json:"followRedirects"`
-	PreRequestScript   string                     `json:"preRequestScript"`
-	PostResponseScript string                     `json:"postResponseScript"`
+	ID                 string `json:"id"`
+	Name               string `json:"name"`
+	Method             string `json:"method"`
+	Path               string `json:"path"`
+	BodyType           string `json:"bodyType"`
+	BodyContent        string `json:"bodyContent"`
+	ContentType        string `json:"contentType"`
+	Timeout            int    `json:"timeout"`
+	FollowRedirects    bool   `json:"followRedirects"`
+	PreRequestScript   string `json:"preRequestScript"`
+	PostResponseScript string `json:"postResponseScript"`
 	// 新增元数据与文档/操作
 	Type              string `json:"type"`
 	DocContent        string `json:"docContent"`
@@ -336,13 +337,15 @@ type EndpointSaveData struct {
 	Tags              string `json:"tags"`
 	Description       string `json:"description"`
 	InheritOperations bool   `json:"inheritOperations"`
-	Params             []models.EndpointParam     `json:"params"`
-	BodyFields      []models.EndpointBodyField `json:"bodyFields"`
-	Headers         []models.EndpointHeader    `json:"headers"`
-	Auth            *models.EndpointAuth       `json:"auth"`
-	Operations      []models.Operation         `json:"operations"`
-	Examples        []models.ResponseExample   `json:"examples"`
-	Schemas         []models.ResponseSchema    `json:"schemas"`
+	// DisabledGlobalParams 本接口禁用的全局(模块)查询参数名列表，JSON 字符串数组
+	DisabledGlobalParams string                     `json:"disabledGlobalParams"`
+	Params               []models.EndpointParam     `json:"params"`
+	BodyFields           []models.EndpointBodyField `json:"bodyFields"`
+	Headers              []models.EndpointHeader    `json:"headers"`
+	Auth                 *models.EndpointAuth       `json:"auth"`
+	Operations           []models.Operation         `json:"operations"`
+	Examples             []models.ResponseExample   `json:"examples"`
+	Schemas              []models.ResponseSchema    `json:"schemas"`
 }
 
 // SaveResponse 保存端点响应（upsert）
@@ -400,17 +403,18 @@ func (s *EndpointService) CreateFullEndpoint(moduleID string, folderID *string, 
 	query.Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
 
 	endpoint := &models.Endpoint{
-		ModuleID:        moduleID,
-		FolderID:        folderID,
-		Name:            data.Name,
-		Method:          data.Method,
-		Path:            data.Path,
-		BodyType:        data.BodyType,
-		BodyContent:     data.BodyContent,
-		ContentType:     data.ContentType,
-		Timeout:         data.Timeout,
-		FollowRedirects: data.FollowRedirects,
-		SortOrder:       maxSort + 1,
+		ModuleID:             moduleID,
+		FolderID:             folderID,
+		Name:                 data.Name,
+		Method:               data.Method,
+		Path:                 data.Path,
+		BodyType:             data.BodyType,
+		BodyContent:          data.BodyContent,
+		ContentType:          data.ContentType,
+		Timeout:              data.Timeout,
+		FollowRedirects:      data.FollowRedirects,
+		DisabledGlobalParams: data.DisabledGlobalParams,
+		SortOrder:            maxSort + 1,
 	}
 
 	// 使用事务创建端点及其所有关联数据
@@ -546,17 +550,18 @@ func (s *EndpointService) DuplicateEndpoint(id string) (*models.Endpoint, error)
 	query.Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
 
 	newEndpoint := &models.Endpoint{
-		ModuleID:        src.ModuleID,
-		FolderID:        src.FolderID,
-		Name:            src.Name + " 副本",
-		Method:          src.Method,
-		Path:            src.Path,
-		BodyType:        src.BodyType,
-		BodyContent:     src.BodyContent,
-		ContentType:     src.ContentType,
-		Timeout:         src.Timeout,
-		FollowRedirects: src.FollowRedirects,
-		SortOrder:       maxSort + 1,
+		ModuleID:             src.ModuleID,
+		FolderID:             src.FolderID,
+		Name:                 src.Name + " 副本",
+		Method:               src.Method,
+		Path:                 src.Path,
+		BodyType:             src.BodyType,
+		BodyContent:          src.BodyContent,
+		ContentType:          src.ContentType,
+		Timeout:              src.Timeout,
+		FollowRedirects:      src.FollowRedirects,
+		DisabledGlobalParams: src.DisabledGlobalParams,
+		SortOrder:            maxSort + 1,
 	}
 
 	err = s.db.Transaction(func(tx *gorm.DB) error {
