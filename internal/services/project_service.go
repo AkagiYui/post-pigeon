@@ -146,113 +146,34 @@ func (s *ProjectService) UpdateProject(id string, name string, description strin
 
 // DeleteProject 删除项目及其所有关联数据
 func (s *ProjectService) DeleteProject(id string) error {
-	// 使用事务确保数据一致性
+	// 端点及其关联数据、文件夹、模块、环境与变量、全局变量、脚本库均由数据库外键
+	// ON DELETE CASCADE 自动级联删除；这里只需显式清理多态归属的 Operation（外键无法覆盖），
+	// 再删除项目即可。使用事务保证「清理操作 + 删除项目」的原子性。
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// 删除项目下的所有关联数据
-		// 1. 获取所有模块 ID
-		var moduleIDs []string
+		// 收集模块、文件夹、端点 ID —— 仅用于清理它们的多态操作
+		var moduleIDs, folderIDs, endpointIDs []string
 		if err := tx.Model(&models.Module{}).Where("project_id = ?", id).Pluck("id", &moduleIDs).Error; err != nil {
 			return err
 		}
-
 		if len(moduleIDs) > 0 {
-			// 2. 获取所有端点 ID
-			var endpointIDs []string
-			if err := tx.Model(&models.Endpoint{}).Where("module_id IN ?", moduleIDs).Pluck("id", &endpointIDs).Error; err != nil {
-				return err
-			}
-
-			if len(endpointIDs) > 0 {
-				// 3. 删除端点关联数据
-				if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.EndpointParam{}).Error; err != nil {
-					return err
-				}
-				if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.EndpointBodyField{}).Error; err != nil {
-					return err
-				}
-				if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.EndpointHeader{}).Error; err != nil {
-					return err
-				}
-				if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.EndpointAuth{}).Error; err != nil {
-					return err
-				}
-				if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.Response{}).Error; err != nil {
-					return err
-				}
-				if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.ResponseExample{}).Error; err != nil {
-					return err
-				}
-				if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.ResponseSchema{}).Error; err != nil {
-					return err
-				}
-				// 删除端点上的前置/后置操作
-				if err := tx.Where("owner_id IN ? AND owner_type = ?", endpointIDs, "endpoint").Delete(&models.Operation{}).Error; err != nil {
-					return err
-				}
-				// 删除端点
-				if err := tx.Where("id IN ?", endpointIDs).Delete(&models.Endpoint{}).Error; err != nil {
-					return err
-				}
-			}
-
-			// 4. 删除文件夹及其子文件夹（递归）
-			var folderIDs []string
 			if err := tx.Model(&models.Folder{}).Where("module_id IN ?", moduleIDs).Pluck("id", &folderIDs).Error; err != nil {
 				return err
 			}
-			if len(folderIDs) > 0 {
-				// 先删除文件夹上的前置/后置操作
-				if err := tx.Where("owner_id IN ? AND owner_type = ?", folderIDs, "folder").Delete(&models.Operation{}).Error; err != nil {
-					return err
-				}
-				if err := tx.Where("id IN ?", folderIDs).Delete(&models.Folder{}).Error; err != nil {
-					return err
-				}
-			}
-
-			// 5. 删除模块关联数据
-			if err := tx.Where("module_id IN ?", moduleIDs).Delete(&models.ModuleBaseURL{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("module_id IN ?", moduleIDs).Delete(&models.ModuleParam{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("module_id IN ?", moduleIDs).Delete(&models.RequestHistory{}).Error; err != nil {
-				return err
-			}
-			// 删除模块上的前置/后置操作
-			if err := tx.Where("owner_id IN ? AND owner_type = ?", moduleIDs, "module").Delete(&models.Operation{}).Error; err != nil {
-				return err
-			}
-			// 6. 删除模块
-			if err := tx.Where("id IN ?", moduleIDs).Delete(&models.Module{}).Error; err != nil {
+			if err := tx.Model(&models.Endpoint{}).Where("module_id IN ?", moduleIDs).Pluck("id", &endpointIDs).Error; err != nil {
 				return err
 			}
 		}
-
-		// 删除环境变量和环境
-		var envIDs []string
-		if err := tx.Model(&models.Environment{}).Where("project_id = ?", id).Pluck("id", &envIDs).Error; err != nil {
+		if err := deleteOperations(tx, models.OperationOwnerEndpoint, endpointIDs); err != nil {
 			return err
 		}
-		if len(envIDs) > 0 {
-			if err := tx.Where("environment_id IN ?", envIDs).Delete(&models.EnvironmentVariable{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("id IN ?", envIDs).Delete(&models.Environment{}).Error; err != nil {
-				return err
-			}
-		}
-
-		// 删除脚本库和全局变量
-		if err := tx.Where("project_id = ?", id).Delete(&models.ScriptLibrary{}).Error; err != nil {
+		if err := deleteOperations(tx, models.OperationOwnerFolder, folderIDs); err != nil {
 			return err
 		}
-		if err := tx.Where("project_id = ?", id).Delete(&models.GlobalVariable{}).Error; err != nil {
+		if err := deleteOperations(tx, models.OperationOwnerModule, moduleIDs); err != nil {
 			return err
 		}
 
-		// 最后删除项目
+		// 删除项目：其余关联数据随外键级联删除
 		if err := tx.Where("id = ?", id).Delete(&models.Project{}).Error; err != nil {
 			return err
 		}

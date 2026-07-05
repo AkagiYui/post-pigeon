@@ -101,78 +101,30 @@ func (s *ModuleService) SetEndpointDisplay(id string, display string) error {
 }
 
 // DeleteModule 删除模块及其所有关联数据
+//
+// 端点及其关联数据、文件夹、前置 URL、模块参数、请求历史均由数据库外键 ON DELETE CASCADE
+// 自动级联删除，这里只需显式清理多态归属的 Operation（外键无法覆盖），再删除模块即可。
 func (s *ModuleService) DeleteModule(id string) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// 获取所有端点 ID
-		var endpointIDs []string
+		// 收集端点、文件夹 ID —— 仅用于清理它们的多态操作
+		var endpointIDs, folderIDs []string
 		if err := tx.Model(&models.Endpoint{}).Where("module_id = ?", id).Pluck("id", &endpointIDs).Error; err != nil {
 			return err
 		}
-
-		if len(endpointIDs) > 0 {
-			// 删除端点关联数据
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.EndpointParam{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.EndpointBodyField{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.EndpointHeader{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.EndpointAuth{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.Response{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.ResponseExample{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.ResponseSchema{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.RequestHistory{}).Error; err != nil {
-				return err
-			}
-			// 删除端点级操作
-			if err := tx.Where("owner_id IN ? AND owner_type = ?", endpointIDs, models.OperationOwnerEndpoint).Delete(&models.Operation{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("id IN ?", endpointIDs).Delete(&models.Endpoint{}).Error; err != nil {
-				return err
-			}
-		}
-
-		// 删除文件夹（包括文件夹级操作）
-		var folderIDs []string
 		if err := tx.Model(&models.Folder{}).Where("module_id = ?", id).Pluck("id", &folderIDs).Error; err != nil {
 			return err
 		}
-		if len(folderIDs) > 0 {
-			if err := tx.Where("owner_id IN ? AND owner_type = ?", folderIDs, models.OperationOwnerFolder).Delete(&models.Operation{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("module_id = ?", id).Delete(&models.Folder{}).Error; err != nil {
-				return err
-			}
+		if err := deleteOperations(tx, models.OperationOwnerEndpoint, endpointIDs); err != nil {
+			return err
+		}
+		if err := deleteOperations(tx, models.OperationOwnerFolder, folderIDs); err != nil {
+			return err
+		}
+		if err := deleteOperations(tx, models.OperationOwnerModule, []string{id}); err != nil {
+			return err
 		}
 
-		// 删除模块关联数据
-		if err := tx.Where("module_id = ?", id).Delete(&models.ModuleBaseURL{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("module_id = ?", id).Delete(&models.ModuleParam{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("module_id = ?", id).Delete(&models.RequestHistory{}).Error; err != nil {
-			return err
-		}
-		// 删除模块上的前置/后置操作
-		if err := tx.Where("owner_id = ? AND owner_type = ?", id, models.OperationOwnerModule).Delete(&models.Operation{}).Error; err != nil {
-			return err
-		}
-		// 删除模块
+		// 删除模块：其余关联数据随外键级联删除
 		if err := tx.Where("id = ?", id).Delete(&models.Module{}).Error; err != nil {
 			return err
 		}

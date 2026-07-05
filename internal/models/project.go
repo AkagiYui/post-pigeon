@@ -16,6 +16,12 @@ type Project struct {
 	SortOrder   int64     `gorm:"default:0" json:"sortOrder"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
+
+	// 关联（constraint:OnDelete:CASCADE 使删除项目时，数据库自动级联删除其下所有内容）
+	Modules         []Module         `gorm:"constraint:OnDelete:CASCADE" json:"-"`
+	Environments    []Environment    `gorm:"constraint:OnDelete:CASCADE" json:"-"`
+	GlobalVariables []GlobalVariable `gorm:"constraint:OnDelete:CASCADE" json:"-"`
+	Scripts         []ScriptLibrary  `gorm:"constraint:OnDelete:CASCADE" json:"-"`
 }
 
 // BeforeCreate 创建前自动生成 UUID

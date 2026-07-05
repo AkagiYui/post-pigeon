@@ -76,15 +76,18 @@ type Endpoint struct {
 	CreatedAt          time.Time `json:"createdAt"`
 	UpdatedAt          time.Time `json:"updatedAt"`
 
-	// 关联
-	Params     []EndpointParam     `json:"params,omitempty"`
-	BodyFields []EndpointBodyField `json:"bodyFields,omitempty"`
-	Headers    []EndpointHeader    `json:"headers,omitempty"`
-	Auth       *EndpointAuth       `json:"auth,omitempty"`
-	Response   *Response           `json:"response,omitempty"`
-	Operations []Operation         `gorm:"-" json:"operations,omitempty"`
-	Examples   []ResponseExample   `json:"examples,omitempty"`
-	Schemas    []ResponseSchema    `json:"schemas,omitempty"`
+	// 关联（constraint:OnDelete:CASCADE 使删除端点时，数据库自动级联删除下列关联数据）
+	Params     []EndpointParam     `gorm:"constraint:OnDelete:CASCADE" json:"params,omitempty"`
+	BodyFields []EndpointBodyField `gorm:"constraint:OnDelete:CASCADE" json:"bodyFields,omitempty"`
+	Headers    []EndpointHeader    `gorm:"constraint:OnDelete:CASCADE" json:"headers,omitempty"`
+	Auth       *EndpointAuth       `gorm:"constraint:OnDelete:CASCADE" json:"auth,omitempty"`
+	Response   *Response           `gorm:"constraint:OnDelete:CASCADE" json:"response,omitempty"`
+	Examples   []ResponseExample   `gorm:"constraint:OnDelete:CASCADE" json:"examples,omitempty"`
+	Schemas    []ResponseSchema    `gorm:"constraint:OnDelete:CASCADE" json:"schemas,omitempty"`
+	// 请求历史通过 endpoint_id（可空）关联，删除端点时其历史一并级联删除
+	Histories []RequestHistory `gorm:"foreignKey:EndpointID;constraint:OnDelete:CASCADE" json:"-"`
+	// Operations 为多态关联（owner_type+owner_id），无法用外键级联，删除时在服务层显式清理
+	Operations []Operation `gorm:"-" json:"operations,omitempty"`
 }
 
 // BeforeCreate 创建前自动生成 UUID

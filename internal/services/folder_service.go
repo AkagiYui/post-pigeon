@@ -61,58 +61,25 @@ func (s *FolderService) UpdateFolder(id string, name string) error {
 }
 
 // DeleteFolder 删除文件夹及其所有子内容
+//
+// 端点及其关联数据、子文件夹均由数据库外键 ON DELETE CASCADE 自动级联删除，
+// 这里只需显式清理多态归属的 Operation（外键无法覆盖），再删除文件夹子树即可。
 func (s *FolderService) DeleteFolder(id string) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		// 递归收集所有子文件夹 ID
+		// 递归收集文件夹子树 ID，以及其下端点 ID —— 仅用于清理它们的多态操作
 		folderIDs := s.collectFolderIDs(tx, id)
-
-		// 获取所有端点 ID
 		var endpointIDs []string
 		if err := tx.Model(&models.Endpoint{}).Where("folder_id IN ?", folderIDs).Pluck("id", &endpointIDs).Error; err != nil {
 			return err
 		}
-
-		if len(endpointIDs) > 0 {
-			// 删除端点关联数据
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.EndpointParam{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.EndpointBodyField{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.EndpointHeader{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.EndpointAuth{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.Response{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.ResponseExample{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.ResponseSchema{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("endpoint_id IN ?", endpointIDs).Delete(&models.RequestHistory{}).Error; err != nil {
-				return err
-			}
-			// 删除端点级操作
-			if err := tx.Where("owner_id IN ? AND owner_type = ?", endpointIDs, models.OperationOwnerEndpoint).Delete(&models.Operation{}).Error; err != nil {
-				return err
-			}
-			if err := tx.Where("id IN ?", endpointIDs).Delete(&models.Endpoint{}).Error; err != nil {
-				return err
-			}
+		if err := deleteOperations(tx, models.OperationOwnerEndpoint, endpointIDs); err != nil {
+			return err
 		}
-
-		// 删除文件夹级操作
-		if err := tx.Where("owner_id IN ? AND owner_type = ?", folderIDs, models.OperationOwnerFolder).Delete(&models.Operation{}).Error; err != nil {
+		if err := deleteOperations(tx, models.OperationOwnerFolder, folderIDs); err != nil {
 			return err
 		}
 
-		// 删除所有子文件夹和自身
+		// 删除文件夹子树：子文件夹、端点及其关联数据、请求历史随外键级联删除
 		if err := tx.Where("id IN ?", folderIDs).Delete(&models.Folder{}).Error; err != nil {
 			return err
 		}

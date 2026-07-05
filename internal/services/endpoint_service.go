@@ -271,30 +271,12 @@ func (s *EndpointService) CreateTypedEndpoint(moduleID string, folderID *string,
 }
 
 // DeleteEndpoint 删除端点及其关联数据
+//
+// 参数、请求体字段、请求头、认证、响应、示例、Schema、请求历史均由数据库外键
+// ON DELETE CASCADE 自动级联删除；这里只需显式清理多态归属的 Operation（外键无法覆盖）。
 func (s *EndpointService) DeleteEndpoint(id string) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Where("endpoint_id = ?", id).Delete(&models.EndpointParam{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("endpoint_id = ?", id).Delete(&models.EndpointBodyField{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("endpoint_id = ?", id).Delete(&models.EndpointHeader{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("endpoint_id = ?", id).Delete(&models.EndpointAuth{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("endpoint_id = ?", id).Delete(&models.Response{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("endpoint_id = ?", id).Delete(&models.ResponseExample{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("endpoint_id = ?", id).Delete(&models.ResponseSchema{}).Error; err != nil {
-			return err
-		}
-		if err := tx.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerEndpoint, id).Delete(&models.Operation{}).Error; err != nil {
+		if err := deleteOperations(tx, models.OperationOwnerEndpoint, []string{id}); err != nil {
 			return err
 		}
 		if err := tx.Where("id = ?", id).Delete(&models.Endpoint{}).Error; err != nil {

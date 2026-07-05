@@ -16,19 +16,19 @@ import (
 func Initialize(dbPath string) (*gorm.DB, error) {
 	slog.Info("正在初始化数据库", "path", dbPath)
 
-	db, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+	// 通过 DSN 预设 PRAGMA，确保连接池中每一条连接都生效。
+	// 注意：foreign_keys / busy_timeout 是「连接级」设置，若用 db.Exec 只会作用于池中某一条连接，
+	// 其它连接上外键约束仍是关闭的，级联删除便不可靠——必须写进 DSN 由驱动对每条新连接执行。
+	//   - foreign_keys(1)：开启外键约束，使 ON DELETE CASCADE 生效
+	//   - journal_mode(WAL)：提高并发读取性能（库级设置，持久化）
+	//   - busy_timeout(5000)：写锁忙等待超时（毫秒）
+	dsn := dbPath + "?_pragma=foreign_keys(1)&_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
+	db, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{
 		Logger: logger.Default.LogMode(logger.Silent),
 	})
 	if err != nil {
 		return nil, fmt.Errorf("无法打开数据库: %w", err)
 	}
-
-	// 启用 WAL 模式以提高并发读取性能
-	db.Exec("PRAGMA journal_mode=WAL")
-	// 启用外键约束
-	db.Exec("PRAGMA foreign_keys=ON")
-	// 设置忙等待超时（毫秒）
-	db.Exec("PRAGMA busy_timeout=5000")
 
 	// 自动迁移数据库模型
 	if err := autoMigrate(db); err != nil {

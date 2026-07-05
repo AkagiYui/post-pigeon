@@ -15,8 +15,9 @@ type Environment struct {
 	CreatedAt time.Time `json:"createdAt"`
 	UpdatedAt time.Time `json:"updatedAt"`
 
-	// 关联
-	Variables []EnvironmentVariable `json:"variables,omitempty"`
+	// 关联（constraint:OnDelete:CASCADE 使删除环境时，数据库自动级联删除其变量及各模块在该环境下的前置 URL）
+	Variables []EnvironmentVariable `gorm:"constraint:OnDelete:CASCADE" json:"variables,omitempty"`
+	BaseURLs  []ModuleBaseURL       `gorm:"constraint:OnDelete:CASCADE" json:"-"`
 }
 
 // BeforeCreate 创建前自动生成 UUID
