@@ -28,6 +28,7 @@ import { EndpointTree, type TreeNode } from "@/components/endpoint/EndpointTree"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
 import { ScopeSettingsDialog } from "@/components/endpoint/ScopeSettingsDialog"
 import { Button } from "@/components/ui/button"
+import { Checkbox, Radio } from "@/components/ui/checkbox"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { SplitPane } from "@/components/ui/split-pane"
@@ -1466,14 +1467,14 @@ export function ApiManagement(props: ApiManagementProps) {
                   {/* 覆盖模块名称（仅当文档提供标题且与当前不同时显示） */}
                   <Show when={preview().moduleName && preview().moduleName !== preview().currentModuleName}>
                     <label class="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="checkbox" checked={openApiOverwriteModuleName()} onChange={(e) => setOpenApiOverwriteModuleName(e.currentTarget.checked)} />
+                      <Checkbox checked={openApiOverwriteModuleName()} onChange={(e) => setOpenApiOverwriteModuleName(e.currentTarget.checked)} />
                       <span>{t("openapi.overwriteModuleName", { name: preview().moduleName })}</span>
                     </label>
                   </Show>
                   {/* 导入环境与前置 URL（仅当文档提供 servers 时显示） */}
                   <Show when={preview().servers.length > 0}>
                     <label class="flex items-center gap-2 text-sm cursor-pointer">
-                      <input type="checkbox" checked={openApiImportServers()} onChange={(e) => setOpenApiImportServers(e.currentTarget.checked)} />
+                      <Checkbox checked={openApiImportServers()} onChange={(e) => setOpenApiImportServers(e.currentTarget.checked)} />
                       <span>{t("openapi.importServers")}</span>
                     </label>
                     {/* 服务器/环境列表 */}
@@ -1495,11 +1496,11 @@ export function ApiManagement(props: ApiManagementProps) {
                   <Show when={preview().duplicateCount > 0}>
                     <div class="flex flex-col gap-2 pt-1 border-t border-border/50 mt-1">
                       <label class="flex items-center gap-2 text-sm cursor-pointer">
-                        <input type="radio" name="openapi-conflict" checked={!openApiOverwrite()} onChange={() => setOpenApiOverwrite(false)} />
+                        <Radio name="openapi-conflict" checked={!openApiOverwrite()} onChange={() => setOpenApiOverwrite(false)} />
                         <span>{t("openapi.skipDuplicates")}</span>
                       </label>
                       <label class="flex items-center gap-2 text-sm cursor-pointer">
-                        <input type="radio" name="openapi-conflict" checked={openApiOverwrite()} onChange={() => setOpenApiOverwrite(true)} />
+                        <Radio name="openapi-conflict" checked={openApiOverwrite()} onChange={() => setOpenApiOverwrite(true)} />
                         <span>{t("openapi.overwriteDuplicates")}</span>
                       </label>
                     </div>
@@ -1508,8 +1509,7 @@ export function ApiManagement(props: ApiManagementProps) {
                 {/* 接口预览列表：可勾选每个接口是否导入 */}
                 <div class="shrink-0 flex items-center gap-2 text-xs text-muted-foreground px-1">
                   <label class="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={openApiSelectedIndexes().size === preview().items.length && preview().items.length > 0}
                       ref={(el) => {
                         createEffect(() => {
@@ -1530,8 +1530,7 @@ export function ApiManagement(props: ApiManagementProps) {
                   <For each={preview().items}>
                     {(item) => (
                       <label class="flex items-center gap-2 px-3 py-1.5 text-sm border-b border-border/50 last:border-b-0 cursor-pointer">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={openApiSelectedIndexes().has(item.index)}
                           onChange={(e) => {
                             const next = new Set(openApiSelectedIndexes())
@@ -1587,8 +1586,7 @@ export function ApiManagement(props: ApiManagementProps) {
                 {/* 逐项选择 */}
                 <div class="shrink-0 flex items-center gap-2 text-xs text-muted-foreground px-1">
                   <label class="flex items-center gap-2 cursor-pointer select-none">
-                    <input
-                      type="checkbox"
+                    <Checkbox
                       checked={apifoxSelectedIndexes().size === preview().items.length && preview().items.length > 0}
                       ref={(el) => {
                         createEffect(() => {
@@ -1605,8 +1603,7 @@ export function ApiManagement(props: ApiManagementProps) {
                   <For each={preview().items}>
                     {(item) => (
                       <label class="flex items-center gap-2 px-3 py-1.5 text-sm border-b border-border/50 last:border-b-0 cursor-pointer">
-                        <input
-                          type="checkbox"
+                        <Checkbox
                           checked={apifoxSelectedIndexes().has(item.index)}
                           onChange={(e) => {
                             const next = new Set(apifoxSelectedIndexes())

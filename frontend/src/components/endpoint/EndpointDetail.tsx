@@ -2,7 +2,7 @@
 // 上：请求方法 + URL + 发送/保存/删除按钮
 // 中：请求设置 tabs (Params/Body/Headers/Auth/设置)
 // 下：响应信息 tabs (Body/Headers/Cookies/实际请求)
-import { ArrowDown, ArrowUp, Check, ChevronUp, Link2, Plug, PlugZap, Save, Send, Trash2 } from "lucide-solid"
+import { Icon } from "@iconify-icon/solid"
 import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from "solid-js"
 
 import { SSEService, WebSocketService } from "@/../bindings/post-pigeon/internal/services"
@@ -379,7 +379,7 @@ function EnvironmentBadge(props: {
         title={props.baseUrl || t("endpoint.baseUrl.notSet")}
       >
         {/* 图标始终显示；标题在空间不足时被挤压隐藏，仅剩图标 */}
-        <Link2 class="h-3 w-3 shrink-0" />
+        <Icon icon="lucide:link-2" class="h-3 w-3 shrink-0" />
         <span class="truncate min-w-0">{props.baseUrl || t("endpoint.baseUrl.notSet")}</span>
       </span>
 
@@ -413,7 +413,7 @@ function EnvironmentBadge(props: {
                   {/* 左侧：复选标记 - 当前环境显示勾选图标，其他留空占位 */}
                   <span class="w-4 shrink-0 flex items-center justify-center">
                     <Show when={isActive}>
-                      <Check class="w-3.5 h-3.5" />
+                      <Icon icon="lucide:check" class="w-3.5 h-3.5" />
                     </Show>
                   </span>
                   {/* 中间：前置 URL（常规字体，弹性撑满） */}
@@ -561,11 +561,11 @@ export function EndpointDetail(props: EndpointDetailProps) {
         class="flex-1"
       />
       <Button variant={props.isUnsaved ? "default" : "outline"} size="sm" onClick={props.onSave}>
-        <Save class="h-3.5 w-3.5" />
+        <Icon icon="lucide:save" class="h-3.5 w-3.5" />
         {props.isUnsaved ? t("endpoint.saveToProject") : t("endpoint.save")}
       </Button>
       <Button variant="ghost" size="icon-sm" onClick={props.onDelete}>
-        <Trash2 class="h-3.5 w-3.5" />
+        <Icon icon="lucide:trash-2" class="h-3.5 w-3.5" />
       </Button>
     </div>
   )
@@ -618,23 +618,23 @@ export function EndpointDetail(props: EndpointDetailProps) {
           <Show when={isWs()} fallback={
             <Tooltip content="Ctrl+Enter">
               <Button size="sm" onClick={props.onSend} disabled={props.sending}>
-                <Send class="h-3.5 w-3.5" />
+                <Icon icon="lucide:send" class="h-3.5 w-3.5" />
                 {props.sending ? t("common.sending") : t("endpoint.send")}
               </Button>
             </Tooltip>
           }>
             <Show when={wsStatus() === "open"} fallback={
-              <Button size="sm" onClick={wsConnect}><PlugZap class="h-3.5 w-3.5" />{t("stream.connect")}</Button>
+              <Button size="sm" onClick={wsConnect}><Icon icon="lucide:plug-zap" class="h-3.5 w-3.5" />{t("stream.connect")}</Button>
             }>
-              <Button size="sm" variant="outline" onClick={wsDisconnect}><Plug class="h-3.5 w-3.5" />{t("stream.disconnect")}</Button>
+              <Button size="sm" variant="outline" onClick={wsDisconnect}><Icon icon="lucide:plug" class="h-3.5 w-3.5" />{t("stream.disconnect")}</Button>
             </Show>
           </Show>
           <Button variant={props.isUnsaved ? "default" : "outline"} size="sm" onClick={props.onSave}>
-            <Save class="h-3.5 w-3.5" />
+            <Icon icon="lucide:save" class="h-3.5 w-3.5" />
             {props.isUnsaved ? t("endpoint.saveToProject") : t("endpoint.save")}
           </Button>
           <Button variant="ghost" size="icon-sm" onClick={props.onDelete}>
-            <Trash2 class="h-3.5 w-3.5" />
+            <Icon icon="lucide:trash-2" class="h-3.5 w-3.5" />
           </Button>
         </div>
 
@@ -699,7 +699,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
               class="shrink-0 h-8 border-t border-border flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
               onClick={() => setResponseCollapsed(false)}
             >
-              <ChevronUp class="h-3.5 w-3.5" />
+              <Icon icon="lucide:chevron-up" class="h-3.5 w-3.5" />
               {t("response.expandPanel")}
             </button>
           }
@@ -863,14 +863,14 @@ function ResponseSizeCard(props: { response: ResponseData }) {
   return (
     <div class="w-56 flex flex-col gap-2.5 text-xs">
       <SizeBlock
-        icon={<ArrowDown class="h-3.5 w-3.5 text-blue-500" />}
+        icon={<Icon icon="lucide:arrow-down" class="h-3.5 w-3.5 text-blue-500" />}
         label={t("size.responseSize")}
         header={respHeaderBytes()}
         body={respBodyBytes()}
       />
       <div class="border-t border-border" />
       <SizeBlock
-        icon={<ArrowUp class="h-3.5 w-3.5 text-amber-500" />}
+        icon={<Icon icon="lucide:arrow-up" class="h-3.5 w-3.5 text-amber-500" />}
         label={t("size.requestSize")}
         header={reqHeaderBytes()}
         body={reqBodyBytes()}

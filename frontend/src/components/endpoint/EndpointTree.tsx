@@ -1,6 +1,6 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
-import { ArrowUpDown, Check, Copy, Ellipsis, FileDown, FilePlusCorner, FileText, Folder, FolderOpen, FolderPlus, Package, PackageOpen, PackagePlus, PanelLeftClose, Pencil, Plus, Radio, Search, Settings2, Trash2, Webhook } from "lucide-solid"
+import { Icon } from "@iconify-icon/solid"
 import { createEffect, createSignal, For, Show } from "solid-js"
 
 import { Button } from "@/components/ui/button"
@@ -211,7 +211,7 @@ export function EndpointTree(props: EndpointTreeProps) {
       {/* 搜索框和操作栏 */}
       <div class="flex items-center gap-2 p-2 border-b border-border shrink-0">
         <div class="flex-1 relative">
-          <Search class="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
+          <Icon icon="lucide:search" class="absolute left-2 top-1/2 -translate-y-1/2 h-3.5 w-3.5 text-muted-foreground" />
           <Input
             size="sm"
             value={searchQuery()}
@@ -227,48 +227,48 @@ export function EndpointTree(props: EndpointTreeProps) {
             {
               key: "new-module",
               label: t("module.create"),
-              icon: <PackagePlus class="h-4 w-4 text-sky-500 shrink-0" />,
+              icon: <Icon icon="lucide:package-plus" class="h-4 w-4 text-sky-500 shrink-0" />,
               onClick: () => props.onCreateModule?.(),
             },
             {
               key: "new-folder",
               label: t("folder.create"),
-              icon: <FolderPlus class="h-4 w-4 text-amber-500 shrink-0" />,
+              icon: <Icon icon="lucide:folder-plus" class="h-4 w-4 text-amber-500 shrink-0" />,
               onClick: () => props.onCreateFolder?.(undefined, "module"),
             },
             {
               key: "new-endpoint",
               label: t("endpoint.create"),
-              icon: <FilePlusCorner class="h-4 w-4 text-blue-500 shrink-0" />,
+              icon: <Icon icon="lucide:file-plus-corner" class="h-4 w-4 text-blue-500 shrink-0" />,
               onClick: () => props.onCreateEndpoint?.(undefined, "module"),
             },
             {
               key: "new-websocket",
               label: t("endpoint.createWebSocket"),
-              icon: <Webhook class="h-4 w-4 text-teal-500 shrink-0" />,
+              icon: <Icon icon="lucide:webhook" class="h-4 w-4 text-teal-500 shrink-0" />,
               onClick: () => props.onCreateTyped?.(undefined, "module", "websocket"),
             },
             {
               key: "new-document",
               label: t("doc.create"),
-              icon: <FileText class="h-4 w-4 text-violet-500 shrink-0" />,
+              icon: <Icon icon="lucide:file-text" class="h-4 w-4 text-violet-500 shrink-0" />,
               onClick: () => props.onCreateDocument?.(undefined, "module"),
             },
             { key: "sep-import", label: "", separator: true },
             {
               key: "import-apifox",
               label: t("apifox.import"),
-              icon: <FileDown class="h-4 w-4 text-orange-500 shrink-0" />,
+              icon: <Icon icon="lucide:file-down" class="h-4 w-4 text-orange-500 shrink-0" />,
               onClick: () => props.onImportApifox?.(),
             },
           ]}
         >
           <Button variant="ghost" size="icon-sm">
-            <Plus class="h-3.5 w-3.5" />
+            <Icon icon="lucide:plus" class="h-3.5 w-3.5" />
           </Button>
         </DropdownMenu>
         <Button variant="ghost" size="icon-sm" onClick={props.onCollapse}>
-          <PanelLeftClose class="h-3.5 w-3.5" />
+          <Icon icon="lucide:panel-left-close" class="h-3.5 w-3.5" />
         </Button>
       </div>
 
@@ -309,25 +309,25 @@ function createAllMenuItems(
       {
         key: "new-endpoint",
         label: t("endpoint.create"),
-        icon: <FilePlusCorner class="h-4 w-4 text-blue-500 shrink-0" />,
+        icon: <Icon icon="lucide:file-plus-corner" class="h-4 w-4 text-blue-500 shrink-0" />,
         onClick: () => handlers.onCreateEndpoint?.(node.id, scope),
       },
       {
         key: "new-websocket",
         label: t("endpoint.createWebSocket"),
-        icon: <Webhook class="h-4 w-4 text-teal-500 shrink-0" />,
+        icon: <Icon icon="lucide:webhook" class="h-4 w-4 text-teal-500 shrink-0" />,
         onClick: () => handlers.onCreateTyped?.(node.id, scope, "websocket"),
       },
       {
         key: "new-folder",
         label: t("folder.create"),
-        icon: <FolderPlus class="h-4 w-4 text-amber-500 shrink-0" />,
+        icon: <Icon icon="lucide:folder-plus" class="h-4 w-4 text-amber-500 shrink-0" />,
         onClick: () => handlers.onCreateFolder?.(node.id, scope),
       },
       {
         key: "new-document",
         label: t("doc.create"),
-        icon: <FileText class="h-4 w-4 text-violet-500 shrink-0" />,
+        icon: <Icon icon="lucide:file-text" class="h-4 w-4 text-violet-500 shrink-0" />,
         onClick: () => handlers.onCreateDocument?.(node.id, scope),
       },
     )
@@ -336,7 +336,7 @@ function createAllMenuItems(
       items.push({
         key: "import-openapi",
         label: t("openapi.import"),
-        icon: <FileDown class="h-4 w-4 text-emerald-500 shrink-0" />,
+        icon: <Icon icon="lucide:file-down" class="h-4 w-4 text-emerald-500 shrink-0" />,
         onClick: () => handlers.onImportOpenAPI?.(node),
       })
       const mode = node.endpointDisplay === "url" ? "url" : "name"
@@ -345,13 +345,13 @@ function createAllMenuItems(
         {
           key: "display-name",
           label: t("module.displayAsName"),
-          icon: mode === "name" ? <Check class="h-4 w-4 text-accent shrink-0" /> : <span class="w-4 shrink-0" />,
+          icon: mode === "name" ? <Icon icon="lucide:check" class="h-4 w-4 text-accent shrink-0" /> : <span class="w-4 shrink-0" />,
           onClick: () => handlers.onSetEndpointDisplay?.(node.id, "name"),
         },
         {
           key: "display-url",
           label: t("module.displayAsUrl"),
-          icon: mode === "url" ? <Check class="h-4 w-4 text-accent shrink-0" /> : <span class="w-4 shrink-0" />,
+          icon: mode === "url" ? <Icon icon="lucide:check" class="h-4 w-4 text-accent shrink-0" /> : <span class="w-4 shrink-0" />,
           onClick: () => handlers.onSetEndpointDisplay?.(node.id, "url"),
         },
       )
@@ -360,7 +360,7 @@ function createAllMenuItems(
     items.push({
       key: "scope-settings",
       label: t("scope.settings"),
-      icon: <Settings2 class="h-4 w-4 text-slate-500 shrink-0" />,
+      icon: <Icon icon="lucide:settings-2" class="h-4 w-4 text-slate-500 shrink-0" />,
       onClick: () => handlers.onOpenSettings?.(node),
     })
     // 文件夹：转换为模块（文件夹升级为独立模块）
@@ -368,7 +368,7 @@ function createAllMenuItems(
       items.push({
         key: "convert-to-module",
         label: t("folder.convertToModule"),
-        icon: <PackagePlus class="h-4 w-4 text-sky-500 shrink-0" />,
+        icon: <Icon icon="lucide:package-plus" class="h-4 w-4 text-sky-500 shrink-0" />,
         onClick: () => handlers.onConvertToModule?.(node),
       })
     }
@@ -377,18 +377,18 @@ function createAllMenuItems(
 
   // 所有节点：重命名、复制
   items.push(
-    { key: "rename", label: t("common.rename"), icon: <Pencil class="h-4 w-4 shrink-0" />, onClick: () => handlers.onRename?.(node) },
-    { key: "copy", label: t("common.copy"), icon: <Copy class="h-4 w-4 shrink-0" />, onClick: () => handlers.onCopy?.(node) },
+    { key: "rename", label: t("common.rename"), icon: <Icon icon="lucide:pencil" class="h-4 w-4 shrink-0" />, onClick: () => handlers.onRename?.(node) },
+    { key: "copy", label: t("common.copy"), icon: <Icon icon="lucide:copy" class="h-4 w-4 shrink-0" />, onClick: () => handlers.onCopy?.(node) },
   )
 
   // 移动：模块为顶层节点不可移动；受保护的默认模块也不可移动
   if (node.type !== "module") {
-    items.push({ key: "move", label: t("common.move"), icon: <ArrowUpDown class="h-4 w-4 shrink-0" />, onClick: () => handlers.onMove?.(node) })
+    items.push({ key: "move", label: t("common.move"), icon: <Icon icon="lucide:arrow-up-down" class="h-4 w-4 shrink-0" />, onClick: () => handlers.onMove?.(node) })
   }
 
   // 删除：受保护的默认模块不可删除
   if (!isProtected) {
-    items.push({ key: "delete", label: t("common.delete"), icon: <Trash2 class="h-4 w-4 shrink-0" />, onClick: () => handlers.onDelete?.(node) })
+    items.push({ key: "delete", label: t("common.delete"), icon: <Icon icon="lucide:trash-2" class="h-4 w-4 shrink-0" />, onClick: () => handlers.onDelete?.(node) })
   }
 
   return items
@@ -510,24 +510,24 @@ function TreeNodeItem(props: {
           {/* 图标 */}
           <Show when={props.node.type === "module"}>
             {isExpanded()
-              ? <PackageOpen class="h-3.5 w-3.5 text-sky-500 shrink-0" />
-              : <Package class="h-3.5 w-3.5 text-sky-500 shrink-0" />}
+              ? <Icon icon="lucide:package-open" class="h-3.5 w-3.5 text-sky-500 shrink-0" />
+              : <Icon icon="lucide:package" class="h-3.5 w-3.5 text-sky-500 shrink-0" />}
           </Show>
           <Show when={props.node.type === "folder"}>
             {isExpanded()
-              ? <FolderOpen class="h-3.5 w-3.5 text-amber-500 shrink-0" />
-              : <Folder class="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+              ? <Icon icon="lucide:folder-open" class="h-3.5 w-3.5 text-amber-500 shrink-0" />
+              : <Icon icon="lucide:folder" class="h-3.5 w-3.5 text-amber-500 shrink-0" />}
           </Show>
           {/* 端点叶子图标：文档 / WebSocket / SSE 使用独立图标，普通接口显示方法徽章 */}
           <Show when={props.node.type === "endpoint"}>
             <Show when={props.node.endpointType === "doc"}>
-              <FileText class="h-3.5 w-3.5 text-violet-500 shrink-0" />
+              <Icon icon="lucide:file-text" class="h-3.5 w-3.5 text-violet-500 shrink-0" />
             </Show>
             <Show when={props.node.endpointType === "websocket"}>
-              <Webhook class="h-3.5 w-3.5 text-teal-500 shrink-0" />
+              <Icon icon="lucide:webhook" class="h-3.5 w-3.5 text-teal-500 shrink-0" />
             </Show>
             <Show when={props.node.endpointType === "sse"}>
-              <Radio class="h-3.5 w-3.5 text-pink-500 shrink-0" />
+              <Icon icon="lucide:radio" class="h-3.5 w-3.5 text-pink-500 shrink-0" />
             </Show>
             <Show when={(!props.node.endpointType || props.node.endpointType === "http") && props.node.method}>
               {/* 方法徽章：无底色，仅用文字颜色区分；固定宽度以对齐，最多显示 4 个字符 */}
@@ -554,7 +554,7 @@ function TreeNodeItem(props: {
               items={menuItems()}
             >
               <Button variant="ghost" size="icon-sm" class="h-5 w-5">
-                <Ellipsis class="h-3 w-3" />
+                <Icon icon="lucide:ellipsis" class="h-3 w-3" />
               </Button>
             </DropdownMenu>
           </div>

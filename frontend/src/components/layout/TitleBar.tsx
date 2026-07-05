@@ -1,9 +1,9 @@
 // 顶栏布局组件
 // 包含红绿灯区域、导航标签、全局操作按钮
 // Windows 端额外包含窗口控制按钮（最小化、最大化、关闭）
+import { Icon } from "@iconify-icon/solid"
 import { Link, useLocation, useRouter } from "@tanstack/solid-router"
 import { System, Window } from "@wailsio/runtime"
-import { ArrowLeft, ChevronDown, ChevronLeft, ChevronRight, Cog, FolderOpen, History, Minus, Pin, Settings, Square, SquareX, X } from "lucide-solid"
 import { createEffect, createMemo, createResource, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
@@ -144,7 +144,7 @@ export function TitleBar(props: TitleBarProps) {
             onClick={() => scrollTabs("left")}
             title={t("nav.scrollLeft")}
           >
-            <ChevronLeft class="h-3.5 w-3.5" />
+            <Icon icon="lucide:chevron-left" class="h-3.5 w-3.5" />
           </button>
         </Show>
 
@@ -157,7 +157,7 @@ export function TitleBar(props: TitleBarProps) {
         >
           {/* 项目列表标签 */}
           <NavLink href="/" active={activeProjectId() === null}>
-            <FolderOpen class="h-3.5 w-3.5" />
+            <Icon icon="lucide:folder-open" class="h-3.5 w-3.5" />
             <span>{t("nav.projects")}</span>
           </NavLink>
 
@@ -201,7 +201,7 @@ export function TitleBar(props: TitleBarProps) {
             onClick={() => scrollTabs("right")}
             title={t("nav.scrollRight")}
           >
-            <ChevronRight class="h-3.5 w-3.5" />
+            <Icon icon="lucide:chevron-right" class="h-3.5 w-3.5" />
           </button>
         </Show>
       </div>
@@ -214,7 +214,7 @@ export function TitleBar(props: TitleBarProps) {
             <Tooltip content={t("history.back")} placement="bottom">
               <Link to="/project/$id" params={{ id: activeProjectId()! }} class="flex items-center">
                 <button class="btn-ghost gap-0.5">
-                  <ArrowLeft class="h-4 w-4" />
+                  <Icon icon="lucide:arrow-left" class="h-4 w-4" />
                 </button>
               </Link>
             </Tooltip>
@@ -223,7 +223,7 @@ export function TitleBar(props: TitleBarProps) {
           <Tooltip content={t("nav.history")} placement="bottom">
             <Link to="/project/$id/history" params={{ id: activeProjectId()! }} class="flex items-center">
               <button class={cn("btn-ghost gap-0.5", isHistoryRoute() && "btn-ghost-active")}>
-                <History class="h-4 w-4" />
+                <Icon icon="lucide:history" class="h-4 w-4" />
                 <span class="hidden md:inline text-sm">{t("nav.history")}</span>
               </button>
             </Link>
@@ -232,7 +232,7 @@ export function TitleBar(props: TitleBarProps) {
           <Tooltip content={t("nav.projectSettings")} placement="bottom">
             <Link to="/project/$id/settings" params={{ id: activeProjectId()! }} class="flex items-center">
               <button class={cn("btn-ghost gap-0.5", isSettingsRoute() && "btn-ghost-active")}>
-                <Cog class="h-4 w-4" />
+                <Icon icon="lucide:cog" class="h-4 w-4" />
                 <span class="hidden md:inline text-sm">{t("nav.settings")}</span>
               </button>
             </Link>
@@ -245,7 +245,7 @@ export function TitleBar(props: TitleBarProps) {
         {/* 全局设置按钮 */}
         <Tooltip content={t("nav.settings")} placement="bottom">
           <button class="btn-ghost" onClick={() => setSettingsOpen(true)}>
-            <Settings class="h-4 w-4" />
+            <Icon icon="lucide:settings" class="h-4 w-4" />
           </button>
         </Tooltip>
         {/* 窗口置顶按钮 */}
@@ -259,7 +259,7 @@ export function TitleBar(props: TitleBarProps) {
               Window.SetAlwaysOnTop(newValue)
             }}
           >
-            <Pin class="h-4 w-4 transition-transform" style={isAlwaysOnTop() ? { transform: "rotate(45deg)" } : undefined} />
+            <Icon icon="lucide:pin" class="h-4 w-4 transition-transform" style={isAlwaysOnTop() ? { transform: "rotate(45deg)" } : undefined} />
           </button>
         </Tooltip>
       </div>
@@ -272,7 +272,7 @@ export function TitleBar(props: TitleBarProps) {
             onClick={() => Window.Minimise()}
             title={t("window.minimize")}
           >
-            <Minus class="h-4 w-4" />
+            <Icon icon="lucide:minus" class="h-4 w-4" />
           </button>
           <button
             class="winctrl-btn"
@@ -283,8 +283,8 @@ export function TitleBar(props: TitleBarProps) {
             }}
             title={isMaximised() ? t("window.restore") : t("window.maximize")}
           >
-            <Show when={isMaximised()} fallback={<Square class="h-3.5 w-3.5" />}>
-              <SquareX class="h-3.5 w-3.5" />
+            <Show when={isMaximised()} fallback={<Icon icon="lucide:square" class="h-3.5 w-3.5" />}>
+              <Icon icon="lucide:square-x" class="h-3.5 w-3.5" />
             </Show>
           </button>
           <button
@@ -292,7 +292,7 @@ export function TitleBar(props: TitleBarProps) {
             onClick={() => Window.Close()}
             title={t("window.close")}
           >
-            <X class="h-4 w-4" />
+            <Icon icon="lucide:x" class="h-4 w-4" />
           </button>
         </div>
       </Show>
@@ -355,7 +355,7 @@ function ProjectTab(props: { projectId: string; active: boolean; onClick: () => 
           props.onClose()
         }}
       >
-        <X class="h-3 w-3" />
+        <Icon icon="lucide:x" class="h-3 w-3" />
       </button>
     </div>
   )

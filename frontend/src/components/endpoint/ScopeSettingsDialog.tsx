@@ -1,6 +1,6 @@
 // 模块 / 文件夹级设置对话框：默认认证、自动参数（仅模块）、前置/后置操作。
 // 认证与操作对该级别下所有接口（递归）继承生效。
-import { Plus, Trash2 } from "lucide-solid"
+import { Icon } from "@iconify-icon/solid"
 import { createEffect, createSignal } from "solid-js"
 
 import { ModuleParam, Operation } from "@/../bindings/post-pigeon/internal/models"
@@ -9,6 +9,7 @@ import { AuthEditor } from "@/components/endpoint/AuthEditor"
 import { type AuthState, emptyAuth, emptyOperation, type OperationRow } from "@/components/endpoint/EndpointDetail"
 import { OperationsEditor } from "@/components/endpoint/OperationsEditor"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
@@ -141,18 +142,18 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
                   <p class="text-sm text-muted-foreground mb-2">{t("scope.autoParamsHint")}</p>
                   <Table
                     columns={[
-                      { header: "", width: "32px", render: (row) => <input type="checkbox" checked={row.enabled} onChange={(e) => updateParam(row.id, "enabled", e.currentTarget.checked)} class="rounded border-border" /> },
+                      { header: "", width: "32px", render: (row) => <Checkbox checked={row.enabled} onChange={(e) => updateParam(row.id, "enabled", e.currentTarget.checked)} /> },
                       { header: t("endpoint.param.location"), width: "96px", render: (row) => (
                         <Select options={[{ value: "query", label: "Query" }, { value: "header", label: "Header" }, { value: "cookie", label: "Cookie" }]} value={row.type} onChange={(v) => updateParam(row.id, "type", v)} size="sm" />
                       ) },
                       { header: t("common.name"), render: (row) => <Input size="sm" value={row.name} onInput={(e) => updateParam(row.id, "name", e.currentTarget.value)} /> },
                       { header: t("common.value"), render: (row) => <Input size="sm" value={row.value} onInput={(e) => updateParam(row.id, "value", e.currentTarget.value)} /> },
-                      { header: "", width: "32px", render: (row) => <Button variant="ghost" size="icon-sm" onClick={() => removeParam(row.id)}><Trash2 class="h-3 w-3" /></Button> },
+                      { header: "", width: "32px", render: (row) => <Button variant="ghost" size="icon-sm" onClick={() => removeParam(row.id)}><Icon icon="lucide:trash-2" class="h-3 w-3" /></Button> },
                     ]}
                     data={params()}
                     compact
                   />
-                  <Button variant="outline" size="sm" class="mt-2" onClick={addParam}><Plus class="h-3 w-3" />{t("common.add")}</Button>
+                  <Button variant="outline" size="sm" class="mt-2" onClick={addParam}><Icon icon="lucide:plus" class="h-3 w-3" />{t("common.add")}</Button>
                 </div>
               )
               return null

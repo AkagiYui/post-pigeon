@@ -1,6 +1,6 @@
 // 文件夹树形选择器组件
 // 用于保存接口时选择目标模块或文件夹，仅展示模块和文件夹节点
-import { Folder, FolderOpen, Package, PackageOpen } from "lucide-solid"
+import { Icon } from "@iconify-icon/solid"
 import { createSignal, For, Show } from "solid-js"
 
 import { t } from "@/hooks/useI18n"
@@ -143,13 +143,13 @@ function FolderTreeNodeItem(props: {
         {/* 图标 */}
         <Show when={props.node.type === "module"}>
           {isExpanded()
-            ? <PackageOpen class="h-3.5 w-3.5 text-sky-500 shrink-0" />
-            : <Package class="h-3.5 w-3.5 text-sky-500 shrink-0" />}
+            ? <Icon icon="lucide:package-open" class="h-3.5 w-3.5 text-sky-500 shrink-0" />
+            : <Icon icon="lucide:package" class="h-3.5 w-3.5 text-sky-500 shrink-0" />}
         </Show>
         <Show when={props.node.type === "folder"}>
           {isExpanded()
-            ? <FolderOpen class="h-3.5 w-3.5 text-amber-500 shrink-0" />
-            : <Folder class="h-3.5 w-3.5 text-amber-500 shrink-0" />}
+            ? <Icon icon="lucide:folder-open" class="h-3.5 w-3.5 text-amber-500 shrink-0" />
+            : <Icon icon="lucide:folder" class="h-3.5 w-3.5 text-amber-500 shrink-0" />}
         </Show>
 
         {/* 名称 */}

@@ -1,6 +1,6 @@
 // 项目请求历史路由
+import { Icon } from "@iconify-icon/solid"
 import { createFileRoute, useParams } from "@tanstack/solid-router"
-import { Clock, Trash2 } from "lucide-solid"
 import { createSignal, For, onMount, Show } from "solid-js"
 
 import type { RequestHistory } from "@/../bindings/post-pigeon/internal/models"
@@ -177,7 +177,7 @@ function RequestHistoryPage() {
                               </span>
                               <span>{formatSize(item.size)}</span>
                               <span class="flex items-center gap-0.5">
-                                <Clock class="h-3 w-3" />
+                                <Icon icon="lucide:clock" class="h-3 w-3" />
                                 {formatTime(item.createdAt as any)}
                               </span>
                             </div>
@@ -190,7 +190,7 @@ function RequestHistoryPage() {
                             class="opacity-0 group-hover:opacity-100 shrink-0"
                             onClick={(e) => handleDelete(item.id, e)}
                           >
-                            <Trash2 class="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
+                            <Icon icon="lucide:trash-2" class="h-3.5 w-3.5 text-muted-foreground hover:text-destructive" />
                           </Button>
                         </div>
                       )}

@@ -1,4 +1,5 @@
 // 端点设置编辑器：超时、重定向，以及接口元数据（状态 / 标签 / 描述）
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { t } from "@/hooks/useI18n"
@@ -88,11 +89,9 @@ export function EndpointSettingsEditor(props: EndpointSettingsEditorProps) {
       </div>
       <div class="flex items-center gap-3">
         <label class="text-sm font-medium w-28 shrink-0">{t("endpoint.followRedirects")}</label>
-        <input
-          type="checkbox"
+        <Checkbox
           checked={props.followRedirects}
           onChange={(e) => props.onChange?.({ followRedirects: e.currentTarget.checked })}
-          class="rounded border-border"
         />
       </div>
     </div>

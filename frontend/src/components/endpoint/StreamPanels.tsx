@@ -1,7 +1,7 @@
 // WebSocket / SSE 流式视图组件。连接由 Go 侧维护，切换标签页不会断开。
 // WebSocket 端点复用普通接口详情页布局：连接按钮在顶部请求行，响应区为消息流。
 // 普通接口收到 SSE 响应时，响应区展示实时事件流。
-import { CircleStop, Send, Trash2 } from "lucide-solid"
+import { Icon } from "@iconify-icon/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 
 import { WebSocketService } from "@/../bindings/post-pigeon/internal/services"
@@ -67,12 +67,12 @@ export function WebSocketResponse(props: { connId: string }) {
         <StatusDot status={status()} />
         <span>{t("stream.messages")}</span>
         <span class="flex-1" />
-        <Button size="icon-sm" variant="ghost" onClick={() => clearStream(props.connId)}><Trash2 class="h-3.5 w-3.5" /></Button>
+        <Button size="icon-sm" variant="ghost" onClick={() => clearStream(props.connId)}><Icon icon="lucide:trash-2" class="h-3.5 w-3.5" /></Button>
       </div>
       <MessageLog connId={props.connId} />
       <div class="flex items-center gap-2 shrink-0">
         <Input size="sm" value={input()} onInput={(e) => setInput(e.currentTarget.value)} placeholder={t("stream.messagePlaceholder")} onKeyDown={(e) => e.key === "Enter" && send()} class="flex-1" disabled={status() !== "open"} />
-        <Button size="sm" onClick={send} disabled={status() !== "open"}><Send class="h-3.5 w-3.5" />{t("stream.send")}</Button>
+        <Button size="sm" onClick={send} disabled={status() !== "open"}><Icon icon="lucide:send" class="h-3.5 w-3.5" />{t("stream.send")}</Button>
       </div>
     </div>
   )
@@ -88,9 +88,9 @@ export function StreamEventLog(props: { streamId: string; onStop?: () => void })
         <span>{status() === "open" ? t("stream.streaming") : t("stream.streamEnded")}</span>
         <span class="flex-1" />
         <Show when={status() === "open"}>
-          <Button size="sm" variant="outline" onClick={props.onStop}><CircleStop class="h-3.5 w-3.5" />{t("stream.stop")}</Button>
+          <Button size="sm" variant="outline" onClick={props.onStop}><Icon icon="lucide:circle-stop" class="h-3.5 w-3.5" />{t("stream.stop")}</Button>
         </Show>
-        <Button size="icon-sm" variant="ghost" onClick={() => clearStream(props.streamId)}><Trash2 class="h-3.5 w-3.5" /></Button>
+        <Button size="icon-sm" variant="ghost" onClick={() => clearStream(props.streamId)}><Icon icon="lucide:trash-2" class="h-3.5 w-3.5" /></Button>
       </div>
       <MessageLog connId={props.streamId} />
     </div>

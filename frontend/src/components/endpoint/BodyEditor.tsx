@@ -1,9 +1,10 @@
 // 请求体编辑器（受控组件）
-import { Plus, Trash2, Upload } from "lucide-solid"
+import { Icon } from "@iconify-icon/solid"
 import { createMemo, For, Show } from "solid-js"
 
 import type { BodyFieldRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
@@ -147,7 +148,7 @@ export function BodyEditor(props: BodyEditorProps) {
           <div class="flex flex-col gap-2 py-4">
             <label class="flex items-center gap-2 cursor-pointer text-sm">
               <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-muted hover:text-foreground text-muted-foreground">
-                <Upload class="h-3 w-3" />
+                <Icon icon="lucide:upload" class="h-3 w-3" />
                 {t("common.chooseFile")}
               </span>
               <span class="truncate text-muted-foreground max-w-60">{binaryFileName() || t("common.noFileChosen")}</span>
@@ -168,11 +169,9 @@ export function BodyEditor(props: BodyEditorProps) {
             columns={[
               {
                 header: "", width: "32px", render: (row) => (
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={row.enabled}
                     onChange={(e) => updateField(row.id, { enabled: e.currentTarget.checked })}
-                    class="rounded border-border"
                   />
                 ),
               },
@@ -192,7 +191,7 @@ export function BodyEditor(props: BodyEditorProps) {
                     {/* 文件选择：显示文件名 + 选择按钮 */}
                     <label class="flex items-center gap-2 cursor-pointer text-sm">
                       <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-muted hover:text-foreground text-muted-foreground">
-                        <Upload class="h-3 w-3" />
+                        <Icon icon="lucide:upload" class="h-3 w-3" />
                         {t("common.chooseFile")}
                       </span>
                       <span class="truncate text-muted-foreground max-w-40">{row.fileName || t("common.noFileChosen")}</span>
@@ -214,7 +213,7 @@ export function BodyEditor(props: BodyEditorProps) {
               {
                 header: "", width: "32px", render: (row: BodyFieldRow) => (
                   <Button variant="ghost" size="icon-sm" onClick={() => removeField(row.id)}>
-                    <Trash2 class="h-3 w-3" />
+                    <Icon icon="lucide:trash-2" class="h-3 w-3" />
                   </Button>
                 ),
               },
@@ -223,7 +222,7 @@ export function BodyEditor(props: BodyEditorProps) {
             compact
           />
           <Button variant="outline" size="sm" class="mt-2" onClick={addField}>
-            <Plus class="h-3 w-3" />
+            <Icon icon="lucide:plus" class="h-3 w-3" />
             {t("common.add")}
           </Button>
         </Show>

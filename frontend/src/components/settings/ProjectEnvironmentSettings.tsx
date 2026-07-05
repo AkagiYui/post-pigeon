@@ -1,5 +1,6 @@
 // 项目环境设置组件
 // 在项目设置中管理环境（创建、编辑、删除）及每个环境下的模块前置 URL 和环境变量
+import { Icon } from "@iconify-icon/solid"
 import {
   createSortable,
   DragDropProvider,
@@ -8,7 +9,6 @@ import {
   SortableProvider,
   transformStyle,
 } from "@thisbeyond/solid-dnd"
-import { CircleMinus, CircleX, Eye, EyeOff, GripVertical, Key, Link2, Plus, Trash2, TriangleAlert, X } from "lucide-solid"
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 
@@ -16,6 +16,7 @@ import type { Environment, Module } from "@/../bindings/post-pigeon/internal/mod
 import { EnvironmentVariable } from "@/../bindings/post-pigeon/internal/models/models"
 import { EnvironmentService, ModuleService } from "@/../bindings/post-pigeon/internal/services"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
@@ -165,7 +166,7 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
             onClick={handleCreate}
             disabled={creating() || !newEnvName().trim()}
           >
-            <Plus class="h-3.5 w-3.5" />
+            <Icon icon="lucide:plus" class="h-3.5 w-3.5" />
           </Button>
         </div>
         <div class="flex-1 overflow-y-auto space-y-1">
@@ -195,9 +196,9 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
                   title={pendingDeleteEnvId() === env.id ? t("common.confirmDelete") : t("common.delete")}
                 >
                   {pendingDeleteEnvId() === env.id ? (
-                    <Trash2 class="h-3.5 w-3.5 text-red-500" />
+                    <Icon icon="lucide:trash-2" class="h-3.5 w-3.5 text-red-500" />
                   ) : (
-                    <X class="h-3.5 w-3.5 text-muted-foreground" />
+                    <Icon icon="lucide:x" class="h-3.5 w-3.5 text-muted-foreground" />
                   )}
                 </button>
               </div>
@@ -419,7 +420,7 @@ function ModuleBaseUrlsEditor(props: { ref: EditorSaveRef; projectId: string; en
   return (
     <div>
       <div class="flex items-center gap-1.5 mb-2">
-        <Link2 class="h-4 w-4 text-muted-foreground" />
+        <Icon icon="lucide:link-2" class="h-4 w-4 text-muted-foreground" />
         <label class="text-sm font-medium text-foreground">{t("environment.baseUrl")}</label>
         {loading() && <span class="text-xs text-muted-foreground ml-1">{t("common.loading")}</span>}
       </div>
@@ -855,7 +856,7 @@ function SortableVariableRow(props: {
                    cursor-grab active:cursor-grabbing transition-colors"
         {...sortable.dragActivators}
       >
-        <GripVertical class="h-3.5 w-3.5" />
+        <Icon icon="lucide:grip-vertical" class="h-3.5 w-3.5" />
       </div>
 
       {/* 开关 */}
@@ -884,7 +885,7 @@ function SortableVariableRow(props: {
             {/* 同名变量警告 — 始终在输入框内部显示 */}
             <Show when={props.isDuplicate}>
               <Tooltip content={t("environment.variable.duplicateWarning")}>
-                <TriangleAlert class="h-3.5 w-3.5 text-amber-500 shrink-0" />
+                <Icon icon="lucide:triangle-alert" class="h-3.5 w-3.5 text-amber-500 shrink-0" />
               </Tooltip>
             </Show>
             {/* 钥匙图标 — 仅鼠标悬停输入框时显示 */}
@@ -899,7 +900,7 @@ function SortableVariableRow(props: {
                 )}
                 onClick={() => props.onUpdate("isSecret", !props.variable.isSecret)}
               >
-                <Key class="h-3.5 w-3.5" />
+                <Icon icon="lucide:key" class="h-3.5 w-3.5" />
               </button>
             </Tooltip>
           </div>
@@ -928,9 +929,9 @@ function SortableVariableRow(props: {
               title={showValue() ? t("common.hide") : t("common.show")}
             >
               {showValue() ? (
-                <EyeOff class="h-3.5 w-3.5" />
+                <Icon icon="lucide:eye-off" class="h-3.5 w-3.5" />
               ) : (
-                <Eye class="h-3.5 w-3.5" />
+                <Icon icon="lucide:eye" class="h-3.5 w-3.5" />
               )}
             </button>
           </Show>
@@ -963,9 +964,9 @@ function SortableVariableRow(props: {
           title={props.isPendingDelete ? t("common.confirmDelete") : t("common.delete")}
         >
           {props.isPendingDelete ? (
-            <CircleX class="h-4 w-4" />
+            <Icon icon="lucide:circle-x" class="h-4 w-4" />
           ) : (
-            <CircleMinus class="h-4 w-4" />
+            <Icon icon="lucide:circle-minus" class="h-4 w-4" />
           )}
         </button>
       </div>
@@ -1058,8 +1059,7 @@ function VariableToggle(props: {
         props.disabled ? "cursor-not-allowed opacity-40" : "cursor-pointer",
       )}
     >
-      <input
-        type="checkbox"
+      <Checkbox
         class="sr-only peer"
         checked={props.enabled}
         disabled={props.disabled}

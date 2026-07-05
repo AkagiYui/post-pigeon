@@ -1,13 +1,14 @@
 // 前置/后置操作编辑器（受控）
 // 每个阶段（pre/post）维护一组有序操作，支持 脚本 / 断言 / 提取变量 / 等待 / 引用脚本库，
 // 可单独启用/禁用、上移下移、删除。脚本使用 CodeMirror 编辑。
-import { ChevronDown, ChevronUp, GripVertical, Plus, Trash2 } from "lucide-solid"
+import { Icon } from "@iconify-icon/solid"
 import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 
 import type { ScriptLibrary } from "@/../bindings/post-pigeon/internal/models"
 import { ScriptLibraryService } from "@/../bindings/post-pigeon/internal/services"
 import { emptyOperation, type OperationRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { CodeEditor } from "@/components/ui/code-editor"
 import { Input } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
@@ -145,7 +146,7 @@ export function OperationsEditor(props: OperationsEditorProps) {
       </div>
 
       <Button variant="outline" size="sm" class="mt-2 shrink-0 self-start" onClick={addOp}>
-        <Plus class="h-3 w-3" />
+        <Icon icon="lucide:plus" class="h-3 w-3" />
         {t("op.add")}
       </Button>
     </div>
@@ -166,12 +167,11 @@ function OperationCard(props: {
     <div class={cn("border border-border rounded-md overflow-hidden", !op().enabled && "opacity-60")}>
       {/* 卡片头 */}
       <div class="flex items-center gap-2 px-2 py-1.5 bg-muted/40 border-b border-border">
-        <GripVertical class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
-        <input
-          type="checkbox"
+        <Icon icon="lucide:grip-vertical" class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <Checkbox
           checked={op().enabled}
           onChange={(e) => props.onUpdate({ enabled: e.currentTarget.checked })}
-          class="rounded border-border shrink-0"
+          class="shrink-0"
         />
         <Select
           options={opTypeOptions()}
@@ -187,9 +187,9 @@ function OperationCard(props: {
           placeholder={t("op.name")}
           class="flex-1"
         />
-        <Button variant="ghost" size="icon-sm" onClick={props.onMoveUp}><ChevronUp class="h-3 w-3" /></Button>
-        <Button variant="ghost" size="icon-sm" onClick={props.onMoveDown}><ChevronDown class="h-3 w-3" /></Button>
-        <Button variant="ghost" size="icon-sm" onClick={props.onRemove}><Trash2 class="h-3 w-3" /></Button>
+        <Button variant="ghost" size="icon-sm" onClick={props.onMoveUp}><Icon icon="lucide:chevron-up" class="h-3 w-3" /></Button>
+        <Button variant="ghost" size="icon-sm" onClick={props.onMoveDown}><Icon icon="lucide:chevron-down" class="h-3 w-3" /></Button>
+        <Button variant="ghost" size="icon-sm" onClick={props.onRemove}><Icon icon="lucide:trash-2" class="h-3 w-3" /></Button>
       </div>
 
       {/* 卡片体 */}

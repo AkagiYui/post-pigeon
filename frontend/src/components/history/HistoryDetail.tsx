@@ -1,5 +1,5 @@
 // 请求历史详情组件
-import { Clock } from "lucide-solid"
+import { Icon } from "@iconify-icon/solid"
 import { createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 
 import type { RequestHistory } from "@/../bindings/post-pigeon/internal/models"
@@ -148,7 +148,7 @@ export function HistoryDetail(props: HistoryDetailProps) {
             <div class="text-sm font-medium">{detail()!.method} {detail()!.url}</div>
             <div class="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
               <span class="flex items-center gap-1">
-                <Clock class="h-3 w-3" />
+                <Icon icon="lucide:clock" class="h-3 w-3" />
                 {formatTime(detail()!.createdAt as any)}
               </span>
               <span>{formatSize(detail()!.size)}</span>

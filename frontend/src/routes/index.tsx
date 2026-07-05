@@ -1,4 +1,5 @@
 // 项目列表页面 - 首页
+import { Icon } from "@iconify-icon/solid"
 import { createFileRoute, useNavigate } from "@tanstack/solid-router"
 import {
   createSortable,
@@ -9,7 +10,6 @@ import {
   SortableProvider,
   transformStyle,
 } from "@thisbeyond/solid-dnd"
-import { Download, FolderOpen, GripVertical, Plus, Trash2, TriangleAlert, Upload } from "lucide-solid"
 import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 
 import { ImportExportService, ProjectService } from "@/../bindings/post-pigeon/internal/services"
@@ -72,7 +72,7 @@ function SortableProjectCard(props: {
           e.stopPropagation()
         }}
       >
-        <GripVertical class="h-4 w-4" />
+        <Icon icon="lucide:grip-vertical" class="h-4 w-4" />
       </div>
 
       {/* 项目图标 */}
@@ -98,7 +98,7 @@ function SortableProjectCard(props: {
           props.onDelete(props.project)
         }}
       >
-        <Trash2 class="h-3.5 w-3.5" />
+        <Icon icon="lucide:trash-2" class="h-3.5 w-3.5" />
       </Button>
     </div>
   )
@@ -272,7 +272,7 @@ function HomePage() {
       {
         key: "open",
         label: t("project.open"),
-        icon: <FolderOpen class="h-3.5 w-3.5" />,
+        icon: <Icon icon="lucide:folder-open" class="h-3.5 w-3.5" />,
         onClick: () => {
           openProject(project.id)
           navigate({ to: "/project/$id", params: { id: project.id }, from: "/" })
@@ -281,14 +281,14 @@ function HomePage() {
       {
         key: "export",
         label: t("project.export"),
-        icon: <Download class="h-3.5 w-3.5" />,
+        icon: <Icon icon="lucide:download" class="h-3.5 w-3.5" />,
         onClick: () => handleExport(project),
       },
       { key: "sep1", label: "", separator: true },
       {
         key: "delete",
         label: t("project.delete"),
-        icon: <Trash2 class="h-3.5 w-3.5" />,
+        icon: <Icon icon="lucide:trash-2" class="h-3.5 w-3.5" />,
         onClick: () => handleDelete(project),
       },
     ]
@@ -304,11 +304,11 @@ function HomePage() {
           <h1 class="text-2xl font-bold">{t("project.title")}</h1>
           <div class="flex items-center gap-2">
             <Button variant="outline" size="sm" onClick={handleImport}>
-              <Upload class="h-3.5 w-3.5" />
+              <Icon icon="lucide:upload" class="h-3.5 w-3.5" />
               {t("project.import")}
             </Button>
             <Button size="sm" onClick={() => setCreateOpen(true)}>
-              <Plus class="h-3.5 w-3.5" />
+              <Icon icon="lucide:plus" class="h-3.5 w-3.5" />
               {t("project.create")}
             </Button>
           </div>
@@ -320,7 +320,7 @@ function HomePage() {
             when={projects().length > 0}
             fallback={
               <div class="text-center py-16">
-                <FolderOpen class="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                <Icon icon="lucide:folder-open" class="h-12 w-12 mx-auto text-muted-foreground mb-4" />
                 <p class="text-muted-foreground">{t("project.empty")}</p>
               </div>
             }
@@ -416,7 +416,7 @@ function HomePage() {
         <div class="p-6 space-y-4">
           <div class="flex items-start gap-3">
             <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
-              <TriangleAlert class="h-5 w-5 text-red-500" />
+              <Icon icon="lucide:triangle-alert" class="h-5 w-5 text-red-500" />
             </div>
             <div class="flex-1">
               <p class="text-foreground">
@@ -430,7 +430,7 @@ function HomePage() {
               {/* 如果该项目已在顶栏打开，提示删除后将自动关闭标签页 */}
               <Show when={projectToDelete() && openProjectIds().includes(projectToDelete()!.id)}>
                 <p class="text-sm text-amber-500 dark:text-amber-400 mt-2 flex items-center gap-1.5">
-                  <TriangleAlert class="h-3.5 w-3.5 shrink-0" />
+                  <Icon icon="lucide:triangle-alert" class="h-3.5 w-3.5 shrink-0" />
                   此项目当前已打开，删除后将自动关闭标签页
                 </p>
               </Show>

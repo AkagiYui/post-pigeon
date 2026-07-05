@@ -1,5 +1,4 @@
 // 关于页面组件
-import { Mail } from "lucide-solid"
 import { createSignal, onMount } from "solid-js"
 
 import { AppInfo, AppService } from "@/bindings/post-pigeon/internal/services"
@@ -75,7 +74,7 @@ export function AboutSettings() {
       {/* 联系作者 */}
       <div class="flex items-center justify-between">
         <span class="text-sm text-foreground">{t("settings.about.contact")}</span>
-        <ExternalLink href="mailto:akagiyui@yeah.net" text="akagiyui@yeah.net" icon={Mail} />
+        <ExternalLink href="mailto:akagiyui@yeah.net" text="akagiyui@yeah.net" icon="lucide:mail" />
       </div>
     </div>
   )

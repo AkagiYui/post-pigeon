@@ -1,5 +1,5 @@
 // 脚本库设置：项目级脚本，供任意前置/后置操作引用
-import { Plus, Save, Trash2 } from "lucide-solid"
+import { Icon } from "@iconify-icon/solid"
 import { createSignal, For, onMount, Show } from "solid-js"
 
 import type { ScriptLibrary } from "@/../bindings/post-pigeon/internal/models"
@@ -68,7 +68,7 @@ export function ScriptLibrarySettings(props: ScriptLibrarySettingsProps) {
       {/* 左侧列表 */}
       <div class="w-56 shrink-0 border-r border-border flex flex-col">
         <div class="p-2 border-b border-border">
-          <Button variant="outline" size="sm" class="w-full" onClick={create}><Plus class="h-3 w-3" />{t("scriptLib.new")}</Button>
+          <Button variant="outline" size="sm" class="w-full" onClick={create}><Icon icon="lucide:plus" class="h-3 w-3" />{t("scriptLib.new")}</Button>
         </div>
         <div class="flex-1 overflow-auto">
           <For each={scripts()} fallback={<div class="text-xs text-muted-foreground text-center py-4">{t("scriptLib.empty")}</div>}>
@@ -79,7 +79,7 @@ export function ScriptLibrarySettings(props: ScriptLibrarySettingsProps) {
               >
                 <span class="truncate flex-1">{s.name}</span>
                 <Button variant="ghost" size="icon-sm" class="opacity-0 group-hover:opacity-100 h-5 w-5" onClick={(e) => { e.stopPropagation(); remove(s.id) }}>
-                  <Trash2 class="h-3 w-3" />
+                  <Icon icon="lucide:trash-2" class="h-3 w-3" />
                 </Button>
               </div>
             )}
@@ -92,7 +92,7 @@ export function ScriptLibrarySettings(props: ScriptLibrarySettingsProps) {
         <Show when={selectedId()} fallback={<div class="flex-1 flex items-center justify-center text-muted-foreground text-sm">{t("scriptLib.selectHint")}</div>}>
           <div class="flex items-center gap-2 shrink-0">
             <Input size="sm" value={name()} onInput={(e) => setName(e.currentTarget.value)} placeholder={t("common.name")} class="flex-1" />
-            <Button size="sm" onClick={save} disabled={saving()}><Save class="h-3.5 w-3.5" />{saving() ? t("common.saving") : t("common.save")}</Button>
+            <Button size="sm" onClick={save} disabled={saving()}><Icon icon="lucide:save" class="h-3.5 w-3.5" />{saving() ? t("common.saving") : t("common.save")}</Button>
           </div>
           <div class="flex-1 min-h-0">
             <CodeEditor language="javascript" value={content()} onChange={setContent} placeholder={t("scriptLib.placeholder")} />

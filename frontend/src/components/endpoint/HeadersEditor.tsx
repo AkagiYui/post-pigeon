@@ -1,8 +1,9 @@
 // 请求头编辑器（受控组件）
-import { Plus, Trash2 } from "lucide-solid"
+import { Icon } from "@iconify-icon/solid"
 
 import type { HeaderRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Table } from "@/components/ui/table"
 import { t } from "@/hooks/useI18n"
@@ -39,11 +40,9 @@ export function HeadersEditor(props: HeadersEditorProps) {
         columns={[
           {
             header: "", width: "32px", render: (row) => (
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={row.enabled}
                 onChange={(e) => updateHeader(row.id, "enabled", e.currentTarget.checked)}
-                class="rounded border-border"
               />
             ),
           },
@@ -65,7 +64,7 @@ export function HeadersEditor(props: HeadersEditorProps) {
           {
             header: "", width: "32px", render: (row) => (
               <Button variant="ghost" size="icon-sm" onClick={() => removeHeader(row.id)}>
-                <Trash2 class="h-3 w-3" />
+                <Icon icon="lucide:trash-2" class="h-3 w-3" />
               </Button>
             ),
           },
@@ -74,7 +73,7 @@ export function HeadersEditor(props: HeadersEditorProps) {
         compact
       />
       <Button variant="outline" size="sm" class="mt-2" onClick={addHeader}>
-        <Plus class="h-3 w-3" />
+        <Icon icon="lucide:plus" class="h-3 w-3" />
         {t("common.add")}
       </Button>
     </div>

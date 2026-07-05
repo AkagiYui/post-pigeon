@@ -4,11 +4,12 @@
 // 全局 Query 参数继承自模块，值只读（在设置页修改），开关仅对本接口生效。
 // Cookie 参数由独立的 CookiesEditor 编辑。三者共享同一份 ParamRow[]（按 type 区分），
 // 各编辑器改动时都会回传「完整」列表以保持彼此数据不丢失。
-import { Globe, Plus, Trash2 } from "lucide-solid"
+import { Icon } from "@iconify-icon/solid"
 import { For, Show } from "solid-js"
 
 import type { ParamRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Table } from "@/components/ui/table"
 import { Tooltip } from "@/components/ui/tooltip"
@@ -101,7 +102,7 @@ export function ParamsEditor(props: ParamsEditorProps) {
       <section>
         <SectionTitle>
           <span class="inline-flex items-center gap-1.5">
-            <Globe class="h-3.5 w-3.5 text-muted-foreground" />
+            <Icon icon="lucide:globe" class="h-3.5 w-3.5 text-muted-foreground" />
             {t("endpoint.param.globalQueryParams")}
           </span>
         </SectionTitle>
@@ -114,11 +115,9 @@ export function ParamsEditor(props: ParamsEditorProps) {
             columns={[
               {
                 header: "", width: "32px", render: (gp) => (
-                  <input
-                    type="checkbox"
+                  <Checkbox
                     checked={isGlobalEnabled(gp.name)}
                     onChange={(e) => toggleGlobal(gp.name, e.currentTarget.checked)}
-                    class="rounded border-border"
                   />
                 ),
               },
@@ -201,11 +200,9 @@ function ParamTable(props: {
         columns={[
           {
             header: "", width: "32px", render: (row) => (
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={row.enabled}
                 onChange={(e) => updateParam(row.id, "enabled", e.currentTarget.checked)}
-                class="rounded border-border"
               />
             ),
           },
@@ -223,11 +220,9 @@ function ParamTable(props: {
           },
           {
             header: t("endpoint.param.required"), width: "56px", render: (row) => (
-              <input
-                type="checkbox"
+              <Checkbox
                 checked={row.required}
                 onChange={(e) => updateParam(row.id, "required", e.currentTarget.checked)}
-                class="rounded border-border"
               />
             ),
           },
@@ -246,7 +241,7 @@ function ParamTable(props: {
               // path 参数由路径自动识别，不提供逐行删除
               <Show when={!props.nameReadOnly}>
                 <Button variant="ghost" size="icon-sm" onClick={() => removeParam(row.id)}>
-                  <Trash2 class="h-3 w-3" />
+                  <Icon icon="lucide:trash-2" class="h-3 w-3" />
                 </Button>
               </Show>
             ),
@@ -258,7 +253,7 @@ function ParamTable(props: {
       />
       <Show when={!props.hideAdd}>
         <Button variant="outline" size="sm" class="mt-2" onClick={addParam}>
-          <Plus class="h-3 w-3" />
+          <Icon icon="lucide:plus" class="h-3 w-3" />
           {t("endpoint.param.add")}
         </Button>
       </Show>

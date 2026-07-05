@@ -1,10 +1,11 @@
 // 全局变量设置：项目级、跨环境的变量
-import { Plus, Trash2 } from "lucide-solid"
+import { Icon } from "@iconify-icon/solid"
 import { createSignal, onMount } from "solid-js"
 
 import { GlobalVariable } from "@/../bindings/post-pigeon/internal/models"
 import { GlobalVariableService } from "@/../bindings/post-pigeon/internal/services"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Table } from "@/components/ui/table"
 import { t } from "@/hooks/useI18n"
@@ -60,7 +61,7 @@ export function GlobalVariablesSettings(props: GlobalVariablesSettingsProps) {
         <Table
           columns={[
             { header: "", width: "32px", render: (row) => (
-              <input type="checkbox" checked={row.enabled} onChange={(e) => update(row.id, "enabled", e.currentTarget.checked)} class="rounded border-border" />
+              <Checkbox checked={row.enabled} onChange={(e) => update(row.id, "enabled", e.currentTarget.checked)} />
             ) },
             { header: t("common.name"), render: (row) => (
               <Input size="sm" value={row.key} onInput={(e) => update(row.id, "key", e.currentTarget.value)} />
@@ -72,14 +73,14 @@ export function GlobalVariablesSettings(props: GlobalVariablesSettingsProps) {
               <Input size="sm" value={row.description} onInput={(e) => update(row.id, "description", e.currentTarget.value)} />
             ) },
             { header: "", width: "32px", render: (row) => (
-              <Button variant="ghost" size="icon-sm" onClick={() => removeRow(row.id)}><Trash2 class="h-3 w-3" /></Button>
+              <Button variant="ghost" size="icon-sm" onClick={() => removeRow(row.id)}><Icon icon="lucide:trash-2" class="h-3 w-3" /></Button>
             ) },
           ]}
           data={rows()}
           compact
           emptyText={t("globalVar.empty")}
         />
-        <Button variant="outline" size="sm" class="mt-2" onClick={addRow}><Plus class="h-3 w-3" />{t("common.add")}</Button>
+        <Button variant="outline" size="sm" class="mt-2" onClick={addRow}><Icon icon="lucide:plus" class="h-3 w-3" />{t("common.add")}</Button>
       </div>
 
       <div class="flex items-center justify-end gap-3 shrink-0">

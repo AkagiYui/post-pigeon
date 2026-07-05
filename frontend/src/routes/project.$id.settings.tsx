@@ -1,7 +1,7 @@
 // 项目设置路由
 // 使用左右分栏标签页，包含基本设置和环境设置
+import { Icon } from "@iconify-icon/solid"
 import { createFileRoute, useParams } from "@tanstack/solid-router"
-import { Cog, FileCode, Globe, Variable } from "lucide-solid"
 import { createSignal, onMount } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
@@ -18,10 +18,10 @@ import { setProjectNames } from "@/stores/app"
 
 /** 项目设置标签列表 */
 const projectSettingsTabs = [
-  { key: "basic", label: "", icon: <Cog class="h-4 w-4" /> }, // label 在渲染时由 i18n 填充
-  { key: "environment", label: "", icon: <Globe class="h-4 w-4" /> },
-  { key: "globalVars", label: "", icon: <Variable class="h-4 w-4" /> },
-  { key: "scriptLibrary", label: "", icon: <FileCode class="h-4 w-4" /> },
+  { key: "basic", label: "", icon: <Icon icon="lucide:cog" class="h-4 w-4" /> }, // label 在渲染时由 i18n 填充
+  { key: "environment", label: "", icon: <Icon icon="lucide:globe" class="h-4 w-4" /> },
+  { key: "globalVars", label: "", icon: <Icon icon="lucide:variable" class="h-4 w-4" /> },
+  { key: "scriptLibrary", label: "", icon: <Icon icon="lucide:file-code" class="h-4 w-4" /> },
 ]
 
 export const Route = createFileRoute("/project/$id/settings")({
