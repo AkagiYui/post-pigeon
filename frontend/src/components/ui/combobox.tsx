@@ -105,7 +105,6 @@ export function Combobox(props: ComboboxProps) {
     // 等待 DOM 更新后聚焦输入框
     queueMicrotask(() => {
       inputRef?.focus()
-      debugger
     })
   }
 

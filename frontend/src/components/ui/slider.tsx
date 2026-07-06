@@ -1,4 +1,7 @@
-// Slider 滑块组件
+// Slider 滑块组件，封装 Kobalte Slider
+// Kobalte 提供 role="slider"、aria-valuenow/min/max、方向键与 Home/End 键盘交互等无障碍能力，
+// 替代原先手写的 range input hack。刻度点/标签沿用旧实现的自定义叠加渲染。
+import { Slider as KSlider } from "@kobalte/core/slider"
 import { splitProps } from "solid-js"
 
 import { cn } from "@/lib/utils"
@@ -40,7 +43,6 @@ export function Slider(props: SliderProps) {
   // 生成默认刻度（如果没有提供）
   const marks = () => {
     if (local.marks) return local.marks
-    // 默认生成主要刻度点
     const result: SliderMark[] = []
     const step = local.step || 1
     for (let v = local.min; v <= local.max; v += step) {
@@ -49,69 +51,30 @@ export function Slider(props: SliderProps) {
     return result
   }
 
-  // 计算滑块位置百分比
-  const percentage = () => {
-    const range = local.max - local.min
-    return ((local.value - local.min) / range) * 100
-  }
-
   // 计算刻度位置百分比
   const markPercentage = (value: number) => {
     const range = local.max - local.min
     return ((value - local.min) / range) * 100
   }
 
-  // 处理滑块变化
-  const handleChange = (e: Event) => {
-    const target = e.target as HTMLInputElement
-    local.onChange(parseFloat(target.value))
-  }
-
-  // 处理键盘事件
-  const handleKeyDown = (e: KeyboardEvent) => {
-    if (local.disabled) return
-
-    const step = local.step || 1
-    let newValue = local.value
-
-    switch (e.key) {
-      case "ArrowLeft":
-      case "ArrowDown":
-        newValue = Math.max(local.min, local.value - step)
-        e.preventDefault()
-        break
-      case "ArrowRight":
-      case "ArrowUp":
-        newValue = Math.min(local.max, local.value + step)
-        e.preventDefault()
-        break
-      case "Home":
-        newValue = local.min
-        e.preventDefault()
-        break
-      case "End":
-        newValue = local.max
-        e.preventDefault()
-        break
-    }
-
-    if (newValue !== local.value) {
-      local.onChange(newValue)
-    }
-  }
-
   return (
-    <div class={cn("flex flex-col", local.class)}>
+    <KSlider
+      class={cn("flex flex-col", local.class)}
+      value={[local.value]}
+      minValue={local.min}
+      maxValue={local.max}
+      step={local.step || 1}
+      disabled={local.disabled}
+      onChange={(vals) => local.onChange(vals[0])}
+      getValueLabel={(params) => (local.formatValue ? local.formatValue(params.values[0]) : String(params.values[0]))}
+    >
       {/* 滑块轨道和刻度点 */}
-      <div class="relative h-5 flex items-center">
+      <KSlider.Track class="relative h-5 flex items-center">
         {/* 轨道背景 */}
         <div class="absolute inset-x-0 h-1 bg-muted rounded-full" />
 
         {/* 已填充部分 */}
-        <div
-          class="absolute h-1 bg-accent rounded-full pointer-events-none"
-          style={{ width: `${percentage()}%` }}
-        />
+        <KSlider.Fill class="absolute h-1 bg-accent rounded-full pointer-events-none" />
 
         {/* 刻度点（在轨道上，垂直居中） */}
         {marks().map((mark) => (
@@ -128,33 +91,17 @@ export function Slider(props: SliderProps) {
           </div>
         ))}
 
-        {/* 高亮点指示当前值 */}
-        <div
-          class="absolute w-3 h-3 bg-accent rounded-full shadow-sm pointer-events-none transform -translate-x-1/2 transition-all"
-          style={{ left: `${percentage()}%` }}
-        />
-
-        {/* 滑块输入（透明，用于交互） */}
-        <input
-          type="range"
-          min={local.min}
-          max={local.max}
-          step={local.step || 1}
-          value={local.value}
-          onInput={handleChange}
-          onKeyDown={handleKeyDown}
-          disabled={local.disabled}
+        {/* 拖拽手柄 */}
+        <KSlider.Thumb
           class={cn(
-            "absolute inset-x-0 w-full h-5 appearance-none bg-transparent cursor-pointer",
-            "[&::-webkit-slider-thumb]:appearance-none [&::-webkit-slider-thumb]:w-3 [&::-webkit-slider-thumb]:h-3",
-            "[&::-webkit-slider-thumb]:rounded-full [&::-webkit-slider-thumb]:bg-transparent",
-            "[&::-moz-range-thumb]:appearance-none [&::-moz-range-thumb]:w-3 [&::-moz-range-thumb]:h-3",
-            "[&::-moz-range-thumb]:rounded-full [&::-moz-range-thumb]:bg-transparent [&::-moz-range-thumb]:border-none",
-            "disabled:opacity-50 disabled:cursor-not-allowed",
+            "block w-3 h-3 bg-accent rounded-full shadow-sm transition-all -top-1/2 translate-y-1/2",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
+            "disabled:opacity-50 disabled:cursor-not-allowed",
           )}
-        />
-      </div>
+        >
+          <KSlider.Input />
+        </KSlider.Thumb>
+      </KSlider.Track>
 
       {/* 刻度标签（在下方） */}
       <div class="relative h-4 mt-1">
@@ -171,6 +118,6 @@ export function Slider(props: SliderProps) {
           )
         ))}
       </div>
-    </div>
+    </KSlider>
   )
 }

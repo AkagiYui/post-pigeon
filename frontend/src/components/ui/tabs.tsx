@@ -1,5 +1,8 @@
-// Tabs 标签页组件
-import { createSignal, For, type JSX, Show, splitProps } from "solid-js"
+// Tabs 标签页组件，封装 Kobalte Tabs
+// Kobalte 提供 role="tablist/tab/tabpanel" 语义与方向键导航等无障碍能力；
+// 视觉样式仍沿用受控 value 计算，保持与旧实现一致。
+import { Tabs as KTabs } from "@kobalte/core/tabs"
+import { For, type JSX, Show, splitProps } from "solid-js"
 
 import { cn } from "@/lib/utils"
 
@@ -40,15 +43,21 @@ export function Tabs(props: TabsProps) {
   const [local] = splitProps(props, ["tabs", "value", "onChange", "onClose", "children", "class", "extra"])
 
   return (
-    <div class={cn("flex flex-col h-full", local.class)}>
+    <KTabs
+      class={cn("flex flex-col h-full", local.class)}
+      value={local.value}
+      onChange={local.onChange}
+    >
       {/* 标签栏 */}
       <div class="flex items-center shrink-0 relative">
         {/* 底部分割线 */}
         <div class="absolute bottom-0 left-0 right-0 h-px bg-border" />
-        <div class="flex items-center overflow-x-auto no-scrollbar flex-1">
+        <KTabs.List class="flex items-center overflow-x-auto no-scrollbar flex-1">
           <For each={local.tabs}>
             {(tab) => (
-              <button
+              <KTabs.Trigger
+                value={tab.key}
+                disabled={tab.disabled}
                 class={cn(
                   "flex items-center gap-1 px-3 py-1.5 text-sm border-b-2 transition-colors whitespace-nowrap select-none relative z-10",
                   local.value === tab.key
@@ -56,7 +65,6 @@ export function Tabs(props: TabsProps) {
                     : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
                   tab.disabled && "opacity-50 cursor-not-allowed",
                 )}
-                onClick={() => !tab.disabled && local.onChange(tab.key)}
               >
                 <Show when={tab.icon}>{tab.icon}</Show>
                 <span>{tab.label}</span>
@@ -73,19 +81,19 @@ export function Tabs(props: TabsProps) {
                     </svg>
                   </span>
                 </Show>
-              </button>
+              </KTabs.Trigger>
             )}
           </For>
-        </div>
+        </KTabs.List>
         <Show when={local.extra}>
           <div class="shrink-0 px-2">{local.extra}</div>
         </Show>
       </div>
       {/* 标签内容 */}
-      <div class="flex-1 overflow-auto">
+      <KTabs.Content value={local.value} class="flex-1 overflow-auto">
         {local.children(local.value)}
-      </div>
-    </div>
+      </KTabs.Content>
+    </KTabs>
   )
 }
 
@@ -104,30 +112,36 @@ export function SideTabs(props: SideTabsProps) {
   const [local] = splitProps(props, ["tabs", "value", "onChange", "children", "class"])
 
   return (
-    <div class={cn("flex h-full", local.class)}>
+    <KTabs
+      orientation="vertical"
+      class={cn("flex h-full", local.class)}
+      value={local.value}
+      onChange={local.onChange}
+    >
       {/* 左侧菜单 */}
-      <div class="w-44 shrink-0 border-r border-border">
+      <KTabs.List class="w-44 shrink-0 border-r border-border">
         <For each={local.tabs}>
           {(tab) => (
-            <button
+            <KTabs.Trigger
+              value={tab.key}
+              disabled={tab.disabled}
               class={cn(
                 "w-full flex items-center gap-2 px-4 py-2 text-sm text-left transition-colors select-none",
                 local.value === tab.key
                   ? "bg-accent-muted text-accent font-medium"
                   : "text-muted-foreground hover:bg-muted hover:text-foreground",
               )}
-              onClick={() => local.onChange(tab.key)}
             >
               <Show when={tab.icon}>{tab.icon}</Show>
               <span>{tab.label}</span>
-            </button>
+            </KTabs.Trigger>
           )}
         </For>
-      </div>
+      </KTabs.List>
       {/* 右侧内容 */}
-      <div class="flex-1 overflow-auto p-4">
+      <KTabs.Content value={local.value} class="flex-1 overflow-auto p-4">
         {local.children(local.value)}
-      </div>
-    </div>
+      </KTabs.Content>
+    </KTabs>
   )
 }
