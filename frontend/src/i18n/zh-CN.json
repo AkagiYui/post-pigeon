@@ -104,6 +104,7 @@
   "response.size": "大小",
   "response.empty": "无响应内容",
   "response.failed": "请求失败",
+  "response.toggleLayout": "切换布局（上下 / 左右）",
   "environment.title": "环境",
   "environment.create": "新建环境",
   "environment.name": "环境名称",

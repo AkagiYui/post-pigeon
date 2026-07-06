@@ -1,5 +1,5 @@
 // 响应面板组件
-import { createMemo, createSignal, For, Show } from "solid-js"
+import { createMemo, For, Show } from "solid-js"
 
 import { CodeEditor, type CodeLanguage } from "@/components/ui/code-editor"
 import { Select } from "@/components/ui/select"
@@ -32,27 +32,81 @@ const encodingOptions = [
   { value: "iso-8859-1", label: "ISO-8859-1" },
 ]
 
+/**
+ * 响应体渲染工具栏：渲染模式（格式化/原始/预览）+ 格式方案 + 编码切换。
+ * 受控组件，可被内嵌于响应面板内（左右布局）或标签栏状态码左侧（上下布局）。
+ */
+export interface ResponseBodyToolbarProps {
+  renderMode: string
+  onRenderModeChange: (v: string) => void
+  format: string
+  onFormatChange: (v: string) => void
+  encoding: string
+  onEncodingChange: (v: string) => void
+  class?: string
+}
+
+export function ResponseBodyToolbar(props: ResponseBodyToolbarProps) {
+  return (
+    <div class={cn("flex items-center gap-1", props.class)}>
+      {/* 渲染模式按钮组 */}
+      <div class="flex items-center rounded-md border border-border overflow-hidden">
+        <For each={renderModes}>
+          {(mode) => (
+            <button
+              class={cn(
+                "px-2.5 py-1 text-xs font-medium transition-colors",
+                props.renderMode === mode.value
+                  ? "bg-accent text-white"
+                  : "bg-transparent text-muted-foreground hover:bg-accent-muted hover:text-accent",
+              )}
+              onClick={() => props.onRenderModeChange(mode.value)}
+            >
+              {mode.label()}
+            </button>
+          )}
+        </For>
+      </div>
+      {/* 格式选择（仅格式化模式可用） */}
+      <Show when={props.renderMode === "pretty"}>
+        <Select options={formatOptions} value={props.format} onChange={props.onFormatChange} size="sm" class="w-20" />
+      </Show>
+      {/* 编码选择（格式化和原始模式可用） */}
+      <Show when={props.renderMode === "pretty" || props.renderMode === "raw"}>
+        <Select options={encodingOptions} value={props.encoding} onChange={props.onEncodingChange} size="sm" class="w-24" />
+      </Show>
+    </div>
+  )
+}
+
 export interface ResponsePanelProps {
   tab: string
   response: ResponseData
+  /** 渲染模式：pretty / raw / preview（受控，由父级持有以便工具栏可移出面板） */
+  renderMode: string
+  /** 格式方案：json / xml / html */
+  format: string
+  /** 编码：utf-8 / gbk / ... */
+  encoding: string
+  /** 是否在面板内以独立一行渲染工具栏（左右布局为 true；上下布局工具栏移入标签栏，故为 false） */
+  showToolbar?: boolean
+  onRenderModeChange: (v: string) => void
+  onFormatChange: (v: string) => void
+  onEncodingChange: (v: string) => void
 }
 
 export function ResponsePanel(props: ResponsePanelProps) {
-  const [renderMode, setRenderMode] = createSignal("pretty")
-  const [format, setFormat] = createSignal("json")
-  const [encoding, setEncoding] = createSignal("utf-8")
-
   // 按所选字符集解码响应体：utf-8 直接用 body；其他用 rawBody 解码，失败回退 body
   const decodedBody = createMemo(() => {
-    if (encoding() === "utf-8") return props.response.body
-    const decoded = props.response.rawBody ? decodeRawBody(props.response.rawBody, encoding()) : null
+    if (props.encoding === "utf-8") return props.response.body
+    const decoded = props.response.rawBody ? decodeRawBody(props.response.rawBody, props.encoding) : null
     return decoded ?? props.response.body
   })
   // pretty 模式下再按所选格式美化
-  const displayBody = createMemo(() => renderMode() === "pretty" ? formatBody(decodedBody(), format()) : decodedBody())
+  const displayBody = createMemo(() => props.renderMode === "pretty" ? formatBody(decodedBody(), props.format) : decodedBody())
   // 格式化模式下按所选格式切换 CodeMirror 高亮方案
   const bodyLanguage = (): CodeLanguage => {
-    switch (format()) {
+    switch (props.format) {
       case "xml": return "xml"
       case "html": return "html"
       default: return "json"
@@ -62,45 +116,29 @@ export function ResponsePanel(props: ResponsePanelProps) {
   return (
     <div class="h-full flex flex-col">
       <Show when={props.tab === "body"}>
-        {/* 渲染工具栏 */}
-        <div class="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
-          {/* 渲染模式按钮组 */}
-          <div class="flex items-center rounded-md border border-border overflow-hidden">
-            <For each={renderModes}>
-              {(mode) => (
-                <button
-                  class={cn(
-                    "px-2.5 py-1 text-xs font-medium transition-colors",
-                    renderMode() === mode.value
-                      ? "bg-accent text-white"
-                      : "bg-transparent text-muted-foreground hover:bg-accent-muted hover:text-accent",
-                  )}
-                  onClick={() => setRenderMode(mode.value)}
-                >
-                  {mode.label()}
-                </button>
-              )}
-            </For>
+        {/* 渲染工具栏（仅左右布局时内嵌显示；上下布局由父级移入标签栏状态码左侧） */}
+        <Show when={props.showToolbar}>
+          <div class="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
+            <ResponseBodyToolbar
+              renderMode={props.renderMode}
+              onRenderModeChange={props.onRenderModeChange}
+              format={props.format}
+              onFormatChange={props.onFormatChange}
+              encoding={props.encoding}
+              onEncodingChange={props.onEncodingChange}
+            />
           </div>
-          {/* 格式选择（仅格式化模式可用） */}
-          <Show when={renderMode() === "pretty"}>
-            <Select options={formatOptions} value={format()} onChange={setFormat} size="sm" class="w-20" />
-          </Show>
-          {/* 编码选择（格式化和原始模式可用） */}
-          <Show when={renderMode() === "pretty" || renderMode() === "raw"}>
-            <Select options={encodingOptions} value={encoding()} onChange={setEncoding} size="sm" class="w-24" />
-          </Show>
-        </div>
+        </Show>
         {/* 响应体内容 */}
         <div class="flex-1 min-h-0 overflow-hidden">
           <Show
-            when={renderMode() === "preview"}
+            when={props.renderMode === "preview"}
             fallback={
               <Show when={displayBody()} fallback={<div class="p-3 text-sm text-muted-foreground">{t("response.empty")}</div>}>
                 {/* 格式化/原始：CodeMirror 语法高亮，按所选格式切换高亮方案 */}
                 <CodeEditor
                   value={displayBody()}
-                  language={renderMode() === "raw" ? "text" : bodyLanguage()}
+                  language={props.renderMode === "raw" ? "text" : bodyLanguage()}
                   readOnly
                   class="h-full border-0 rounded-none bg-transparent"
                 />
@@ -125,13 +163,16 @@ export function ResponsePanel(props: ResponsePanelProps) {
                 if (ct.startsWith("video/")) {
                   return <video controls src={dataUri} class="max-w-full max-h-full mx-auto" />
                 }
-                // HTML / XML / SVG 等：用 iframe 渲染（srcdoc 保证同源沙箱）
+                // HTML / XML / SVG 等：用 iframe + srcdoc 渲染。
+                // sandbox="" 施加全部限制：禁用脚本、表单、弹窗、同源等，
+                // 保证预览响应体时绝不执行其中的 JavaScript。
                 return (
                   <Show when={decodedBody()} fallback={<div class="text-muted-foreground">{t("response.empty")}</div>}>
                     <iframe
                       class="w-full h-full min-h-48 border rounded bg-white"
                       srcdoc={decodedBody()}
-                      sandbox="allow-same-origin"
+                      sandbox=""
+                      referrerpolicy="no-referrer"
                       title="Preview"
                     />
                   </Show>

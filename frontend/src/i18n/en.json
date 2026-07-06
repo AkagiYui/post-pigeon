@@ -104,6 +104,7 @@
   "response.size": "Size",
   "response.empty": "No response content",
   "response.failed": "Request failed",
+  "response.toggleLayout": "Toggle layout (bottom / right)",
   "environment.title": "Environment",
   "environment.create": "New Environment",
   "environment.name": "Environment Name",

@@ -16,6 +16,7 @@ import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
 import { type AuthType, type BodyType, CONTENT_TYPES, type EndpointType, formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
 import { byteLength, cn, extractPathParams, hasURLScheme } from "@/lib/utils"
+import { responseLayout, setResponseLayout } from "@/stores/app"
 import { markConnecting, streamStatus } from "@/stores/stream"
 
 import { AuthEditor } from "./AuthEditor"
@@ -25,7 +26,7 @@ import { EndpointSettingsEditor } from "./EndpointSettingsEditor"
 import { HeadersEditor } from "./HeadersEditor"
 import { OperationsEditor } from "./OperationsEditor"
 import { CookiesEditor, ParamsEditor } from "./ParamsEditor"
-import { ResponsePanel } from "./ResponsePanel"
+import { ResponseBodyToolbar, ResponsePanel } from "./ResponsePanel"
 import { StreamEventLog, WebSocketResponse, wsUrl } from "./StreamPanels"
 
 /** HTTP 方法选项（用于 Combobox） */
@@ -493,28 +494,42 @@ export function EndpointDetail(props: EndpointDetailProps) {
     },
   ))
 
-  // ---- 响应区高度调整 / 收起 ----
-  const MIN_RESPONSE_H = 140 // 最低高度
-  const COLLAPSE_DRAG = 48 // 拖到最低高度后再往下拖这么多则收起
+  // ---- 响应体渲染状态（提升到详情层，以便工具栏可在“面板内独立行”与“标签栏状态码左侧”两处渲染） ----
+  const [renderMode, setRenderMode] = createSignal("pretty")
+  const [format, setFormat] = createSignal("json")
+  const [encoding, setEncoding] = createSignal("utf-8")
+
+  // ---- 响应区尺寸调整 / 收起（上下布局调高度，左右布局调宽度） ----
+  const MIN_RESPONSE_H = 140 // 上下布局最低高度
+  const MIN_RESPONSE_W = 280 // 左右布局最低宽度
+  const COLLAPSE_DRAG = 48 // 拖到最低尺寸后再往下/右拖这么多则收起
   const [responseHeight, setResponseHeight] = createSignal(300)
+  const [responseWidth, setResponseWidth] = createSignal(480)
   const [responseCollapsed, setResponseCollapsed] = createSignal(false)
   let containerRef: HTMLDivElement | undefined
 
   const startResponseResize = (e: MouseEvent) => {
     e.preventDefault()
-    const startY = e.clientY
-    const startH = responseHeight()
+    const horizontal = responseLayout() === "right"
+    const min = horizontal ? MIN_RESPONSE_W : MIN_RESPONSE_H
+    const start = horizontal ? e.clientX : e.clientY
+    const startSize = horizontal ? responseWidth() : responseHeight()
+    const setSize = horizontal ? setResponseWidth : setResponseHeight
     // 上限：给请求行与中部设置区至少留出空间
-    const maxH = (containerRef ? containerRef.clientHeight : window.innerHeight) - 180
+    const extent = horizontal
+      ? (containerRef ? containerRef.clientWidth : window.innerWidth)
+      : (containerRef ? containerRef.clientHeight : window.innerHeight)
+    const max = extent - 180
     const onMove = (ev: MouseEvent) => {
-      const next = startH + (startY - ev.clientY) // 手柄上移增高
-      if (next < MIN_RESPONSE_H - COLLAPSE_DRAG) {
-        // 拖到最低高度以下一段距离：收起，仅保留展开手柄
+      const cur = horizontal ? ev.clientX : ev.clientY
+      const next = startSize + (start - cur) // 手柄向左/上移动增大响应区
+      if (next < min - COLLAPSE_DRAG) {
+        // 拖到最低尺寸以下一段距离：收起，仅保留展开手柄
         setResponseCollapsed(true)
         cleanup()
         return
       }
-      setResponseHeight(Math.max(MIN_RESPONSE_H, Math.min(next, Math.max(MIN_RESPONSE_H, maxH))))
+      setSize(Math.max(min, Math.min(next, Math.max(min, max))))
     }
     const cleanup = () => {
       document.removeEventListener("mousemove", onMove)
@@ -526,6 +541,18 @@ export function EndpointDetail(props: EndpointDetailProps) {
     document.addEventListener("mouseup", cleanup)
   }
   onCleanup(() => document.body.classList.remove("dragging"))
+
+  // 布局切换按钮（上下 <-> 左右）：放在响应头右侧，供各响应状态复用
+  const LayoutToggle = () => (
+    <Tooltip content={t("response.toggleLayout")}>
+      <button
+        class="shrink-0 p-1 rounded hover:bg-muted text-muted-foreground hover:text-foreground transition-colors"
+        onClick={() => setResponseLayout(responseLayout() === "bottom" ? "right" : "bottom")}
+      >
+        <Icon icon={responseLayout() === "bottom" ? "lucide:panel-right" : "lucide:panel-bottom"} class="h-4 w-4" />
+      </button>
+    </Tooltip>
+  )
 
   // 发送请求时若响应区处于收起状态，自动展开
   createEffect(on(() => props.sending, (s) => { if (s) setResponseCollapsed(false) }, { defer: true }))
@@ -638,149 +665,186 @@ export function EndpointDetail(props: EndpointDetailProps) {
           </Button>
         </div>
 
-        {/* 中部：请求设置（HTTP 与 WebSocket 完全一致） */}
-        <div class="flex-1 min-h-0 overflow-hidden border-b border-border">
-          <Tabs
-            tabs={requestTabs()}
-            value={activeRequestTab()}
-            onChange={setActiveRequestTab}
-          >
-            {(key) => {
-              switch (key) {
-                case "params": return <ParamsEditor
-                  value={ep().params}
-                  onChange={(v) => props.onChange?.({ params: v })}
-                  path={ep().path}
-                  globalQueryParams={props.globalQueryParams}
-                  disabledGlobalParams={ep().disabledGlobalParams}
-                  onDisabledGlobalParamsChange={(names) => props.onChange?.({ disabledGlobalParams: names })}
-                />
-                case "cookies": return <CookiesEditor value={ep().params} onChange={(v) => props.onChange?.({ params: v })} />
-                case "body": return <BodyEditor
-                  bodyType={ep().bodyType}
-                  bodyContent={ep().bodyContent}
-                  contentType={ep().contentType}
-                  fields={ep().bodyFields}
-                  onChange={(patch) => props.onChange?.(patch)}
-                />
-                case "headers": return <HeadersEditor value={ep().headers} onChange={(v) => props.onChange?.({ headers: v })} />
-                case "auth": return <AuthEditor value={ep().auth} onChange={(v) => props.onChange?.({ auth: v })} />
-                case "preOperations": return <OperationsEditor
-                  stage="pre"
-                  operations={ep().operations}
-                  onChange={(ops) => props.onChange?.({ operations: ops })}
-                  projectId={props.projectId}
-                />
-                case "postOperations": return <OperationsEditor
-                  stage="post"
-                  operations={ep().operations}
-                  onChange={(ops) => props.onChange?.({ operations: ops })}
-                  projectId={props.projectId}
-                />
-                case "settings": return <EndpointSettingsEditor
-                  timeout={ep().timeout}
-                  followRedirects={ep().followRedirects}
-                  status={ep().status}
-                  tags={ep().tags}
-                  description={ep().description}
-                  onChange={(patch) => props.onChange?.(patch)}
-                />
-                default: return null
-              }
-            }}
-          </Tabs>
-        </div>
-
-        {/* 下部：响应区，可拖拽调整高度、可收起为手柄。WebSocket 为消息流；HTTP 为响应标签页或 SSE 实时事件流 */}
-        <Show
-          when={!responseCollapsed()}
-          fallback={
-            <button
-              class="shrink-0 h-8 border-t border-border flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors"
-              onClick={() => setResponseCollapsed(false)}
+        {/* 请求设置 + 响应区：按布局在“上下结构”(flex-col) 与“左右结构”(flex-row) 间切换 */}
+        <div class={cn("flex-1 min-h-0 flex", responseLayout() === "right" ? "flex-row" : "flex-col")}>
+          {/* 请求设置（HTTP 与 WebSocket 完全一致） */}
+          <div class={cn("flex-1 min-h-0 min-w-0 overflow-hidden", responseLayout() === "right" ? "border-r border-border" : "border-b border-border")}>
+            <Tabs
+              tabs={requestTabs()}
+              value={activeRequestTab()}
+              onChange={setActiveRequestTab}
             >
-              <Icon icon="lucide:chevron-up" class="h-3.5 w-3.5" />
-              {t("response.expandPanel")}
-            </button>
-          }
-        >
-          {/* 拖拽手柄：上下调整响应区高度，拖到最低再往下即收起 */}
-          <div
-            class="shrink-0 h-px bg-border hover:bg-accent/40 cursor-row-resize relative group"
-            onMouseDown={startResponseResize}
-          >
-            <div class="absolute inset-x-0 -top-1.5 -bottom-1.5 z-10" />
-            <div class="absolute left-1/2 -translate-x-1/2 -top-[3px] h-[6px] w-8 rounded-full bg-border group-hover:bg-accent/60 transition-colors" />
-          </div>
-          <div class="shrink-0 overflow-hidden" style={{ height: `${responseHeight()}px` }}>
-            <Show when={isWs()} fallback={
-              <Show
-                when={props.response}
-                fallback={
-                  <div class="flex items-center justify-center h-full text-muted-foreground text-sm">
-                    {t("endpoint.sendToViewResponse")}
-                  </div>
+              {(key) => {
+                switch (key) {
+                  case "params": return <ParamsEditor
+                    value={ep().params}
+                    onChange={(v) => props.onChange?.({ params: v })}
+                    path={ep().path}
+                    globalQueryParams={props.globalQueryParams}
+                    disabledGlobalParams={ep().disabledGlobalParams}
+                    onDisabledGlobalParamsChange={(names) => props.onChange?.({ disabledGlobalParams: names })}
+                  />
+                  case "cookies": return <CookiesEditor value={ep().params} onChange={(v) => props.onChange?.({ params: v })} />
+                  case "body": return <BodyEditor
+                    bodyType={ep().bodyType}
+                    bodyContent={ep().bodyContent}
+                    contentType={ep().contentType}
+                    fields={ep().bodyFields}
+                    onChange={(patch) => props.onChange?.(patch)}
+                  />
+                  case "headers": return <HeadersEditor value={ep().headers} onChange={(v) => props.onChange?.({ headers: v })} />
+                  case "auth": return <AuthEditor value={ep().auth} onChange={(v) => props.onChange?.({ auth: v })} />
+                  case "preOperations": return <OperationsEditor
+                    stage="pre"
+                    operations={ep().operations}
+                    onChange={(ops) => props.onChange?.({ operations: ops })}
+                    projectId={props.projectId}
+                  />
+                  case "postOperations": return <OperationsEditor
+                    stage="post"
+                    operations={ep().operations}
+                    onChange={(ops) => props.onChange?.({ operations: ops })}
+                    projectId={props.projectId}
+                  />
+                  case "settings": return <EndpointSettingsEditor
+                    timeout={ep().timeout}
+                    followRedirects={ep().followRedirects}
+                    status={ep().status}
+                    tags={ep().tags}
+                    description={ep().description}
+                    onChange={(patch) => props.onChange?.(patch)}
+                  />
+                  default: return null
                 }
+              }}
+            </Tabs>
+          </div>
+
+          {/* 响应区：可拖拽调整尺寸、可收起为手柄。WebSocket 为消息流；HTTP 为响应标签页或 SSE 实时事件流。
+            上下布局下位于设置区下方；左右布局下位于设置区右侧 */}
+          <Show
+            when={!responseCollapsed()}
+            fallback={
+              <button
+                class={cn(
+                  "shrink-0 flex items-center justify-center gap-1.5 text-xs text-muted-foreground hover:bg-muted hover:text-foreground transition-colors",
+                  responseLayout() === "right" ? "w-8 flex-col border-l border-border" : "h-8 border-t border-border",
+                )}
+                onClick={() => setResponseCollapsed(false)}
               >
-                {/* SSE 流式响应：实时事件流 */}
-                <Show when={props.response!.streaming} fallback={
-                  /* 请求失败：展示错误信息，而非正常的响应标签页 */
-                  <Show
-                    when={!props.response!.error}
-                    fallback={
-                      <div class="flex flex-col h-full">
-                        <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
-                          <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
-                        </div>
-                        <div class="flex-1 overflow-auto p-3">
-                          <pre class="text-sm font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">
-                            {props.response!.error}
-                          </pre>
-                        </div>
+                <Icon icon={responseLayout() === "right" ? "lucide:chevron-left" : "lucide:chevron-up"} class="h-3.5 w-3.5" />
+                <span class={responseLayout() === "right" ? "[writing-mode:vertical-rl]" : ""}>{t("response.expandPanel")}</span>
+              </button>
+            }
+          >
+            {/* 拖拽手柄：上下布局调高度、左右布局调宽度，拖到最低再继续拖即收起 */}
+            <div
+              class={cn(
+                "shrink-0 bg-border hover:bg-accent/40 relative group",
+                responseLayout() === "right" ? "w-px cursor-col-resize" : "h-px cursor-row-resize",
+              )}
+              onMouseDown={startResponseResize}
+            >
+              <div class={cn("absolute z-10", responseLayout() === "right" ? "inset-y-0 -left-1.5 -right-1.5" : "inset-x-0 -top-1.5 -bottom-1.5")} />
+              <div class={cn(
+                "absolute rounded-full bg-border group-hover:bg-accent/60 transition-colors",
+                responseLayout() === "right" ? "top-1/2 -translate-y-1/2 -left-[3px] w-[6px] h-8" : "left-1/2 -translate-x-1/2 -top-[3px] h-[6px] w-8",
+              )} />
+            </div>
+            <div class="shrink-0 overflow-hidden" style={responseLayout() === "right" ? { width: `${responseWidth()}px` } : { height: `${responseHeight()}px` }}>
+              <Show when={isWs()} fallback={
+                <Show
+                  when={props.response}
+                  fallback={
+                    <div class="relative h-full">
+                      <div class="absolute top-1.5 right-2 z-10"><LayoutToggle /></div>
+                      <div class="flex items-center justify-center h-full text-muted-foreground text-sm">
+                        {t("endpoint.sendToViewResponse")}
                       </div>
-                    }
-                  >
-                    <Tabs
-                      tabs={getResponseTabs()}
-                      value={activeResponseTab()}
-                      onChange={setActiveResponseTab}
-                      extra={
-                        <div class="flex items-center gap-3 text-xs text-muted-foreground">
-                          <Badge class={getStatusColor(props.response!.statusCode)}>
-                            {props.response!.statusCode}
-                          </Badge>
-                          {/* 耗时：hover 展示各阶段耗时 */}
-                          <HoverCard content={<ResponseTimingCard timing={props.response!.timing} />}>
-                            <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
-                              {formatTiming(props.response!.timing?.total || 0)}
-                            </span>
-                          </HoverCard>
-                          {/* 大小：hover 展示请求/响应的头与体大小 */}
-                          <HoverCard content={<ResponseSizeCard response={props.response!} />}>
-                            <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
-                              {formatSize(props.response!.size || 0)}
-                            </span>
-                          </HoverCard>
+                    </div>
+                  }
+                >
+                  {/* SSE 流式响应：实时事件流 */}
+                  <Show when={props.response!.streaming} fallback={
+                  /* 请求失败：展示错误信息，而非正常的响应标签页 */
+                    <Show
+                      when={!props.response!.error}
+                      fallback={
+                        <div class="flex flex-col h-full">
+                          <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
+                            <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
+                            <div class="ml-auto"><LayoutToggle /></div>
+                          </div>
+                          <div class="flex-1 overflow-auto p-3">
+                            <pre class="text-sm font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">
+                              {props.response!.error}
+                            </pre>
+                          </div>
                         </div>
                       }
                     >
-                      {(key) => (
-                        <ResponsePanel
-                          tab={key}
-                          response={props.response!}
-                        />
-                      )}
-                    </Tabs>
+                      <Tabs
+                        tabs={getResponseTabs()}
+                        value={activeResponseTab()}
+                        onChange={setActiveResponseTab}
+                        extra={
+                          <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                            {/* 上下布局：响应体工具栏移到状态码左侧，避免单独占一行（左右布局时工具栏留在面板内） */}
+                            <Show when={responseLayout() === "bottom" && activeResponseTab() === "body"}>
+                              <ResponseBodyToolbar
+                                renderMode={renderMode()}
+                                onRenderModeChange={setRenderMode}
+                                format={format()}
+                                onFormatChange={setFormat}
+                                encoding={encoding()}
+                                onEncodingChange={setEncoding}
+                              />
+                            </Show>
+                            <Badge class={getStatusColor(props.response!.statusCode)}>
+                              {props.response!.statusCode}
+                            </Badge>
+                            {/* 耗时：hover 展示各阶段耗时 */}
+                            <HoverCard content={<ResponseTimingCard timing={props.response!.timing} />}>
+                              <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
+                                {formatTiming(props.response!.timing?.total || 0)}
+                              </span>
+                            </HoverCard>
+                            {/* 大小：hover 展示请求/响应的头与体大小 */}
+                            <HoverCard content={<ResponseSizeCard response={props.response!} />}>
+                              <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
+                                {formatSize(props.response!.size || 0)}
+                              </span>
+                            </HoverCard>
+                            {/* 布局切换按钮（上下 / 左右） */}
+                            <LayoutToggle />
+                          </div>
+                        }
+                      >
+                        {(key) => (
+                          <ResponsePanel
+                            tab={key}
+                            response={props.response!}
+                            renderMode={renderMode()}
+                            format={format()}
+                            encoding={encoding()}
+                            showToolbar={responseLayout() === "right"}
+                            onRenderModeChange={setRenderMode}
+                            onFormatChange={setFormat}
+                            onEncodingChange={setEncoding}
+                          />
+                        )}
+                      </Tabs>
+                    </Show>
+                  }>
+                    <StreamEventLog streamId={props.response!.streamId!} onStop={stopStream} />
                   </Show>
-                }>
-                  <StreamEventLog streamId={props.response!.streamId!} onStop={stopStream} />
                 </Show>
+              }>
+                <WebSocketResponse connId={ep().id} />
               </Show>
-            }>
-              <WebSocketResponse connId={ep().id} />
-            </Show>
-          </div>
-        </Show>
+            </div>
+          </Show>
+        </div>
       </div>
     }>
       {/* 文档：Markdown 编辑/预览 */}

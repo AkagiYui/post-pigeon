@@ -56,6 +56,11 @@ const [projectNames, setProjectNames] = createSignal<Record<string, string>>(
 /** 项目环境列表映射 projectId -> environments[]（持久化） */
 const [projectEnvironments, setProjectEnvironments] = createSignal<Record<string, any[]>>({})
 
+/** 响应面板布局方向：bottom（上下结构）/ right（左右结构）（持久化） */
+const [responseLayout, setResponseLayout] = createSignal<"bottom" | "right">(
+  loadFromStorage<"bottom" | "right">("responseLayout", "bottom"),
+)
+
 /** 设置模态框是否显示（不持久化） */
 const [settingsOpen, setSettingsOpen] = createSignal(false)
 
@@ -71,6 +76,7 @@ export {
   openProjectIds, setOpenProjectIds,
   activeProjectId, setActiveProjectId,
   settingsOpen, setSettingsOpen,
+  responseLayout, setResponseLayout,
   currentEnvironmentIds, setCurrentEnvironmentIds,
   projectNames, setProjectNames,
   projectEnvironments, setProjectEnvironments,
@@ -106,6 +112,13 @@ if (typeof window !== "undefined") {
     // 监听并持久化 projectNames
     createEffect(() => {
       saveToStorage("projectNames", projectNames())
+    })
+  })
+
+  createRoot(() => {
+    // 监听并持久化 responseLayout
+    createEffect(() => {
+      saveToStorage("responseLayout", responseLayout())
     })
   })
 }
