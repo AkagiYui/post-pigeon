@@ -5,7 +5,7 @@ import { Icon } from "@iconify-icon/solid"
 import { Link, useLocation, useRouter } from "@tanstack/solid-router"
 import { createSortable, DragDropProvider, DragDropSensors, type DragEvent, DragOverlay, SortableProvider, transformStyle } from "@thisbeyond/solid-dnd"
 import { System, Window } from "@wailsio/runtime"
-import { createEffect, createMemo, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
 import { Select } from "@/components/ui/select"
@@ -160,6 +160,25 @@ export function TitleBar(props: TitleBarProps) {
     const id = draggingTabId()
     if (!id) return ""
     return projectNames()[id] || id.slice(0, 8)
+  })
+
+  // 防止拖拽卡死：solid-dnd 的指针传感器只监听 pointermove/pointerup，未监听
+  // pointercancel。当系统在拖拽途中收回指针（WKWebView 有时会派发 pointercancel）
+  // 或窗口失焦时，传感器收不到 pointerup，拖拽状态永久停留、还会残留 pointermove
+  // 监听器导致后续误触发，只能重启应用恢复。这里在异常中断时补发一个 pointerup 到
+  // document，驱动 solid-dnd 自身的收尾逻辑（detach + dragEnd），从而彻底解除卡死。
+  onMount(() => {
+    const forceEndTabDrag = () => {
+      if (draggingTabId() == null) return
+      document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }))
+    }
+    // pointercancel 用捕获阶段，确保早于任何 stopPropagation 拿到事件
+    window.addEventListener("pointercancel", forceEndTabDrag, true)
+    window.addEventListener("blur", forceEndTabDrag)
+    onCleanup(() => {
+      window.removeEventListener("pointercancel", forceEndTabDrag, true)
+      window.removeEventListener("blur", forceEndTabDrag)
+    })
   })
 
   return (
