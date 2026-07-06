@@ -61,7 +61,7 @@ export function Tabs(props: TabsProps) {
                 class={cn(
                   "flex items-center gap-1 px-3 py-1.5 text-sm border-b-2 transition-colors whitespace-nowrap select-none relative z-10",
                   local.value === tab.key
-                    ? "border-accent text-accent font-medium"
+                    ? "border-accent text-foreground"
                     : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
                   tab.disabled && "opacity-50 cursor-not-allowed",
                 )}

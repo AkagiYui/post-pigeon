@@ -3,7 +3,7 @@ import { Select } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { t } from "@/hooks/useI18n"
 import { changeThemeAccent, changeThemeMode, changeUIScale, themeAccent, themeMode, UI_SCALE_CONFIG, uiScale } from "@/hooks/useTheme"
-import { type ThemeAccent, type ThemeMode } from "@/lib/types"
+import { ACCENT_COLORS, type ThemeAccent, type ThemeMode } from "@/lib/types"
 
 /**
  * AppearanceSettings 外观设置
@@ -18,11 +18,16 @@ export function AppearanceSettings() {
 
   // 主题色选项（放在组件内确保 t() 响应语言切换）
   const accentOptions = () => [
-    { value: "teal" as const, label: t("settings.theme.teal") },
+    { value: "purple" as const, label: t("settings.theme.purple") },
     { value: "blue" as const, label: t("settings.theme.blue") },
-    { value: "violet" as const, label: t("settings.theme.violet") },
-    { value: "rose" as const, label: t("settings.theme.rose") },
+    { value: "blue2" as const, label: t("settings.theme.blue2") },
+    { value: "cerulean" as const, label: t("settings.theme.cerulean") },
+    { value: "gold" as const, label: t("settings.theme.gold") },
+    { value: "green" as const, label: t("settings.theme.green") },
     { value: "orange" as const, label: t("settings.theme.orange") },
+    { value: "pink" as const, label: t("settings.theme.pink") },
+    { value: "red" as const, label: t("settings.theme.red") },
+    { value: "silver" as const, label: t("settings.theme.silver") },
   ]
 
   return (
@@ -39,16 +44,12 @@ export function AppearanceSettings() {
 
       {/* 主题色 */}
       <SettingItem label={t("settings.theme.accent")}>
-        <div class="flex gap-2">
+        <div class="flex flex-wrap justify-end gap-2 max-w-[280px]">
           {accentOptions().map(opt => (
             <button
-              class="w-8 h-8 rounded-full border-2 transition-all hover:scale-110"
+              class="w-7 h-7 rounded-full border-2 transition-all hover:scale-110"
               style={{
-                "background-color": opt.value === "teal" ? "#0ea5a4"
-                  : opt.value === "blue" ? "#3b82f6"
-                    : opt.value === "violet" ? "#8b5cf6"
-                      : opt.value === "rose" ? "#f43f5e"
-                        : "#f97316",
+                "background-color": ACCENT_COLORS[opt.value].primary,
                 "border-color": themeAccent() === opt.value ? "var(--foreground)" : "transparent",
               }}
               onClick={() => changeThemeAccent(opt.value as ThemeAccent)}

@@ -50,7 +50,7 @@ export function Dialog(props: DialogProps) {
         <ArkDialog.Positioner class="fixed inset-0 z-50 flex items-center justify-center">
           <ArkDialog.Content
             class={cn(
-              "bg-surface rounded-lg shadow-xl border border-border overflow-hidden flex flex-col outline-none",
+              "bg-surface rounded-md shadow-xl border border-border overflow-hidden flex flex-col outline-none",
               // 设置了高度用固定高度；否则用最大高度限制让内容自适应
               local.height ? "" : "max-h-[85vh]",
               local.class,

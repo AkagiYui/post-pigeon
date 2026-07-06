@@ -7,14 +7,18 @@ import { cn } from "@/lib/utils"
 
 /** 按钮变体定义 */
 const buttonVariants = cva(
-  "inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-medium transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 select-none",
+  // 字重 400（不加粗）、无阴影、8px 圆角（rounded-md 已映射为 8px）
+  "inline-flex items-center justify-center gap-1.5 rounded-md text-sm font-normal transition-colors focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-offset-2 disabled:pointer-events-none disabled:opacity-50 select-none",
   {
     variants: {
       variant: {
-        default: "bg-accent text-white hover:bg-accent-hover shadow-sm",
-        destructive: "bg-red-500 text-white hover:bg-red-600 shadow-sm",
-        outline: "border border-border bg-transparent hover:bg-accent-muted hover:text-accent",
+        // 主按钮：紫色填充、白字、扁平无阴影
+        default: "bg-accent text-white hover:bg-accent-hover",
+        destructive: "bg-red-500 text-white hover:bg-red-600",
+        // 普通按钮：白底、灰边、灰字，hover 变浅灰底
+        outline: "border border-border bg-surface text-foreground hover:bg-muted",
         secondary: "bg-secondary text-secondary-foreground hover:bg-secondary/80",
+        // 文字/图标按钮：hover 浅紫底 + 紫字
         ghost: "hover:bg-accent-muted hover:text-accent",
         link: "text-accent underline-offset-4 hover:underline",
       },

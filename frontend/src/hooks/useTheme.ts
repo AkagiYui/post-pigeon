@@ -27,8 +27,8 @@ export const UI_SCALE_CONFIG = {
 
 /** 当前主题模式 */
 const [themeMode, setThemeMode] = createSignal<ThemeMode>("system")
-/** 当前主题色 */
-const [themeAccent, setThemeAccent] = createSignal<ThemeAccent>("teal")
+/** 当前主题色（默认紫色） */
+const [themeAccent, setThemeAccent] = createSignal<ThemeAccent>("purple")
 /** 界面缩放比例 */
 const [uiScale, setUiScale] = createSignal(1.0)
 
@@ -74,7 +74,7 @@ export async function initTheme() {
 
     if (settings) {
       const mode = (settings["theme.mode"] || "system") as ThemeMode
-      const accent = (settings["theme.accent"] || "teal") as ThemeAccent
+      const accent = (settings["theme.accent"] || "purple") as ThemeAccent
       const scale = parseFloat(settings["ui.scale"] || "1.0")
 
       setThemeMode(mode)

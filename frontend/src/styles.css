@@ -12,6 +12,18 @@
 @theme {
   --font-sans: "Outfit Variable", "Outfit", "HarmonyOS Sans SC", "Noto Sans SC", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
+
+  /* 圆角：控件普遍 8px，更圆润的辨识度。
+     组件里大量使用 rounded-md，此处把它抬到 8px 即可全局生效。 */
+  --radius-sm: 0.375rem; /* 6px —— 小徽章/复选框/紧凑元素 */
+  --radius-md: 0.5rem;   /* 8px —— 按钮/输入框/菜单项/弹层/对话框（默认圆角） */
+  --radius-lg: 0.625rem; /* 10px —— 卡片 */
+  --radius-xl: 0.75rem;  /* 12px —— 大卡片 */
+
+  /* 浮层投影：柔和、大范围、低透明度（下拉/弹层/对话框/提示统一观感） */
+  --shadow-md: 0 4px 16px rgba(16, 24, 40, 0.08);
+  --shadow-lg: 0 8px 32px rgba(16, 24, 40, 0.12);
+  --shadow-xl: 0 16px 56px rgba(16, 24, 40, 0.16);
 }
 
 /* ============================================
@@ -40,10 +52,10 @@
 } 
 
 :root {
-  /* 主题色（由 JS 动态覆盖） */
-  --accent: #0ea5a4;
-  --accent-hover: #0b7f7f;
-  --accent-muted: rgba(14, 165, 164, 0.14);
+  /* 主题色（由 JS 动态覆盖）—— 默认紫色 #9373EE */
+  --accent: #9373ee;
+  --accent-hover: #7f56d9;
+  --accent-muted: rgba(147, 115, 238, 0.14);
 
   /* 布局 */
   --titlebar-height: 38px;
@@ -53,38 +65,40 @@
   --transition-normal: 200ms;
 }
 
-/* 浅色模式颜色 */
+/* 浅色模式颜色（Untitled UI 灰阶）
+   正文 #344054(gray-700)、边框 #EAECF0(gray-200)、hover/选中 #F2F4F7(gray-100)、次要文字 #667085(gray-500) */
 :root.light {
-  --color-background: #f6fbfc;
-  --color-foreground: #122027;
+  --color-background: #ffffff;
+  --color-foreground: #344054;
   --color-surface: #ffffff;
-  --color-surface-alt: #f8fafb;
-  --color-muted: #f1f5f9;
-  --color-muted-foreground: #64748b;
-  --color-border: #e2e8f0;
+  --color-surface-alt: #f9fafb;
+  --color-muted: #f2f4f7;
+  --color-muted-foreground: #667085;
+  --color-border: #eaecf0;
   --color-input: #ffffff;
   --color-popover: #ffffff;
-  --color-popover-foreground: #122027;
-  --color-secondary: #f1f5f9;
-  --color-secondary-foreground: #1e293b;
-  --color-ring: rgba(14, 165, 164, 0.4);
+  --color-popover-foreground: #344054;
+  --color-secondary: #f2f4f7;
+  --color-secondary-foreground: #344054;
+  --color-ring: rgba(147, 115, 238, 0.4);
 }
 
-/* 深色模式颜色 */
+/* 深色模式颜色（偏冷近黑蓝）
+   内容底 #191A23、最深层 #13131A、正文 #C2CAD1、边框 #2F3142 一族 */
 :root.dark {
-  --color-background: #0f1419;
-  --color-foreground: #e2e8f0;
-  --color-surface: #1a1f2e;
-  --color-surface-alt: #151a27;
-  --color-muted: #1e2433;
-  --color-muted-foreground: #94a3b8;
-  --color-border: #2d3548;
-  --color-input: #1e2433;
-  --color-popover: #1e2433;
-  --color-popover-foreground: #e2e8f0;
-  --color-secondary: #1e2433;
-  --color-secondary-foreground: #e2e8f0;
-  --color-ring: rgba(14, 165, 164, 0.5);
+  --color-background: #13131a;
+  --color-foreground: #c2cad1;
+  --color-surface: #191a23;
+  --color-surface-alt: #1e1f2a;
+  --color-muted: #262835;
+  --color-muted-foreground: #858b96;
+  --color-border: #2f3142;
+  --color-input: #171821;
+  --color-popover: #1e1f2a;
+  --color-popover-foreground: #c2cad1;
+  --color-secondary: #262835;
+  --color-secondary-foreground: #c2cad1;
+  --color-ring: rgba(147, 115, 238, 0.5);
 }
 
 /* ============================================

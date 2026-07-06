@@ -11,14 +11,14 @@ export type CheckboxProps = JSX.InputHTMLAttributes<HTMLInputElement>
 
 const baseClass = cn(
   "size-4 shrink-0 cursor-pointer border-border accent-[var(--color-accent)]",
-  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-1",
+  "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25",
   "disabled:cursor-not-allowed disabled:opacity-50",
 )
 
 /** 复选框 */
 export function Checkbox(props: CheckboxProps) {
   const [local, rest] = splitProps(props, ["class"])
-  return <input type="checkbox" class={cn(baseClass, "rounded", local.class)} {...rest} />
+  return <input type="checkbox" class={cn(baseClass, "rounded-sm", local.class)} {...rest} />
 }
 
 /** 单选框 */

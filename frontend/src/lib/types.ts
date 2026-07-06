@@ -25,18 +25,23 @@ export type OperationType = "script" | "libraryScript" | "assert" | "extractVar"
 export type ThemeMode = "light" | "dark" | "system"
 
 /** 预设主题色 */
-export type ThemeAccent = "teal" | "blue" | "violet" | "rose" | "orange"
+export type ThemeAccent = "purple" | "blue" | "blue2" | "cerulean" | "gold" | "green" | "orange" | "pink" | "red" | "silver"
 
 /** 支持的语言 */
 export type Language = "zh-CN" | "en"
 
 /** 主题色配置映射 */
 export const ACCENT_COLORS: Record<ThemeAccent, { primary: string; hover: string; muted: string }> = {
-  teal: { primary: "#0ea5a4", hover: "#0b7f7f", muted: "rgba(14, 165, 164, 0.14)" },
-  blue: { primary: "#3b82f6", hover: "#2563eb", muted: "rgba(59, 130, 246, 0.14)" },
-  violet: { primary: "#8b5cf6", hover: "#7c3aed", muted: "rgba(139, 92, 246, 0.14)" },
-  rose: { primary: "#f43f5e", hover: "#e11d48", muted: "rgba(244, 63, 94, 0.14)" },
-  orange: { primary: "#f97316", hover: "#ea580c", muted: "rgba(249, 115, 22, 0.14)" },
+  purple: { primary: "#9373ee", hover: "#b19af3", muted: "rgba(147, 115, 238, 0.14)" },
+  blue: { primary: "#587df1", hover: "#87a1f5", muted: "rgba(88, 125, 241, 0.14)" },
+  blue2: { primary: "#00c3ee", hover: "#47d4f3", muted: "rgba(0, 195, 238, 0.14)" },
+  cerulean: { primary: "#5f80e9", hover: "#8ca4ef", muted: "rgba(95, 128, 233, 0.14)" },
+  gold: { primary: "#9a7d56", hover: "#b6a185", muted: "rgba(154, 125, 86, 0.14)" },
+  green: { primary: "#039e74", hover: "#4ab99b", muted: "rgba(3, 158, 116, 0.14)" },
+  orange: { primary: "#fa8c16", hover: "#fbac57", muted: "rgba(250, 140, 22, 0.14)" },
+  pink: { primary: "#e86ca4", hover: "#ee95bd", muted: "rgba(232, 108, 164, 0.14)" },
+  red: { primary: "#fd6874", hover: "#fe929b", muted: "rgba(253, 104, 116, 0.14)" },
+  silver: { primary: "#8e8374", hover: "#aea69b", muted: "rgba(142, 131, 116, 0.14)" },
 }
 
 /** HTTP 方法对应的颜色标签 */
