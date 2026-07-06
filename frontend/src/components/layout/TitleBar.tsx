@@ -164,8 +164,10 @@ export function TitleBar(props: TitleBarProps) {
 
   return (
     <div class="flex items-center h-(--titlebar-height) border-b border-border bg-surface shrink-0 select-none" style="--wails-draggable:drag" onDblClick={handleDoubleClick}>
-      {/* 左侧：红绿灯占位区域（仅 macOS） */}
-      <Show when={isMac() && !isFullscreen()}>
+      {/* 左侧：红绿灯占位区域（仅 macOS）。
+          非 macOS（浏览器 / Windows / Linux）无红绿灯，用一小段留白避免首个「项目」
+          按钮紧贴视口左边缘。 */}
+      <Show when={isMac() && !isFullscreen()} fallback={<div class="w-2 shrink-0" />}>
         <div class="w-18 shrink-0 flex items-center pl-3" />
       </Show>
 

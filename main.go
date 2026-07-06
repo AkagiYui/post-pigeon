@@ -156,7 +156,14 @@ func main() {
 		Title:     config.AppName,
 		Frameless: frameless,
 		Mac: application.MacWindow{
-			InvisibleTitleBarHeight: 50,
+			// 不启用原生「隐形标题栏」拖拽条：Wails 在 macOS 上会让顶部
+			// InvisibleTitleBarHeight 像素内的任意 mousedown 直接触发原生
+			// performWindowDragWithEvent（见 webview_window_darwin.m 的
+			// handleLeftMouseDown），该原生路径完全绕过 --wails-draggable，
+			// 会导致顶栏内的项目标签一按下就被识别为「拖动窗口」，无法拖拽排序。
+			// 置 0 后窗口拖动改由前端 --wails-draggable:drag（JS 路径）接管，
+			// 该路径尊重 no-drag，标签得以正常拖拽排序，空白区仍可拖动窗口。
+			InvisibleTitleBarHeight: 0,
 			Backdrop:                application.MacBackdropTranslucent,
 			TitleBar:                application.MacTitleBarHiddenInset,
 		},
