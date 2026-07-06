@@ -1,7 +1,7 @@
-// Tabs 标签页组件，封装 Kobalte Tabs
-// Kobalte 提供 role="tablist/tab/tabpanel" 语义与方向键导航等无障碍能力；
+// Tabs 标签页组件，封装 Ark UI Tabs
+// Ark UI 提供 role="tablist/tab/tabpanel" 语义与方向键导航等无障碍能力；
 // 视觉样式仍沿用受控 value 计算，保持与旧实现一致。
-import { Tabs as KTabs } from "@kobalte/core/tabs"
+import { Tabs as ArkTabs } from "@ark-ui/solid/tabs"
 import { For, type JSX, Show, splitProps } from "solid-js"
 
 import { cn } from "@/lib/utils"
@@ -43,19 +43,19 @@ export function Tabs(props: TabsProps) {
   const [local] = splitProps(props, ["tabs", "value", "onChange", "onClose", "children", "class", "extra"])
 
   return (
-    <KTabs
+    <ArkTabs.Root
       class={cn("flex flex-col h-full", local.class)}
       value={local.value}
-      onChange={local.onChange}
+      onValueChange={(details) => local.onChange(details.value)}
     >
       {/* 标签栏 */}
       <div class="flex items-center shrink-0 relative">
         {/* 底部分割线 */}
         <div class="absolute bottom-0 left-0 right-0 h-px bg-border" />
-        <KTabs.List class="flex items-center overflow-x-auto no-scrollbar flex-1">
+        <ArkTabs.List class="flex items-center overflow-x-auto no-scrollbar flex-1">
           <For each={local.tabs}>
             {(tab) => (
-              <KTabs.Trigger
+              <ArkTabs.Trigger
                 value={tab.key}
                 disabled={tab.disabled}
                 class={cn(
@@ -81,19 +81,19 @@ export function Tabs(props: TabsProps) {
                     </svg>
                   </span>
                 </Show>
-              </KTabs.Trigger>
+              </ArkTabs.Trigger>
             )}
           </For>
-        </KTabs.List>
+        </ArkTabs.List>
         <Show when={local.extra}>
           <div class="shrink-0 px-2">{local.extra}</div>
         </Show>
       </div>
       {/* 标签内容 */}
-      <KTabs.Content value={local.value} class="flex-1 overflow-auto">
+      <ArkTabs.Content value={local.value} class="flex-1 overflow-auto">
         {local.children(local.value)}
-      </KTabs.Content>
-    </KTabs>
+      </ArkTabs.Content>
+    </ArkTabs.Root>
   )
 }
 
@@ -112,17 +112,17 @@ export function SideTabs(props: SideTabsProps) {
   const [local] = splitProps(props, ["tabs", "value", "onChange", "children", "class"])
 
   return (
-    <KTabs
+    <ArkTabs.Root
       orientation="vertical"
       class={cn("flex h-full", local.class)}
       value={local.value}
-      onChange={local.onChange}
+      onValueChange={(details) => local.onChange(details.value)}
     >
       {/* 左侧菜单 */}
-      <KTabs.List class="w-44 shrink-0 border-r border-border">
+      <ArkTabs.List class="w-44 shrink-0 border-r border-border">
         <For each={local.tabs}>
           {(tab) => (
-            <KTabs.Trigger
+            <ArkTabs.Trigger
               value={tab.key}
               disabled={tab.disabled}
               class={cn(
@@ -134,14 +134,14 @@ export function SideTabs(props: SideTabsProps) {
             >
               <Show when={tab.icon}>{tab.icon}</Show>
               <span>{tab.label}</span>
-            </KTabs.Trigger>
+            </ArkTabs.Trigger>
           )}
         </For>
-      </KTabs.List>
+      </ArkTabs.List>
       {/* 右侧内容 */}
-      <KTabs.Content value={local.value} class="flex-1 overflow-auto p-4">
+      <ArkTabs.Content value={local.value} class="flex-1 overflow-auto p-4">
         {local.children(local.value)}
-      </KTabs.Content>
-    </KTabs>
+      </ArkTabs.Content>
+    </ArkTabs.Root>
   )
 }

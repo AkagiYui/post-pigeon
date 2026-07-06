@@ -1,5 +1,5 @@
-// Button 基础组件，封装 Kobalte Button + cva 变体
-import { Button as KButton } from "@kobalte/core/button"
+// Button 基础组件，原生 <button> + cva 变体
+// （Ark UI 不提供 Button 原语——它专注于有状态的复合组件——原生按钮本身即具备完整无障碍语义）
 import { cva, type VariantProps } from "class-variance-authority"
 import { type JSX, splitProps } from "solid-js"
 
@@ -38,8 +38,6 @@ export type ButtonProps = JSX.ButtonHTMLAttributes<HTMLButtonElement> & VariantP
 /**
  * Button 按钮组件
  *
- * 基于 Kobalte Button.Root：自动处理原生/非原生元素的按钮语义、键盘激活与禁用无障碍状态。
- *
  * @example
  * ```tsx
  * <Button variant="default">确定</Button>
@@ -50,11 +48,11 @@ export function Button(props: ButtonProps) {
   const [local, rest] = splitProps(props, ["class", "variant", "size", "children"])
 
   return (
-    <KButton
+    <button
       class={cn(buttonVariants({ variant: local.variant, size: local.size }), local.class)}
       {...rest}
     >
       {local.children}
-    </KButton>
+    </button>
   )
 }

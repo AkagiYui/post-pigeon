@@ -1,12 +1,13 @@
-// DropdownMenu 通用下拉菜单组件，封装 Kobalte DropdownMenu / ContextMenu
-// - trigger="click"（默认）→ Kobalte DropdownMenu：锚定触发元素，floating-ui 自动翻转
-// - trigger="contextmenu" → Kobalte ContextMenu：在鼠标位置弹出
-// 两者共享同一套 Menu.* 子组件（Item / Sub / Separator 等），因此用同一份递归渲染器。
+// DropdownMenu 通用下拉菜单组件，封装 Ark UI Menu
+// - trigger="click"（默认）→ Menu.Trigger：锚定触发元素，floating-ui 自动翻转
+// - trigger="contextmenu" → Menu.ContextTrigger：在鼠标位置弹出
+// 定位、视口翻转、外部点击关闭、ESC 逐级关闭、方向键导航与 ARIA 均由 Ark UI 处理。
 // ContextMenu 右键菜单基于此组件封装。
-import { ContextMenu as KContextMenu } from "@kobalte/core/context-menu"
-import { DropdownMenu as KDropdownMenu } from "@kobalte/core/dropdown-menu"
+import { Menu as ArkMenu } from "@ark-ui/solid/menu"
 import { For, type JSX, Show } from "solid-js"
+import { Portal } from "solid-js/web"
 
+import { arkMerge } from "@/lib/ark"
 import { cn } from "@/lib/utils"
 
 /** 菜单项类型 */
@@ -70,68 +71,48 @@ function ItemInner(props: { item: MenuItem }) {
   )
 }
 
-/** Kobalte 菜单子组件集合（DropdownMenu 与 ContextMenu 结构一致） */
-interface MenuParts {
-  Item: typeof KDropdownMenu.Item
-  Separator: typeof KDropdownMenu.Separator
-  Sub: typeof KDropdownMenu.Sub
-  SubTrigger: typeof KDropdownMenu.SubTrigger
-  SubContent: typeof KDropdownMenu.SubContent
-  Portal: typeof KDropdownMenu.Portal
+/** 在给定层级的直接菜单项中按 value 找到并触发点击（子菜单由各自的 Root 处理） */
+function selectFrom(items: MenuItem[], value: string) {
+  const item = items.find(i => i.key === value && !i.separator && !i.children?.length)
+  item?.onClick?.()
 }
 
-const dropdownParts: MenuParts = {
-  Item: KDropdownMenu.Item,
-  Separator: KDropdownMenu.Separator,
-  Sub: KDropdownMenu.Sub,
-  SubTrigger: KDropdownMenu.SubTrigger,
-  SubContent: KDropdownMenu.SubContent,
-  Portal: KDropdownMenu.Portal,
-}
-
-const contextParts: MenuParts = {
-  Item: KContextMenu.Item,
-  Separator: KContextMenu.Separator,
-  Sub: KContextMenu.Sub,
-  SubTrigger: KContextMenu.SubTrigger,
-  SubContent: KContextMenu.SubContent,
-  Portal: KContextMenu.Portal,
-}
-
-/** 递归渲染菜单项（支持分隔线与多级子菜单） */
-function renderItems(items: MenuItem[], M: MenuParts): JSX.Element {
+/** 递归渲染某一层的菜单项（分隔线 / 普通项 / 子菜单） */
+function renderItems(items: MenuItem[]): JSX.Element {
   return (
     <For each={items}>
       {(item) => (
         <Show
           when={!item.separator}
-          fallback={<M.Separator class="my-1 border-t border-border" />}
+          fallback={<ArkMenu.Separator class="my-1 border-t border-border" />}
         >
           <Show
             when={item.children?.length}
             fallback={(
-              <M.Item
-                class={itemClass(item.disabled)}
-                disabled={item.disabled}
-                onSelect={() => item.onClick?.()}
-              >
+              <ArkMenu.Item value={item.key} disabled={item.disabled} class={itemClass(item.disabled)}>
                 <ItemInner item={item} />
-              </M.Item>
+              </ArkMenu.Item>
             )}
           >
-            <M.Sub gutter={4} shift={-4}>
-              <M.SubTrigger class={itemClass(item.disabled)}>
+            {/* 子菜单：独立的 Menu.Root，自身 onSelect 处理其直接项 */}
+            <ArkMenu.Root
+              positioning={{ placement: "right-start", gutter: 4 }}
+              onSelect={(details) => selectFrom(item.children!, details.value)}
+            >
+              <ArkMenu.TriggerItem class={itemClass(item.disabled)}>
                 <ItemInner item={item} />
                 <svg class="h-3.5 w-3.5 shrink-0 text-muted-foreground" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                   <path d="M9 18l6-6-6-6" />
                 </svg>
-              </M.SubTrigger>
-              <M.Portal>
-                <M.SubContent class={CONTENT_CLASS}>
-                  {renderItems(item.children!, M)}
-                </M.SubContent>
-              </M.Portal>
-            </M.Sub>
+              </ArkMenu.TriggerItem>
+              <Portal>
+                <ArkMenu.Positioner>
+                  <ArkMenu.Content class={CONTENT_CLASS}>
+                    {renderItems(item.children!)}
+                  </ArkMenu.Content>
+                </ArkMenu.Positioner>
+              </Portal>
+            </ArkMenu.Root>
           </Show>
         </Show>
       )}
@@ -145,8 +126,6 @@ function renderItems(items: MenuItem[], M: MenuParts): JSX.Element {
  * trigger="click" + placement="anchor-bottom": 点击弹出，菜单对齐触发元素底部居中
  * trigger="click" + placement="cursor": 点击弹出，菜单对齐触发元素左下角
  * trigger="contextmenu" + placement="cursor": 右键弹出，菜单出现在鼠标位置
- *
- * 定位、视口翻转、外部点击关闭、ESC 逐级关闭、方向键导航与 ARIA 均由 Kobalte 处理。
  */
 export function DropdownMenu(props: DropdownMenuProps) {
   return (
@@ -154,35 +133,32 @@ export function DropdownMenu(props: DropdownMenuProps) {
       when={props.items.length > 0}
       fallback={<div class={props.class}>{props.children}</div>}
     >
-      <Show
-        when={props.trigger === "contextmenu"}
-        fallback={(
-          <KDropdownMenu
-            placement={props.placement === "cursor" ? "bottom-start" : "bottom"}
-            gutter={4}
-          >
-            <KDropdownMenu.Trigger as="div" class={props.class}>
-              {props.children}
-            </KDropdownMenu.Trigger>
-            <KDropdownMenu.Portal>
-              <KDropdownMenu.Content class={CONTENT_CLASS}>
-                {renderItems(props.items, dropdownParts)}
-              </KDropdownMenu.Content>
-            </KDropdownMenu.Portal>
-          </KDropdownMenu>
-        )}
+      <ArkMenu.Root
+        onSelect={(details) => selectFrom(props.items, details.value)}
+        positioning={{ placement: props.placement === "cursor" ? "bottom-start" : "bottom", gutter: 4 }}
       >
-        <KContextMenu>
-          <KContextMenu.Trigger as="div" class={props.class}>
-            {props.children}
-          </KContextMenu.Trigger>
-          <KContextMenu.Portal>
-            <KContextMenu.Content class={CONTENT_CLASS}>
-              {renderItems(props.items, contextParts)}
-            </KContextMenu.Content>
-          </KContextMenu.Portal>
-        </KContextMenu>
-      </Show>
+        <Show
+          when={props.trigger === "contextmenu"}
+          fallback={(
+            <ArkMenu.Trigger asChild={(triggerProps) => (
+              <div {...arkMerge(triggerProps)({ class: props.class })}>{props.children}</div>
+            )}
+            />
+          )}
+        >
+          <ArkMenu.ContextTrigger asChild={(triggerProps) => (
+            <div {...arkMerge(triggerProps)({ class: props.class })}>{props.children}</div>
+          )}
+          />
+        </Show>
+        <Portal>
+          <ArkMenu.Positioner>
+            <ArkMenu.Content class={CONTENT_CLASS}>
+              {renderItems(props.items)}
+            </ArkMenu.Content>
+          </ArkMenu.Positioner>
+        </Portal>
+      </ArkMenu.Root>
     </Show>
   )
 }

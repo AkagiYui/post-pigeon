@@ -1,9 +1,11 @@
-// Popover 气泡弹出组件，封装 Kobalte Popover
-// Kobalte 基于 floating-ui 自动定位并 Portal 到 body，避免被父容器 overflow 裁剪，
-// 同时处理外部点击关闭、焦点管理与 ARIA。支持受控（open/onOpenChange）与非受控两种模式。
-import { Popover as KPopover } from "@kobalte/core/popover"
+// Popover 气泡弹出组件，封装 Ark UI Popover
+// Ark UI 基于 floating-ui 定位并 Portal 到 body（避免被父容器 overflow 裁剪），
+// 处理外部点击关闭、焦点管理与 ARIA。支持受控（open/onOpenChange）与非受控两种模式。
+import { Popover as ArkPopover } from "@ark-ui/solid/popover"
 import { type JSX, splitProps } from "solid-js"
+import { Portal } from "solid-js/web"
 
+import { arkMerge } from "@/lib/ark"
 import { cn } from "@/lib/utils"
 
 export interface PopoverProps {
@@ -28,26 +30,30 @@ export function Popover(props: PopoverProps) {
   const [local] = splitProps(props, ["trigger", "children", "placement", "class", "open", "onOpenChange"])
 
   return (
-    <KPopover
+    <ArkPopover.Root
       // open 为 undefined 时走非受控模式；提供时为受控模式
       open={local.open}
-      onOpenChange={local.onOpenChange}
-      placement={local.placement ?? "bottom"}
-      gutter={4}
+      onOpenChange={(details) => local.onOpenChange?.(details.open)}
+      positioning={{ placement: local.placement ?? "bottom", gutter: 4 }}
     >
-      <KPopover.Trigger as="div" class="inline-flex">
-        {local.trigger}
-      </KPopover.Trigger>
-      <KPopover.Portal>
-        <KPopover.Content
-          class={cn(
-            "z-50 bg-surface rounded-lg shadow-lg border border-border p-3 min-w-30 outline-none",
-            local.class,
-          )}
-        >
-          {local.children}
-        </KPopover.Content>
-      </KPopover.Portal>
-    </KPopover>
+      <ArkPopover.Trigger asChild={(triggerProps) => (
+        <div {...arkMerge(triggerProps)({ class: "inline-flex" })}>
+          {local.trigger}
+        </div>
+      )}
+      />
+      <Portal>
+        <ArkPopover.Positioner>
+          <ArkPopover.Content
+            class={cn(
+              "z-50 bg-surface rounded-lg shadow-lg border border-border p-3 min-w-30 outline-none",
+              local.class,
+            )}
+          >
+            {local.children}
+          </ArkPopover.Content>
+        </ArkPopover.Positioner>
+      </Portal>
+    </ArkPopover.Root>
   )
 }

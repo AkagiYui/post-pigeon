@@ -1,7 +1,7 @@
-// Slider 滑块组件，封装 Kobalte Slider
-// Kobalte 提供 role="slider"、aria-valuenow/min/max、方向键与 Home/End 键盘交互等无障碍能力，
-// 替代原先手写的 range input hack。刻度点/标签沿用旧实现的自定义叠加渲染。
-import { Slider as KSlider } from "@kobalte/core/slider"
+// Slider 滑块组件，封装 Ark UI Slider
+// Ark UI 提供 role="slider"、aria-valuenow/min/max、方向键与 Home/End 键盘交互等无障碍能力。
+// 刻度点/标签沿用旧实现的自定义叠加渲染，以保持一致外观。
+import { Slider as ArkSlider } from "@ark-ui/solid/slider"
 import { splitProps } from "solid-js"
 
 import { cn } from "@/lib/utils"
@@ -58,23 +58,22 @@ export function Slider(props: SliderProps) {
   }
 
   return (
-    <KSlider
+    <ArkSlider.Root
       class={cn("flex flex-col", local.class)}
       value={[local.value]}
-      minValue={local.min}
-      maxValue={local.max}
+      min={local.min}
+      max={local.max}
       step={local.step || 1}
       disabled={local.disabled}
-      onChange={(vals) => local.onChange(vals[0])}
-      getValueLabel={(params) => (local.formatValue ? local.formatValue(params.values[0]) : String(params.values[0]))}
+      onValueChange={(details) => local.onChange(details.value[0])}
     >
       {/* 滑块轨道和刻度点 */}
-      <KSlider.Track class="relative h-5 flex items-center">
+      <ArkSlider.Control class="relative h-5 flex items-center">
         {/* 轨道背景 */}
-        <div class="absolute inset-x-0 h-1 bg-muted rounded-full" />
-
-        {/* 已填充部分 */}
-        <KSlider.Fill class="absolute h-1 bg-accent rounded-full pointer-events-none" />
+        <ArkSlider.Track class="absolute inset-x-0 h-1 bg-muted rounded-full">
+          {/* 已填充部分 */}
+          <ArkSlider.Range class="h-1 bg-accent rounded-full" />
+        </ArkSlider.Track>
 
         {/* 刻度点（在轨道上，垂直居中） */}
         {marks().map((mark) => (
@@ -92,16 +91,17 @@ export function Slider(props: SliderProps) {
         ))}
 
         {/* 拖拽手柄 */}
-        <KSlider.Thumb
+        <ArkSlider.Thumb
+          index={0}
           class={cn(
-            "block w-3 h-3 bg-accent rounded-full shadow-sm transition-all -top-1/2 translate-y-1/2",
+            "block w-3 h-3 bg-accent rounded-full shadow-sm transition-shadow",
             "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent focus-visible:ring-offset-2",
             "disabled:opacity-50 disabled:cursor-not-allowed",
           )}
         >
-          <KSlider.Input />
-        </KSlider.Thumb>
-      </KSlider.Track>
+          <ArkSlider.HiddenInput />
+        </ArkSlider.Thumb>
+      </ArkSlider.Control>
 
       {/* 刻度标签（在下方） */}
       <div class="relative h-4 mt-1">
@@ -118,6 +118,6 @@ export function Slider(props: SliderProps) {
           )
         ))}
       </div>
-    </KSlider>
+    </ArkSlider.Root>
   )
 }

@@ -12,6 +12,7 @@
     "lint": "eslint --fix --ext ."
   },
   "dependencies": {
+    "@ark-ui/solid": "^5.37.1",
     "@codemirror/autocomplete": "^6.20.1",
     "@codemirror/commands": "^6.10.3",
     "@codemirror/lang-css": "^6.3.1",
@@ -27,7 +28,6 @@
     "@codemirror/view": "^6.41.1",
     "@fontsource/noto-color-emoji": "^5.2.10",
     "@iconify-icon/solid": "^3.0.3",
-    "@kobalte/core": "^0.13.12",
     "@solid-primitives/i18n": "^2.2.1",
     "@tailwindcss/vite": "^4.1.18",
     "@tanstack/router-plugin": "^1.132.0",

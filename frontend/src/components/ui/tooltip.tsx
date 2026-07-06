@@ -1,9 +1,11 @@
-// Tooltip 提示组件，封装 Kobalte Tooltip
-// Kobalte 基于 floating-ui 自动处理定位、视口翻转、Portal 渲染与无障碍（role/aria-describedby），
-// 替代了原先手写的两阶段测量 + 视口钳位逻辑。
-import { Tooltip as KTooltip } from "@kobalte/core/tooltip"
+// Tooltip 提示组件，封装 Ark UI Tooltip
+// Ark UI（基于 Zag.js 状态机 + floating-ui）负责悬停/聚焦触发、延迟、定位翻转、
+// Portal 渲染与无障碍（role="tooltip"、aria 关联）。
+import { Tooltip as ArkTooltip } from "@ark-ui/solid/tooltip"
 import { type JSX, splitProps } from "solid-js"
+import { Portal } from "solid-js/web"
 
+import { arkMerge } from "@/lib/ark"
 import { cn } from "@/lib/utils"
 
 export interface TooltipProps {
@@ -26,23 +28,29 @@ export function Tooltip(props: TooltipProps) {
   const [local] = splitProps(props, ["content", "children", "delay", "placement", "class"])
 
   return (
-    <KTooltip
+    <ArkTooltip.Root
       openDelay={local.delay ?? 300}
-      placement={local.placement ?? "top"}
-      gutter={4}
+      closeDelay={0}
+      positioning={{ placement: local.placement ?? "top", gutter: 4 }}
     >
-      <KTooltip.Trigger as="div" class={cn("relative inline-flex", local.class)}>
-        {local.children}
-      </KTooltip.Trigger>
-      <KTooltip.Portal>
-        <KTooltip.Content
-          class={cn(
-            "z-50 px-2 py-1 text-xs rounded-md bg-popover text-popover-foreground shadow-md border border-border whitespace-nowrap pointer-events-none",
-          )}
-        >
-          {local.content}
-        </KTooltip.Content>
-      </KTooltip.Portal>
-    </KTooltip>
+      {/* asChild 用 <div> 替换默认的 <button> 触发器，避免包裹按钮时出现 button 嵌套 */}
+      <ArkTooltip.Trigger asChild={(triggerProps) => (
+        <div {...arkMerge(triggerProps)({ class: cn("relative inline-flex", local.class) })}>
+          {local.children}
+        </div>
+      )}
+      />
+      <Portal>
+        <ArkTooltip.Positioner>
+          <ArkTooltip.Content
+            class={cn(
+              "z-50 px-2 py-1 text-xs rounded-md bg-popover text-popover-foreground shadow-md border border-border whitespace-nowrap pointer-events-none",
+            )}
+          >
+            {local.content}
+          </ArkTooltip.Content>
+        </ArkTooltip.Positioner>
+      </Portal>
+    </ArkTooltip.Root>
   )
 }
