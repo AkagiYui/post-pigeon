@@ -10,7 +10,7 @@
 
 /* Tailwind v4 主题配置 */
 @theme {
-  --font-sans: "Inter", "Noto Sans SC", ui-sans-serif, system-ui, -apple-system, sans-serif;
+  --font-sans: "Outfit Variable", "Outfit", "HarmonyOS Sans SC", "Noto Sans SC", ui-sans-serif, system-ui, -apple-system, sans-serif;
   --font-mono: "JetBrains Mono", "Fira Code", ui-monospace, monospace;
 }
 
