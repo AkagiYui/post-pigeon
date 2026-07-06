@@ -131,6 +131,11 @@ export function openProject(id: string) {
   setActiveProjectId(id)
 }
 
+/** 重新排序打开的项目标签（顶栏拖拽排序使用，自动持久化到 localStorage） */
+export function reorderOpenProjects(orderedIds: string[]) {
+  setOpenProjectIds(orderedIds)
+}
+
 /** 关闭项目（从打开列表移除，并更新激活项目） */
 export function closeProject(id: string) {
   setOpenProjectIds(prev => prev.filter(p => p !== id))

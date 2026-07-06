@@ -3,8 +3,9 @@
 // Windows 端额外包含窗口控制按钮（最小化、最大化、关闭）
 import { Icon } from "@iconify-icon/solid"
 import { Link, useLocation, useRouter } from "@tanstack/solid-router"
+import { createSortable, DragDropProvider, DragDropSensors, type DragEvent, DragOverlay, SortableProvider, transformStyle } from "@thisbeyond/solid-dnd"
 import { System, Window } from "@wailsio/runtime"
-import { createEffect, createMemo, createResource, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js"
+import { createEffect, createMemo, createResource, createSignal, For, type JSX, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
 import { Select } from "@/components/ui/select"
@@ -12,7 +13,7 @@ import { Tooltip } from "@/components/ui/tooltip"
 import { useFullscreen } from "@/hooks/useFullscreen"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
-import { activeProjectId, closeProject, getCurrentEnvironmentId, openProject, openProjectIds, projectEnvironments, projectNames, setActiveProjectId, setCurrentEnvironment, setProjectNames, setSettingsOpen, settingsOpen } from "@/stores/app"
+import { activeProjectId, closeProject, getCurrentEnvironmentId, openProject, openProjectIds, projectEnvironments, projectNames, reorderOpenProjects, setActiveProjectId, setCurrentEnvironment, setProjectNames, setSettingsOpen, settingsOpen } from "@/stores/app"
 
 export interface TitleBarProps {
   /** 项目标签点击回调 */
@@ -120,13 +121,46 @@ export function TitleBar(props: TitleBarProps) {
       }
     }
   })
-  // Windows 端双击标题栏切换最大化
-  const handleDoubleClick = () => {
-    if (!isMac()) {
-      Window.ToggleMaximise()
-      Window.IsMaximised().then(setIsMaximised)
-    }
+  // 双击标题栏空白区域切换最大化/还原（全平台支持，含 macOS 的 zoom 行为）
+  // 仅当双击落在真正的空白拖拽区域时触发；忽略标签、按钮、链接、下拉框等交互元素，
+  // 避免双击项目标签或工具按钮时误触发窗口缩放。
+  const handleDoubleClick = (e: MouseEvent) => {
+    const target = e.target as HTMLElement | null
+    if (target?.closest("button, a, input, select, [data-no-maximize]")) return
+    Window.ToggleMaximise()
+    Window.IsMaximised().then(setIsMaximised)
   }
+
+  // ---- 项目标签拖拽排序 ----
+  // 当前正在拖拽的标签 ID（用于 DragOverlay 渲染悬浮副本）
+  const [draggingTabId, setDraggingTabId] = createSignal<string | null>(null)
+
+  const handleTabDragStart = (event: DragEvent) => {
+    setDraggingTabId(event.draggable.id as string)
+  }
+
+  const handleTabDragEnd = (event: DragEvent) => {
+    const { draggable, droppable } = event
+    setDraggingTabId(null)
+    // 未落到有效目标或原地释放时不做处理
+    if (!droppable || draggable.id === droppable.id) return
+    const ids = openProjectIds()
+    const oldIndex = ids.indexOf(draggable.id as string)
+    const newIndex = ids.indexOf(droppable.id as string)
+    if (oldIndex === -1 || newIndex === -1) return
+    const reordered = [...ids]
+    const [moved] = reordered.splice(oldIndex, 1)
+    reordered.splice(newIndex, 0, moved)
+    // 仅调整标签顺序（localStorage 持久化），不影响后端项目列表排序
+    reorderOpenProjects(reordered)
+  }
+
+  // 拖拽中标签的显示名称（用于 overlay）
+  const draggingTabName = createMemo(() => {
+    const id = draggingTabId()
+    if (!id) return ""
+    return projectNames()[id] || id.slice(0, 8)
+  })
 
   return (
     <div class="flex items-center h-(--titlebar-height) border-b border-border bg-surface shrink-0 select-none" style="--wails-draggable:drag" onDblClick={handleDoubleClick}>
@@ -161,37 +195,50 @@ export function TitleBar(props: TitleBarProps) {
             <span>{t("nav.projects")}</span>
           </NavLink>
 
-          {/* 打开的项目标签 */}
-          <For each={openProjectIds()}>
-            {(id) => (
-              <ProjectTab
-                projectId={id}
-                active={activeProjectId() === id}
-                onClick={() => {
-                  // 点击项目标签时，打开项目并导航
-                  openProject(id)
-                  router.navigate({ to: "/project/$id", params: { id }, from: "/" })
-                }}
-                onClose={() => {
-                  // 判断关闭的是否是当前激活的项目
-                  const isActiveProject = activeProjectId() === id
-                  // 关闭项目
-                  closeProject(id)
-                  // 只有关闭的是当前激活的项目时，才需要切换路由
-                  if (isActiveProject) {
-                    const remaining = openProjectIds()
-                    if (remaining.length > 0) {
-                      // 导航到最后一个剩余项目
-                      router.navigate({ to: "/project/$id", params: { id: remaining[remaining.length - 1] } })
-                    } else {
-                      // 没有剩余项目，导航到项目列表
-                      router.navigate({ to: "/" })
-                    }
-                  }
-                }}
-              />
-            )}
-          </For>
+          {/* 打开的项目标签（支持拖拽排序） */}
+          <DragDropProvider onDragStart={handleTabDragStart} onDragEnd={handleTabDragEnd}>
+            <DragDropSensors />
+            <SortableProvider ids={openProjectIds()}>
+              <For each={openProjectIds()}>
+                {(id) => (
+                  <ProjectTab
+                    projectId={id}
+                    active={activeProjectId() === id}
+                    onClick={() => {
+                      // 点击项目标签时，打开项目并导航
+                      openProject(id)
+                      router.navigate({ to: "/project/$id", params: { id }, from: "/" })
+                    }}
+                    onClose={() => {
+                      // 判断关闭的是否是当前激活的项目
+                      const isActiveProject = activeProjectId() === id
+                      // 关闭项目
+                      closeProject(id)
+                      // 只有关闭的是当前激活的项目时，才需要切换路由
+                      if (isActiveProject) {
+                        const remaining = openProjectIds()
+                        if (remaining.length > 0) {
+                          // 导航到最后一个剩余项目
+                          router.navigate({ to: "/project/$id", params: { id: remaining[remaining.length - 1] } })
+                        } else {
+                          // 没有剩余项目，导航到项目列表
+                          router.navigate({ to: "/" })
+                        }
+                      }
+                    }}
+                  />
+                )}
+              </For>
+            </SortableProvider>
+            {/* 拖拽悬浮副本：渲染在 DOM 顶层，不会被标签容器裁剪 */}
+            <DragOverlay>
+              <Show when={draggingTabName()}>
+                <div class="flex items-center pl-3 pr-2 py-1 text-sm rounded-md font-medium bg-accent-muted text-accent shadow-lg shadow-accent/15 max-w-52 cursor-grabbing">
+                  <span class="truncate pr-4">{draggingTabName()}</span>
+                </div>
+              </Show>
+            </DragOverlay>
+          </DragDropProvider>
         </div>
 
         {/* 右侧滚动按钮 - 仅在可向右滚动时显示 */}
@@ -317,7 +364,7 @@ function NavLink(props: { href: string; active: boolean; children: JSX.Element }
   )
 }
 
-/** 项目标签（Chrome 风格，带关闭按钮） */
+/** 项目标签（Chrome 风格，带关闭按钮，支持拖拽排序） */
 function ProjectTab(props: { projectId: string; active: boolean; onClick: () => void; onClose: () => void }) {
   // 按需从后端加载项目名称并写入全局缓存（缓存缺失时才请求）
   // 注意：不直接使用 resource 返回值渲染，而是从 projectNames() 派生显示名称，
@@ -334,14 +381,35 @@ function ProjectTab(props: { projectId: string; active: boolean; onClick: () => 
   // 显示名称：始终从全局缓存派生，保证响应式更新
   const displayName = () => projectNames()[props.projectId] || props.projectId.slice(0, 8)
 
+  // 可拖拽排序实例（sortable 既是指令函数，也承载拖拽状态与激活器）
+  const sortable = createSortable(props.projectId)
+
   return (
     <div
+      // use:sortable 指令使标签可拖拽排序
+      use:sortable={sortable}
+      // 展开拖拽激活器，使整个标签成为拖拽把手
+      {...sortable.dragActivators}
       class={cn(
-        "relative flex items-center pl-3 pr-2 py-1 text-sm rounded-md cursor-pointer transition-colors group font-medium max-w-52 min-w-16",
+        "relative flex items-center pl-3 pr-2 py-1 text-sm rounded-md cursor-pointer group font-medium max-w-52 min-w-16",
+        sortable.isActiveDraggable && "opacity-30",
         props.active
           ? "bg-accent-muted text-accent"
           : "text-muted-foreground hover:text-foreground hover:bg-muted",
       )}
+      style={{
+        // 位于 --wails-draggable:drag 的顶栏内，需显式声明 no-drag，
+        // 否则按下拖动标签会被系统识别为拖动窗口，导致排序失效。
+        "--wails-draggable": "no-drag",
+        // 拖拽时禁用位移过渡以保证跟手；释放后由 solid-dnd 计算补间动画。
+        // 非拖拽态保留颜色过渡，维持悬停高亮的平滑效果。
+        "transition": sortable.isActiveDraggable
+          ? "none"
+          : "transform 200ms ease, background-color 150ms ease, color 150ms ease",
+        ...transformStyle(sortable.transform),
+      }}
+      // 标记为交互元素，避免双击标签触发窗口最大化
+      data-no-maximize
       onClick={props.onClick}
       title={displayName()}
     >
