@@ -379,3 +379,132 @@ func legacyModels() []interface{} {
 		&models.ScriptLibrary{}, &models.Response{}, &models.RequestHistory{}, &models.Settings{},
 	}
 }
+
+// --- 模拟“旧版本带外键但无级联”的镜像模型 ---
+// 表名与真实模型一致，关联仅用 foreignKey（不含 constraint），
+// 因此 GORM 会以默认方式（无 ON DELETE 动作）建立外键，且约束命名与真实模型相同
+// （fk_<表>_<字段>），从而精确复现线上历史库的形态。
+
+type legProject struct {
+	ID      string      `gorm:"primaryKey"`
+	Name    string      `gorm:"not null"`
+	Modules []legModule `gorm:"foreignKey:ProjectID"`
+}
+
+func (legProject) TableName() string { return "projects" }
+
+type legModule struct {
+	ID        string        `gorm:"primaryKey"`
+	ProjectID string        `gorm:"not null"`
+	Name      string        `gorm:"not null"`
+	Endpoints []legEndpoint `gorm:"foreignKey:ModuleID"`
+	Folders   []legFolder   `gorm:"foreignKey:ModuleID"`
+}
+
+func (legModule) TableName() string { return "modules" }
+
+type legFolder struct {
+	ID        string        `gorm:"primaryKey"`
+	ModuleID  string        `gorm:"not null"`
+	Name      string        `gorm:"not null"`
+	Endpoints []legEndpoint `gorm:"foreignKey:FolderID"`
+}
+
+func (legFolder) TableName() string { return "folders" }
+
+type legEndpoint struct {
+	ID       string `gorm:"primaryKey"`
+	ModuleID string `gorm:"not null"`
+	FolderID *string
+	Name     string      `gorm:"not null"`
+	Headers  []legHeader `gorm:"foreignKey:EndpointID"`
+}
+
+func (legEndpoint) TableName() string { return "endpoints" }
+
+type legHeader struct {
+	ID         string `gorm:"primaryKey"`
+	EndpointID string `gorm:"not null"`
+	Name       string `gorm:"not null"`
+}
+
+func (legHeader) TableName() string { return "endpoint_headers" }
+
+// TestCascadeMigrationFixesLegacyNonCascadeFK 复现线上真实故障：
+// 旧库已有外键但没有 ON DELETE CASCADE（AutoMigrate 不会修改既有约束）。
+// 升级后应把这些外键重建为级联，并让删除真正级联生效。
+func TestCascadeMigrationFixesLegacyNonCascadeFK(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "legacy_fk.db")
+
+	// 1. 旧库：以默认方式建外键（无级联）
+	legacy, err := gorm.Open(sqlite.Open(dbPath), &gorm.Config{
+		Logger: logger.Default.LogMode(logger.Silent),
+	})
+	if err != nil {
+		t.Fatalf("打开旧库失败: %v", err)
+	}
+	if err := legacy.AutoMigrate(&legProject{}, &legModule{}, &legFolder{}, &legEndpoint{}, &legHeader{}); err != nil {
+		t.Fatalf("旧库建表失败: %v", err)
+	}
+	// 确认旧库外键确实是“非级联”，否则该测试无意义
+	if od := legFKOnDelete(t, legacy, "endpoints", "folder_id"); od == "CASCADE" {
+		t.Fatalf("旧库 endpoints.folder_id 竟已是 CASCADE，无法复现场景")
+	}
+	fid := "fo1"
+	rows := []interface{}{
+		&legProject{ID: "p1", Name: "P"},
+		&legModule{ID: "m1", ProjectID: "p1", Name: "M"},
+		&legFolder{ID: "fo1", ModuleID: "m1", Name: "F"},
+		&legEndpoint{ID: "e1", ModuleID: "m1", FolderID: &fid, Name: "E"},
+		&legHeader{ID: "h1", EndpointID: "e1", Name: "H"},
+	}
+	for _, r := range rows {
+		if err := legacy.Create(r).Error; err != nil {
+			t.Fatalf("旧库写入失败: %v", err)
+		}
+	}
+	if sqlDB, err := legacy.DB(); err == nil {
+		sqlDB.Close()
+	}
+
+	// 2. 真实初始化：应检测到非级联外键并全部重建为 CASCADE
+	db, err := database.Initialize(dbPath)
+	if err != nil {
+		t.Fatalf("升级初始化失败: %v", err)
+	}
+
+	// 外键应已被重建为级联
+	if od := legFKOnDelete(t, db, "endpoints", "folder_id"); od != "CASCADE" {
+		t.Fatalf("升级后 endpoints.folder_id 的 on_delete = %q，期望 CASCADE", od)
+	}
+	if od := legFKOnDelete(t, db, "endpoint_headers", "endpoint_id"); od != "CASCADE" {
+		t.Fatalf("升级后 endpoint_headers.endpoint_id 的 on_delete = %q，期望 CASCADE", od)
+	}
+
+	// 3. 删除文件夹应级联删除其端点及请求头（旧库形态下这正是会 787 失败的场景）
+	if err := NewFolderService(db).DeleteFolder("fo1"); err != nil {
+		t.Fatalf("删除文件夹失败: %v", err)
+	}
+	if countIn(t, db, &models.Endpoint{}, "id = ?", "e1") != 0 {
+		t.Error("端点应随文件夹级联删除")
+	}
+	if countIn(t, db, &models.EndpointHeader{}, "id = ?", "h1") != 0 {
+		t.Error("请求头应随端点级联删除")
+	}
+
+	// 4. 删除项目应级联清空模块（验证父表也被重建为级联）
+	if err := NewProjectService(db).DeleteProject("p1"); err != nil {
+		t.Fatalf("删除项目失败: %v", err)
+	}
+	if countIn(t, db, &models.Module{}) != 0 {
+		t.Error("删除项目后模块应级联删除")
+	}
+}
+
+// legFKOnDelete 读取某表某外键列的 on_delete 动作，供迁移测试断言。
+func legFKOnDelete(t *testing.T, db *gorm.DB, table, from string) string {
+	t.Helper()
+	var od string
+	db.Raw("SELECT on_delete FROM pragma_foreign_key_list(?) WHERE \"from\" = ?", table, from).Scan(&od)
+	return od
+}
