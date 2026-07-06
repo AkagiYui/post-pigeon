@@ -195,50 +195,57 @@ export function TitleBar(props: TitleBarProps) {
             <span>{t("nav.projects")}</span>
           </NavLink>
 
-          {/* 打开的项目标签（支持拖拽排序） */}
-          <DragDropProvider onDragStart={handleTabDragStart} onDragEnd={handleTabDragEnd}>
-            <DragDropSensors />
-            <SortableProvider ids={openProjectIds()}>
-              <For each={openProjectIds()}>
-                {(id) => (
-                  <ProjectTab
-                    projectId={id}
-                    active={activeProjectId() === id}
-                    onClick={() => {
-                      // 点击项目标签时，打开项目并导航
-                      openProject(id)
-                      router.navigate({ to: "/project/$id", params: { id }, from: "/" })
-                    }}
-                    onClose={() => {
-                      // 判断关闭的是否是当前激活的项目
-                      const isActiveProject = activeProjectId() === id
-                      // 关闭项目
-                      closeProject(id)
-                      // 只有关闭的是当前激活的项目时，才需要切换路由
-                      if (isActiveProject) {
-                        const remaining = openProjectIds()
-                        if (remaining.length > 0) {
-                          // 导航到最后一个剩余项目
-                          router.navigate({ to: "/project/$id", params: { id: remaining[remaining.length - 1] } })
-                        } else {
-                          // 没有剩余项目，导航到项目列表
-                          router.navigate({ to: "/" })
+          {/* 打开的项目标签（支持拖拽排序）
+              外层包裹一个以字符串样式声明 --wails-draggable:no-drag 的容器：顶栏根节点是 drag
+              区域，若标签落在 drag 区域内，按下拖动会被 Wails 识别为「拖动窗口」，使 solid-dnd
+              收不到有效位移、无法排序。此处沿用窗口控制按钮相同的字符串写法（cssText 路径），
+              比在每个标签上用响应式 style 对象设置自定义属性更稳妥。仅包裹标签本身，
+              其后的空白仍归属可拖动容器，不影响拖拽移动窗口。 */}
+          <div class="flex items-center gap-0.5 shrink-0" style="--wails-draggable:no-drag" data-no-maximize>
+            <DragDropProvider onDragStart={handleTabDragStart} onDragEnd={handleTabDragEnd}>
+              <DragDropSensors />
+              <SortableProvider ids={openProjectIds()}>
+                <For each={openProjectIds()}>
+                  {(id) => (
+                    <ProjectTab
+                      projectId={id}
+                      active={activeProjectId() === id}
+                      onClick={() => {
+                        // 点击项目标签时，打开项目并导航
+                        openProject(id)
+                        router.navigate({ to: "/project/$id", params: { id }, from: "/" })
+                      }}
+                      onClose={() => {
+                        // 判断关闭的是否是当前激活的项目
+                        const isActiveProject = activeProjectId() === id
+                        // 关闭项目
+                        closeProject(id)
+                        // 只有关闭的是当前激活的项目时，才需要切换路由
+                        if (isActiveProject) {
+                          const remaining = openProjectIds()
+                          if (remaining.length > 0) {
+                            // 导航到最后一个剩余项目
+                            router.navigate({ to: "/project/$id", params: { id: remaining[remaining.length - 1] } })
+                          } else {
+                            // 没有剩余项目，导航到项目列表
+                            router.navigate({ to: "/" })
+                          }
                         }
-                      }
-                    }}
-                  />
-                )}
-              </For>
-            </SortableProvider>
-            {/* 拖拽悬浮副本：渲染在 DOM 顶层，不会被标签容器裁剪 */}
-            <DragOverlay>
-              <Show when={draggingTabName()}>
-                <div class="flex items-center pl-3 pr-2 py-1 text-sm rounded-md font-medium bg-accent-muted text-accent shadow-lg shadow-accent/15 max-w-52 cursor-grabbing">
-                  <span class="truncate pr-4">{draggingTabName()}</span>
-                </div>
-              </Show>
-            </DragOverlay>
-          </DragDropProvider>
+                      }}
+                    />
+                  )}
+                </For>
+              </SortableProvider>
+              {/* 拖拽悬浮副本：渲染在 DOM 顶层，不会被标签容器裁剪 */}
+              <DragOverlay>
+                <Show when={draggingTabName()}>
+                  <div class="flex items-center pl-3 pr-2 py-1 text-sm rounded-md font-medium bg-accent-muted text-accent shadow-lg shadow-accent/15 max-w-52 cursor-grabbing">
+                    <span class="truncate pr-4">{draggingTabName()}</span>
+                  </div>
+                </Show>
+              </DragOverlay>
+            </DragDropProvider>
+          </div>
         </div>
 
         {/* 右侧滚动按钮 - 仅在可向右滚动时显示 */}
@@ -353,7 +360,8 @@ function NavLink(props: { href: string; active: boolean; children: JSX.Element }
     <Link
       to={props.href}
       class={cn(
-        "flex items-center gap-1.5 px-3 py-1 text-sm rounded-md transition-colors shrink-0 w-18 justify-center",
+        // 宽度自适应内容：不同语言下「项目/Projects」标题长度不一，固定宽度会裁剪或留白
+        "flex items-center gap-1.5 px-3 py-1 text-sm rounded-md transition-colors shrink-0 justify-center whitespace-nowrap",
         props.active
           ? "bg-accent-muted text-accent font-medium"
           : "text-muted-foreground hover:text-foreground hover:bg-muted",
