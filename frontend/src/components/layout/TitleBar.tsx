@@ -178,7 +178,14 @@ export function TitleBar(props: TitleBarProps) {
     onCleanup(() => {
       window.removeEventListener("pointercancel", forceEndTabDrag, true)
       window.removeEventListener("blur", forceEndTabDrag)
+      document.body.classList.remove("dragging-tab")
     })
+  })
+
+  // 拖拽标签期间给 body 挂标记类，触发 CSS 禁用主内容区 iframe 的指针事件（见 styles.css），
+  // 使 pointermove/pointerup 能穿透 iframe 回到父文档，避免拖到主页面时卡顿或在 iframe 上松手卡死。
+  createEffect(() => {
+    document.body.classList.toggle("dragging-tab", draggingTabId() != null)
   })
 
   return (

@@ -244,6 +244,15 @@ textarea {
   pointer-events: none !important;
 }
 
+/* 拖拽项目标签期间，禁用主内容区 iframe 的指针事件。
+   iframe（如响应预览、PDF、历史详情）拥有独立文档，指针移入后 pointermove/pointerup
+   会被 iframe 吞掉、收不到父文档，导致：① 拖拽经过 iframe 时动画卡住；
+   ② 在 iframe 上松手时父文档收不到 pointerup、拖拽卡死。禁用其指针事件让事件穿透回父文档。
+   仅作用于 iframe，不影响顶栏标签本身的拖放命中判定。 */
+body.dragging-tab iframe {
+  pointer-events: none !important;
+}
+
 /* 焦点环 */
 .focus-ring:focus-visible {
   outline: none;
