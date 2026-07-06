@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"sort"
 	"strings"
 
 	"post-pigeon/internal/models"
@@ -258,9 +259,23 @@ func parseOpenAPIDoc(jsonStr string) (*parsedDoc, error) {
 		ModuleName: strings.TrimSpace(doc.Info.Title),
 		Servers:    extractServers(&doc),
 	}
-	for path, methods := range doc.Paths {
+	// 按路径、方法名排序确定遍历顺序，保证生成的端点顺序稳定，
+	// 使 preview 与 import 两次解析得到一致的索引（否则 map 随机序会导致按索引选择时导入错误的接口）
+	paths := make([]string, 0, len(doc.Paths))
+	for path := range doc.Paths {
+		paths = append(paths, path)
+	}
+	sort.Strings(paths)
+	for _, path := range paths {
+		methods := doc.Paths[path]
 		fullPath := joinPath(doc.BasePath, path)
-		for method, raw := range methods {
+		methodNames := make([]string, 0, len(methods))
+		for method := range methods {
+			methodNames = append(methodNames, method)
+		}
+		sort.Strings(methodNames)
+		for _, method := range methodNames {
+			raw := methods[method]
 			methodLower := strings.ToLower(method)
 			if !httpMethods[methodLower] {
 				continue
