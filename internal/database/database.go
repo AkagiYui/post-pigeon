@@ -2,15 +2,29 @@
 package database
 
 import (
+	"embed"
 	"fmt"
+	"io/fs"
 	"log/slog"
+	"path"
+	"strconv"
+	"strings"
 
 	"github.com/glebarez/sqlite"
+	goose "github.com/pressly/goose/v3"
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
 	"post-pigeon/internal/models"
 )
+
+// migrationsFS 将 goose SQL 迁移文件打进二进制，运行时无需外部文件。
+//
+//go:embed migrations/*.sql
+var migrationsFS embed.FS
+
+// migrationsDir 是嵌入 FS 中迁移文件所在目录。
+const migrationsDir = "migrations"
 
 // Initialize 初始化数据库连接并执行自动迁移
 func Initialize(dbPath string) (*gorm.DB, error) {
@@ -43,8 +57,16 @@ func Initialize(dbPath string) (*gorm.DB, error) {
 	return db, nil
 }
 
-// migrate 在「外键关闭」的独立连接上执行结构迁移与一次性数据迁移。
-// 迁移完成后关闭该连接，运行时另开启用外键的连接。
+// migrate 在「外键关闭」的独立连接上完成所有迁移，随后关闭该连接。
+//
+// schema 的唯一真实来源是 migrations/ 下的 goose 版本化 SQL：
+//   - 全新库：goose 依次执行 00001.. 建立 schema。
+//   - 已纳入 goose 管理的库：goose 只执行未应用的增量迁移。
+//   - 历史库（goose 之前由 AutoMigrate 维护、无版本表）：一次性用 AutoMigrate +
+//     外键修正收敛到当前基线，再登记 goose 版本，此后完全交给 goose。
+//
+// 迁移期间外键必须关闭：为已有表重建/补外键时，DROP 被引用的父表会触发隐式 DELETE，
+// 开启外键会报 “FOREIGN KEY constraint failed (787)”。
 func migrate(dbPath string) error {
 	// 不含 foreign_keys，故此连接上外键默认关闭
 	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
@@ -61,27 +83,132 @@ func migrate(dbPath string) error {
 		}
 	}()
 
-	// 自动迁移数据库模型（含补建外键约束）
-	if err := autoMigrate(db); err != nil {
-		return fmt.Errorf("数据库迁移失败: %w", err)
+	// 历史库判定：有业务表（projects）但没有 goose 版本表，说明是 goose 接管前的旧库。
+	preGoose := tableExists(db, "projects") && !tableExists(db, "goose_db_version")
+	if preGoose {
+		if err := adoptLegacyDB(db); err != nil {
+			return err
+		}
 	}
 
-	// 修正历史遗留的非级联外键（AutoMigrate 不会修改已存在的约束）
+	// goose 接管：新库建基线；已登记库执行增量迁移；历史库已 stamp 到最新版本，此处无操作。
+	if err := runGoose(db); err != nil {
+		return fmt.Errorf("goose 迁移失败: %w", err)
+	}
+
+	return nil
+}
+
+// adoptLegacyDB 将 goose 之前的历史库一次性收敛到当前基线，并登记 goose 版本。
+//
+// 历史库可能停留在任意旧结构（缺列、旧的非级联外键等）。这里复用 AutoMigrate 补齐
+// 表/列，再用 fixCascadeConstraints 把外键统一为级联，最后把 goose 版本 stamp 到
+// 最新迁移号——因为 AutoMigrate 反映的正是「全部迁移应用后」的最新 schema，
+// 于是 goose 视所有现有迁移为已应用，后续只跑将来新增的迁移。
+//
+// 注意：这是一次性过渡逻辑，仅对无版本表的旧库执行；库一旦被 stamp，下次启动即走
+// 纯 goose 路径，不再进入此分支。
+func adoptLegacyDB(db *gorm.DB) error {
+	slog.Info("检测到无版本管理的历史数据库，正在收敛到基线并纳入 goose 管理")
+
+	if err := autoMigrate(db); err != nil {
+		return fmt.Errorf("历史库结构收敛失败: %w", err)
+	}
 	if err := fixCascadeConstraints(db); err != nil {
 		return fmt.Errorf("外键级联修正失败: %w", err)
 	}
-
-	// 为现有项目初始化排序值（如果尚未设置）
 	if err := migrateProjectSortOrder(db); err != nil {
 		return fmt.Errorf("项目排序迁移失败: %w", err)
 	}
-
-	// 将历史端点的前置/后置脚本迁移为前置/后置操作
 	if err := migrateScriptsToOperations(db); err != nil {
 		return fmt.Errorf("脚本迁移失败: %w", err)
 	}
 
+	if err := stampGooseVersion(db); err != nil {
+		return fmt.Errorf("登记 goose 版本失败: %w", err)
+	}
+	slog.Info("历史数据库已纳入 goose 管理")
 	return nil
+}
+
+// runGoose 使用嵌入的迁移文件，将数据库升级到最新版本。
+func runGoose(db *gorm.DB) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	goose.SetBaseFS(migrationsFS)
+	goose.SetLogger(goose.NopLogger())
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		return err
+	}
+	return goose.Up(sqlDB, migrationsDir)
+}
+
+// stampGooseVersion 为「已收敛到最新 schema」的历史库登记 goose 版本，
+// 使 goose 视所有现有迁移为已应用（不会重跑基线）。
+func stampGooseVersion(db *gorm.DB) error {
+	sqlDB, err := db.DB()
+	if err != nil {
+		return err
+	}
+	goose.SetBaseFS(migrationsFS)
+	goose.SetLogger(goose.NopLogger())
+	if err := goose.SetDialect("sqlite3"); err != nil {
+		return err
+	}
+	// 创建 goose 版本表（并写入初始 0 版本）
+	if _, err := goose.EnsureDBVersion(sqlDB); err != nil {
+		return err
+	}
+	latest, err := latestMigrationVersion()
+	if err != nil {
+		return err
+	}
+	// 直接写入版本记录：goose_db_version(version_id, is_applied)，表结构见 goose sqlite3 方言
+	if _, err := sqlDB.Exec(
+		"INSERT INTO "+goose.TableName()+" (version_id, is_applied) VALUES (?, 1)", latest,
+	); err != nil {
+		return err
+	}
+	return nil
+}
+
+// latestMigrationVersion 返回嵌入迁移文件中最大的版本号（文件名形如 00001_xxx.sql）。
+func latestMigrationVersion() (int64, error) {
+	entries, err := fs.ReadDir(migrationsFS, migrationsDir)
+	if err != nil {
+		return 0, err
+	}
+	var maxV int64
+	for _, e := range entries {
+		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
+			continue
+		}
+		base := path.Base(e.Name())
+		numStr, _, ok := strings.Cut(base, "_")
+		if !ok {
+			continue
+		}
+		v, err := strconv.ParseInt(numStr, 10, 64)
+		if err != nil {
+			continue
+		}
+		if v > maxV {
+			maxV = v
+		}
+	}
+	if maxV == 0 {
+		return 0, fmt.Errorf("未找到任何迁移文件")
+	}
+	return maxV, nil
+}
+
+// tableExists 判断指定表是否存在。
+func tableExists(db *gorm.DB, name string) bool {
+	var count int64
+	db.Raw("SELECT count(*) FROM sqlite_master WHERE type='table' AND name = ?", name).Scan(&count)
+	return count > 0
 }
 
 // migrateScriptsToOperations 将端点上旧的 PreRequestScript/PostResponseScript 字段
