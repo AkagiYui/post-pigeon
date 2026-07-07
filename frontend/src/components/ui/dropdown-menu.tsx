@@ -147,7 +147,8 @@ export function DropdownMenu(props: DropdownMenuProps) {
           )}
         >
           <ArkMenu.ContextTrigger asChild={(triggerProps) => (
-            <div {...arkMerge(triggerProps)({ class: props.class })}>{props.children}</div>
+            // 阻止右键事件冒泡到父级 ContextTrigger，避免树形嵌套结构中同时弹出多个上下文菜单
+            <div {...arkMerge(triggerProps)({ class: props.class, onContextMenu: (e: MouseEvent) => e.stopPropagation() })}>{props.children}</div>
           )}
           />
         </Show>

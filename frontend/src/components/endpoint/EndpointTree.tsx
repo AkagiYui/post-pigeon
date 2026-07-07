@@ -7,8 +7,9 @@ import { Button } from "@/components/ui/button"
 import { ContextMenu, type MenuItem } from "@/components/ui/context-menu"
 import { DropdownMenu } from "@/components/ui/dropdown-menu"
 import { Input } from "@/components/ui/input"
+import { MethodBadge } from "@/components/ui/method-badge"
 import { t } from "@/hooks/useI18n"
-import { type EndpointType, type HTTPMethod, METHOD_COLORS } from "@/lib/types"
+import { type EndpointType, type HTTPMethod } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
 /** 树节点数据类型 */
@@ -530,24 +531,16 @@ function TreeNodeItem(props: {
               <Icon icon="lucide:radio" class="h-3.5 w-3.5 text-pink-500 shrink-0" />
             </Show>
             <Show when={(!props.node.endpointType || props.node.endpointType === "http") && props.node.method}>
-              {/* 方法徽章：无底色，仅用文字颜色区分；固定宽度以对齐，最多显示 4 个字符 */}
-              <span
-                class={cn(
-                  "shrink-0 w-9 text-[10px] font-mono font-semibold uppercase leading-none tracking-tight",
-                  METHOD_COLORS[props.node.method!] || "text-gray-500 dark:text-gray-400",
-                )}
-                title={props.node.method}
-              >
-                {props.node.method!.slice(0, 4)}
-              </span>
+              {/* 方法徽章：无底色，仅用文字颜色区分；固定宽度 w-9 以对齐（接口 Tab 栏共用同一组件） */}
+              <MethodBadge method={props.node.method} class="w-9" />
             </Show>
           </Show>
 
           {/* 名称（URL 模式下端点显示路径） */}
           <span class="truncate flex-1">{labelText()}</span>
 
-          {/* 更多操作按钮（悬停显示） */}
-          <div class="opacity-0 group-hover:opacity-100 transition-opacity shrink-0">
+          {/* 更多操作按钮（悬停显示）：阻止点击冒泡到行，避免呼出菜单的同时切换/展开节点 */}
+          <div class="opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={(e) => e.stopPropagation()}>
             <DropdownMenu
               trigger="click"
               placement="cursor"

@@ -31,12 +31,14 @@ import { Button } from "@/components/ui/button"
 import { Checkbox, Radio } from "@/components/ui/checkbox"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { MethodBadge } from "@/components/ui/method-badge"
 import { SplitPane } from "@/components/ui/split-pane"
 import { Tabs } from "@/components/ui/tabs"
 import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
 import { type BodyType, type EndpointType, type HTTPMethod, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
+import { cn } from "@/lib/utils"
 import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, notifyBaseUrlsChanged, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
 import { clearStream } from "@/stores/stream"
 
@@ -766,7 +768,8 @@ export function ApiManagement(props: ApiManagementProps) {
       // 从 store 获取当前完整数据保存到未保存请求记录
       setUnsavedRequests(p => ({ ...p, [ct.id]: { ...p[ct.id], ...endpointData, id: ct.id } }))
       if (data.method || data.name) setRequestTabs(pt => pt.map(t => t.id === ct.id ? { ...t, method: (data.method as HTTPMethod) || t.method, name: data.name || t.name } : t))
-    } else {
+    } else if (!ct.dirty) {
+      // 仅在首次变脏时更新，避免每次按键都重建 requestTabs 数组（进而重建 Tab 触发器）
       setRequestTabs(pt => pt.map(t => t.id === ct.id ? { ...t, dirty: true } : t))
     }
   }
@@ -1285,7 +1288,14 @@ export function ApiManagement(props: ApiManagementProps) {
             <Tabs
               tabs={requestTabs().map(tab => ({
                 key: tab.id,
-                label: <span>{!tab.saved && <span class="text-orange-500 mr-0.5">●</span>}{tab.dirty && <span class="text-orange-500 mr-0.5">·</span>}{tab.method} {tab.name}</span>,
+                // 未保存：方法与标题整体斜体（不再显示圆点）；已保存但有改动：显示脏标记圆点
+                label: (
+                  <span class={cn("inline-flex items-center gap-1", !tab.saved && "italic")}>
+                    {tab.dirty && tab.saved && <span class="text-orange-500">·</span>}
+                    <MethodBadge method={tab.method} />
+                    <span>{tab.name}</span>
+                  </span>
+                ),
                 closable: true,
               }))}
               value={activeTabId() || ""} onChange={handleTabChange} onClose={handleCloseTab}

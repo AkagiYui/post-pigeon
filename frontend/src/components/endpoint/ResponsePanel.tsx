@@ -48,7 +48,17 @@ export interface ResponseBodyToolbarProps {
 
 export function ResponseBodyToolbar(props: ResponseBodyToolbarProps) {
   return (
+    // 顺序反向：编码 / 格式选择器在左，渲染模式切换器在右。
+    // 使切换「格式化 / 原始 / 预览」时，左侧两个选择器的显隐不再挤动右侧的渲染模式切换器位置。
     <div class={cn("flex items-center gap-1", props.class)}>
+      {/* 编码选择（格式化和原始模式可用） */}
+      <Show when={props.renderMode === "pretty" || props.renderMode === "raw"}>
+        <Select options={encodingOptions} value={props.encoding} onChange={props.onEncodingChange} size="sm" class="w-24" />
+      </Show>
+      {/* 格式选择（仅格式化模式可用） */}
+      <Show when={props.renderMode === "pretty"}>
+        <Select options={formatOptions} value={props.format} onChange={props.onFormatChange} size="sm" class="w-20" />
+      </Show>
       {/* 渲染模式按钮组 */}
       <div class="flex items-center rounded-md border border-border overflow-hidden">
         <For each={renderModes}>
@@ -67,14 +77,6 @@ export function ResponseBodyToolbar(props: ResponseBodyToolbarProps) {
           )}
         </For>
       </div>
-      {/* 格式选择（仅格式化模式可用） */}
-      <Show when={props.renderMode === "pretty"}>
-        <Select options={formatOptions} value={props.format} onChange={props.onFormatChange} size="sm" class="w-20" />
-      </Show>
-      {/* 编码选择（格式化和原始模式可用） */}
-      <Show when={props.renderMode === "pretty" || props.renderMode === "raw"}>
-        <Select options={encodingOptions} value={props.encoding} onChange={props.onEncodingChange} size="sm" class="w-24" />
-      </Show>
     </div>
   )
 }
@@ -118,7 +120,8 @@ export function ResponsePanel(props: ResponsePanelProps) {
       <Show when={props.tab === "body"}>
         {/* 渲染工具栏（仅左右布局时内嵌显示；上下布局由父级移入标签栏状态码左侧） */}
         <Show when={props.showToolbar}>
-          <div class="flex items-center gap-1 px-3 py-1.5 border-b border-border shrink-0">
+          {/* 右对齐：渲染模式切换器固定在右端，切换时左侧选择器显隐不影响其位置 */}
+          <div class="flex items-center justify-end gap-1 px-3 py-1.5 border-b border-border shrink-0">
             <ResponseBodyToolbar
               renderMode={props.renderMode}
               onRenderModeChange={props.onRenderModeChange}
