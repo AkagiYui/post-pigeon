@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Tabs } from "@/components/ui/tabs"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
+import { getStatusInfo, statusClass } from "@/lib/http-status"
 import { type AuthType, type BodyType, CONTENT_TYPES, type EndpointType, formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
 import { byteLength, cn, extractPathParams, hasURLScheme } from "@/lib/utils"
 import { responseLayout, setResponseLayout } from "@/stores/app"
@@ -800,9 +801,12 @@ export function EndpointDetail(props: EndpointDetailProps) {
                                 onEncodingChange={setEncoding}
                               />
                             </Show>
-                            <Badge class={getStatusColor(props.response!.statusCode)}>
-                              {props.response!.statusCode}
-                            </Badge>
+                            {/* 状态码：hover 展示该状态码的名称与释义 */}
+                            <HoverCard content={<ResponseStatusCard code={props.response!.statusCode} />}>
+                              <Badge class={cn(getStatusColor(props.response!.statusCode), "cursor-help")}>
+                                {props.response!.statusCode}
+                              </Badge>
+                            </HoverCard>
                             {/* 耗时：hover 展示各阶段耗时 */}
                             <HoverCard content={<ResponseTimingCard timing={props.response!.timing} />}>
                               <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
@@ -898,6 +902,22 @@ function ResponseTimingCard(props: { timing: TimingData }) {
           )
         }}
       </For>
+    </div>
+  )
+}
+
+/** 状态码释义卡片：状态码 + 原因短语 + 分类标签 + 详细说明 */
+function ResponseStatusCard(props: { code: number }) {
+  const info = () => getStatusInfo(props.code)
+  const categoryLabel = () => t(`status.category.${statusClass(props.code)}`)
+  return (
+    <div class="w-72 flex flex-col gap-2">
+      <div class="flex items-center gap-2 pb-1.5 border-b border-border">
+        <Badge class={getStatusColor(props.code)}>{props.code}</Badge>
+        <span class="text-sm font-semibold text-foreground truncate">{info()?.name ?? t("status.unknown")}</span>
+        <span class="ml-auto shrink-0 text-[10px] text-muted-foreground">{categoryLabel()}</span>
+      </div>
+      <p class="text-xs text-muted-foreground leading-relaxed">{info()?.detail ?? t("status.noDetail")}</p>
     </div>
   )
 }
