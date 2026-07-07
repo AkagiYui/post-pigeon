@@ -1,5 +1,6 @@
 // Table 表格组件
-import { For, type JSX, Show, splitProps } from "solid-js"
+import { createRenderEffect, For, type JSX, Show, splitProps } from "solid-js"
+import { createStore, reconcile } from "solid-js/store"
 
 import { cn } from "@/lib/utils"
 
@@ -31,9 +32,23 @@ export interface TableProps<T> {
 
 /**
  * Table 表格组件
+ *
+ * 关键点：把每次传入的 `data`（上层多为「不可变更新」——编辑一行即生成新数组、新行对象）
+ * 通过 reconcile 合并进内部稳定 store，使相同 id 的行对象引用在编辑间保持稳定。
+ * 否则 `<For>`（按引用比较）会因行对象引用变化而重建整行 DOM——重建会让正在输入的
+ * 输入框丢失焦点（WKWebView 下尤为明显，表现为「输入一个字符后需重新点击」）。
+ * 行带 id 时按 id 归并（新增/删除/重排仍正确）；无 id 的只读表回退为结构/索引归并。
  */
 export function Table<T extends object>(props: TableProps<T>) {
   const [local] = splitProps(props, ["columns", "data", "onRowClick", "emptyText", "class", "compact"])
+
+  const [state, setState] = createStore<{ rows: T[] }>({ rows: [] })
+  createRenderEffect(() => {
+    const data = local.data ?? []
+    const first = data[0] as Record<string, unknown> | undefined
+    const key = first && typeof first === "object" && "id" in first ? "id" : null
+    setState("rows", reconcile(data, { key, merge: true }))
+  })
 
   return (
     <div class={cn("overflow-auto", local.class)}>
@@ -57,7 +72,7 @@ export function Table<T extends object>(props: TableProps<T>) {
         </thead>
         <tbody>
           <Show
-            when={local.data.length > 0}
+            when={state.rows.length > 0}
             fallback={
               <tr>
                 <td
@@ -72,7 +87,7 @@ export function Table<T extends object>(props: TableProps<T>) {
               </tr>
             }
           >
-            <For each={local.data}>
+            <For each={state.rows}>
               {(row, index) => (
                 <tr
                   class={cn(
