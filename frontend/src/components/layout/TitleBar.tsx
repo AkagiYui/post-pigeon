@@ -42,6 +42,9 @@ function DistancePointerSensor() {
   const activationDistance = 10
   const initial = { x: 0, y: 0 }
   let draggableId: string | number | null = null
+  // 激活时被按下的标签节点与指针 id，用于对其做 setPointerCapture
+  let activationNode: Element | null = null
+  let activePointerId = -1
   const isActiveSensor = () => state.active.sensorId === id
 
   const attach = (event: PointerEvent, dId: string | number) => {
@@ -50,8 +53,22 @@ function DistancePointerSensor() {
     document.addEventListener("pointerup", onPointerEnd)
     document.addEventListener("pointercancel", onPointerEnd)
     draggableId = dId
+    // currentTarget 是绑定了 pointerdown 激活器的标签节点本身，作为指针捕获对象
+    activationNode = event.currentTarget as Element
+    activePointerId = event.pointerId
     initial.x = event.clientX
     initial.y = event.clientY
+  }
+  const releaseCapture = () => {
+    if (activationNode && activePointerId !== -1) {
+      try {
+        activationNode.releasePointerCapture(activePointerId)
+      } catch {
+        // 指针已释放或从未捕获时忽略
+      }
+    }
+    activationNode = null
+    activePointerId = -1
   }
   const detach = () => {
     document.removeEventListener("pointermove", onPointerMove)
@@ -65,6 +82,15 @@ function DistancePointerSensor() {
       const dy = coordinates.y - initial.y
       // 仅位移超过阈值才激活拖拽；不设时间激活，静止按下永不进入拖拽态
       if (Math.sqrt(dx * dx + dy * dy) > activationDistance && draggableId != null) {
+        // 捕获指针：拖拽激活后无论光标移到主内容区（含 iframe/编辑器/预览）还是移出窗口，
+        // pointermove/pointerup 都持续派发到该标签节点并冒泡到 document，悬浮副本得以跟随
+        // 光标到任意位置，而非在离开顶栏时卡在顶栏内侧边缘。仅在真正激活拖拽时捕获，
+        // 静止单击（不触达此处）不受影响、click 选中项目照常。
+        try {
+          activationNode?.setPointerCapture(activePointerId)
+        } catch {
+          // 指针非活动态时忽略，退化为原生冒泡（至少顶栏内可用）
+        }
         sensorStart(id, initial)
         dragStart(draggableId)
       }
@@ -76,6 +102,7 @@ function DistancePointerSensor() {
   }
   const onPointerEnd = (event: PointerEvent) => {
     detach()
+    releaseCapture()
     if (isActiveSensor()) {
       event.preventDefault()
       dragEnd()
