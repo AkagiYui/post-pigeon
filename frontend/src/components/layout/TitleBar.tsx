@@ -3,7 +3,7 @@
 // Windows 端额外包含窗口控制按钮（最小化、最大化、关闭）
 import { Icon } from "@iconify-icon/solid"
 import { Link, useLocation, useRouter } from "@tanstack/solid-router"
-import { createSortable, DragDropProvider, DragDropSensors, type DragEvent, DragOverlay, SortableProvider, transformStyle } from "@thisbeyond/solid-dnd"
+import { createSortable, DragDropProvider, type DragEvent, DragOverlay, SortableProvider, transformStyle, useDragDropContext } from "@thisbeyond/solid-dnd"
 import { System, Window } from "@wailsio/runtime"
 import { createEffect, createMemo, createResource, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js"
 
@@ -18,6 +18,78 @@ import { activeProjectId, closeProject, getCurrentEnvironmentId, openProject, op
 export interface TitleBarProps {
   /** 项目标签点击回调 */
   onProjectClick?: (id: string) => void
+}
+
+/**
+ * 仅按位移激活的指针传感器，替换 solid-dnd 默认的 DragDropSensors。
+ *
+ * 默认传感器（createPointerSensor）除了「位移 >10px 激活」外，还带一个 250ms 长按激活定时器：
+ * 只要在标签上按住略超 250ms 且不移动，就会 dragStart 进入拖拽态。而顶栏是 --wails-draggable:drag
+ * 拖拽区，在 WKWebView 里对「静止按下」的项目标签常收不到终结的 pointerup，导致这种「单击即激活」
+ * 的拖拽永远无法 dragEnd —— 拖拽态卡死、光标停在抓取样式、无法拖动也无法退出。
+ *
+ * 这里去掉时间激活，只保留位移激活：静止单击永不进入拖拽（pointerup/pointercancel 直接 detach 收尾），
+ * 仅当指针真正移动超过阈值才开始拖拽，与用户「有意拖拽」的操作一致；真实拖拽结束时的 pointerup 一路
+ * 有指针事件流，可靠触发收尾。同时显式监听 pointercancel（默认传感器不监听），WKWebView 中途收回
+ * 指针时也能 detach + dragEnd，双重兜底。
+ */
+function DistancePointerSensor() {
+  const context = useDragDropContext()
+  if (!context) return null
+  const [state, { addSensor, removeSensor, sensorStart, sensorMove, sensorEnd, dragStart, dragEnd }] = context
+
+  const id = "pointer-sensor"
+  const activationDistance = 10
+  const initial = { x: 0, y: 0 }
+  let draggableId: string | number | null = null
+  const isActiveSensor = () => state.active.sensorId === id
+
+  const attach = (event: PointerEvent, dId: string | number) => {
+    if (event.button !== 0) return
+    document.addEventListener("pointermove", onPointerMove)
+    document.addEventListener("pointerup", onPointerEnd)
+    document.addEventListener("pointercancel", onPointerEnd)
+    draggableId = dId
+    initial.x = event.clientX
+    initial.y = event.clientY
+  }
+  const detach = () => {
+    document.removeEventListener("pointermove", onPointerMove)
+    document.removeEventListener("pointerup", onPointerEnd)
+    document.removeEventListener("pointercancel", onPointerEnd)
+  }
+  const onPointerMove = (event: PointerEvent) => {
+    const coordinates = { x: event.clientX, y: event.clientY }
+    if (!state.active.sensor) {
+      const dx = coordinates.x - initial.x
+      const dy = coordinates.y - initial.y
+      // 仅位移超过阈值才激活拖拽；不设时间激活，静止按下永不进入拖拽态
+      if (Math.sqrt(dx * dx + dy * dy) > activationDistance && draggableId != null) {
+        sensorStart(id, initial)
+        dragStart(draggableId)
+      }
+    }
+    if (isActiveSensor()) {
+      event.preventDefault()
+      sensorMove(coordinates)
+    }
+  }
+  const onPointerEnd = (event: PointerEvent) => {
+    detach()
+    if (isActiveSensor()) {
+      event.preventDefault()
+      dragEnd()
+      sensorEnd()
+    }
+  }
+
+  onMount(() => {
+    addSensor({ id, activators: { pointerdown: attach } })
+  })
+  onCleanup(() => {
+    removeSensor(id)
+  })
+  return null
 }
 
 /**
@@ -162,21 +234,16 @@ export function TitleBar(props: TitleBarProps) {
     return projectNames()[id] || id.slice(0, 8)
   })
 
-  // 防止拖拽卡死：solid-dnd 的指针传感器只监听 pointermove/pointerup，未监听
-  // pointercancel。当系统在拖拽途中收回指针（WKWebView 有时会派发 pointercancel）
-  // 或窗口失焦时，传感器收不到 pointerup，拖拽状态永久停留、还会残留 pointermove
-  // 监听器导致后续误触发，只能重启应用恢复。这里在异常中断时补发一个 pointerup 到
-  // document，驱动 solid-dnd 自身的收尾逻辑（detach + dragEnd），从而彻底解除卡死。
+  // 拖拽收尾安全网：拖拽进行中若窗口失焦（如 Alt+Tab 切走），传感器收不到 pointerup，
+  // 拖拽态会残留。此时补发一个 pointerup 到 document，驱动 DistancePointerSensor 的收尾
+  // （detach + dragEnd）。pointercancel 已由传感器自身监听处理，无需在此重复。
   onMount(() => {
     const forceEndTabDrag = () => {
       if (draggingTabId() == null) return
       document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true, button: 0 }))
     }
-    // pointercancel 用捕获阶段，确保早于任何 stopPropagation 拿到事件
-    window.addEventListener("pointercancel", forceEndTabDrag, true)
     window.addEventListener("blur", forceEndTabDrag)
     onCleanup(() => {
-      window.removeEventListener("pointercancel", forceEndTabDrag, true)
       window.removeEventListener("blur", forceEndTabDrag)
       document.body.classList.remove("dragging-tab")
     })
@@ -231,7 +298,7 @@ export function TitleBar(props: TitleBarProps) {
               其后的空白仍归属可拖动容器，不影响拖拽移动窗口。 */}
           <div class="flex items-center gap-0.5 shrink-0" style="--wails-draggable:no-drag" data-no-maximize>
             <DragDropProvider onDragStart={handleTabDragStart} onDragEnd={handleTabDragEnd}>
-              <DragDropSensors />
+              <DistancePointerSensor />
               <SortableProvider ids={openProjectIds()}>
                 <For each={openProjectIds()}>
                   {(id) => (
