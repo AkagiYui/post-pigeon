@@ -531,8 +531,8 @@ function TreeNodeItem(props: {
               <Icon icon="lucide:radio" class="h-3.5 w-3.5 text-pink-500 shrink-0" />
             </Show>
             <Show when={(!props.node.endpointType || props.node.endpointType === "http") && props.node.method}>
-              {/* 方法徽章：无底色，仅用文字颜色区分；自适应宽度，与接口 Tab 栏一致（靠 gap-1 与名称留白） */}
-              <MethodBadge method={props.node.method} />
+              {/* 方法徽章：无底色，仅用文字颜色区分；固定 w-6 列宽以对齐各方法，同时把与名称的间距收紧到接近接口 Tab 栏 */}
+              <MethodBadge method={props.node.method} class="w-6" />
             </Show>
           </Show>
 
