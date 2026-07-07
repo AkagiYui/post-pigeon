@@ -1,6 +1,6 @@
 // 端点设置编辑器：超时、重定向，以及接口元数据（状态 / 标签 / 描述）
 import { Checkbox } from "@/components/ui/checkbox"
-import { Input } from "@/components/ui/input"
+import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { t } from "@/hooks/useI18n"
 
@@ -66,12 +66,12 @@ export function EndpointSettingsEditor(props: EndpointSettingsEditorProps) {
       </div>
       <div class="flex items-start gap-3">
         <label class="text-sm font-medium w-28 shrink-0 pt-1.5">{t("endpoint.description")}</label>
-        <textarea
+        <Textarea
           value={props.description || ""}
           onInput={(e) => props.onChange?.({ description: e.currentTarget.value })}
           placeholder={t("endpoint.descriptionPlaceholder")}
           rows={3}
-          class="flex-1 rounded-md border border-border bg-input px-2 py-1.5 text-sm resize-y focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent"
+          class="flex-1 resize-y min-h-16 px-2 py-1.5"
         />
       </div>
 

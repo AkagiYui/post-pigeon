@@ -1,5 +1,5 @@
 // Input 输入框基础组件
-import { type JSX, splitProps } from "solid-js"
+import { createRenderEffect, type JSX, splitProps } from "solid-js"
 
 import { cn } from "@/lib/utils"
 
@@ -18,13 +18,31 @@ const sizeClasses = {
 }
 
 /**
+ * 受控 value 绑定：仅当 DOM 实际值与目标值不同才写回。
+ *
+ * Solid 默认的 `value={...}` 只与「上一次响应式值」比较，用户每敲一个字符都会把
+ * 已经等于当前 DOM 的字符串再次赋给 el.value。在 WKWebView（Wails 打包后运行环境）里，
+ * 对聚焦中的输入框做这种冗余赋值会打断输入/丢失焦点（表现为「输入一个字符后需重新点击」）。
+ * 这里改为与 el.value 比较后再写，跳过冗余赋值即可规避；对外部程序化改值仍然生效。
+ */
+function bindControlledValue(el: HTMLInputElement | HTMLTextAreaElement, get: () => unknown) {
+  createRenderEffect(() => {
+    const raw = get()
+    if (raw === undefined) return // 非受控（未传 value）：不接管
+    const next = raw === null ? "" : String(raw)
+    if (el.value !== next) el.value = next
+  })
+}
+
+/**
  * Input 输入框组件
  */
 export function Input(props: InputProps) {
-  const [local, rest] = splitProps(props, ["class", "size", "error"])
+  const [local, rest] = splitProps(props, ["class", "size", "error", "value"])
 
   return (
     <input
+      ref={(el) => bindControlledValue(el, () => local.value)}
       class={cn(
         "w-full rounded-md border bg-input text-foreground placeholder:text-muted-foreground",
         "transition-colors focus-visible:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20",
@@ -46,10 +64,11 @@ export interface TextareaProps extends JSX.TextareaHTMLAttributes<HTMLTextAreaEl
 }
 
 export function Textarea(props: TextareaProps) {
-  const [local, rest] = splitProps(props, ["class", "error"])
+  const [local, rest] = splitProps(props, ["class", "error", "value"])
 
   return (
     <textarea
+      ref={(el) => bindControlledValue(el, () => local.value)}
       class={cn(
         "w-full rounded-md border bg-input text-foreground placeholder:text-muted-foreground",
         "transition-colors focus-visible:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20",

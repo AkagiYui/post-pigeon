@@ -1288,10 +1288,9 @@ export function ApiManagement(props: ApiManagementProps) {
             <Tabs
               tabs={requestTabs().map(tab => ({
                 key: tab.id,
-                // 未保存：方法与标题整体斜体（不再显示圆点）；已保存但有改动：显示脏标记圆点
+                // 有未保存改动（新建未保存 或 已保存但有改动）：方法与标题整体斜体，不显示任何圆点
                 label: (
-                  <span class={cn("inline-flex items-center gap-1", !tab.saved && "italic")}>
-                    {tab.dirty && tab.saved && <span class="text-orange-500">·</span>}
+                  <span class={cn("inline-flex items-center gap-1", (!tab.saved || tab.dirty) && "italic")}>
                     <MethodBadge method={tab.method} />
                     <span>{tab.name}</span>
                   </span>
