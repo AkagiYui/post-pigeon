@@ -475,31 +475,35 @@ function TreeNodeItem(props: {
   const menuItems = () => createAllMenuItems(props.node, props.handlers, isProtected())
 
   return (
-    <ContextMenu items={menuItems()}>
-      <div>
-        {/* 节点行 */}
-        <div
-          draggable={isEndpoint()}
-          onDragStart={handleDragStart}
-          onDragOver={handleDragOver}
-          onDrop={handleDrop}
-          onDragEnd={() => props.dnd?.end()}
-          class={cn(
-            "flex items-center gap-1 py-1 pr-1 cursor-pointer transition-colors text-sm group",
-            isSelected() ? "bg-accent-muted text-accent" : "hover:bg-muted text-foreground",
-            isDragging() && "opacity-40",
-          )}
-          style={{ "padding-left": `${props.level * 16 + 8}px`, "box-shadow": dropShadow() }}
-          onClick={() => {
-            // 模块和文件夹点击切换展开/收起（即使无子节点，图标也会变化）
-            if (props.node.type !== "endpoint") {
-              props.onToggle(props.node.id)
-            }
-            if (props.node.type === "endpoint") {
-              props.onSelect?.(props.node)
-            }
-          }}
-        >
+    <div>
+      {/* 节点行 */}
+      <div
+        draggable={isEndpoint()}
+        onDragStart={handleDragStart}
+        onDragOver={handleDragOver}
+        onDrop={handleDrop}
+        onDragEnd={() => props.dnd?.end()}
+        class={cn(
+          "flex items-center gap-1 py-1 pr-1 cursor-pointer transition-colors text-sm group",
+          isSelected() ? "bg-accent-muted text-accent" : "hover:bg-muted text-foreground",
+          isDragging() && "opacity-40",
+        )}
+        style={{ "padding-left": `${props.level * 16 + 8}px`, "box-shadow": dropShadow() }}
+        onClick={() => {
+          // 模块和文件夹点击切换展开/收起（即使无子节点，图标也会变化）
+          if (props.node.type !== "endpoint") {
+            props.onToggle(props.node.id)
+          }
+          if (props.node.type === "endpoint") {
+            props.onSelect?.(props.node)
+          }
+        }}
+      >
+        {/* 右键菜单只包裹「图标 + 名称」区域（不含省略号按钮）。它与省略号按钮的点击菜单是两个**平级、
+            互不嵌套**的 Menu.Root：Ark UI 会把嵌套在另一个 Menu.Root 子树内的菜单当作子菜单，子菜单触发器
+            会「悬停即展开」，且含 ContextTrigger 的 Root 会禁用点击触发器的定位（菜单弹到屏幕外）。平级放置可
+            同时规避这两个问题。 */}
+        <ContextMenu items={menuItems()} class="flex items-center gap-1 flex-1 min-w-0">
           {/* 展开/折叠图标（接口类型是叶子节点，不显示；其余类型即使无子节点也保持视觉一致性） */}
           <Show when={props.node.type !== "endpoint"}>
             <span class="shrink-0" />
@@ -538,41 +542,38 @@ function TreeNodeItem(props: {
 
           {/* 名称（URL 模式下端点显示路径） */}
           <span class="truncate flex-1">{labelText()}</span>
+        </ContextMenu>
 
-          {/* 更多操作按钮（悬停显示）：阻止点击冒泡到行，避免呼出菜单的同时切换/展开节点 */}
-          <div class="opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={(e) => e.stopPropagation()}>
-            <DropdownMenu
-              trigger="click"
-              placement="cursor"
-              items={menuItems()}
-            >
-              <Button variant="ghost" size="icon-sm" class="h-5 w-5">
-                <Icon icon="lucide:ellipsis" class="h-3 w-3" />
-              </Button>
-            </DropdownMenu>
-          </div>
+        {/* 更多操作按钮（悬停显示）：阻止点击冒泡到行，避免呼出菜单的同时切换/展开节点。
+            与右键菜单平级（非嵌套），因此点击即可正常弹出并正确定位。 */}
+        <div class="opacity-0 group-hover:opacity-100 transition-opacity shrink-0" onClick={(e) => e.stopPropagation()}>
+          <DropdownMenu trigger="click" placement="cursor" items={menuItems()}>
+            <Button variant="ghost" size="icon-sm" class="h-5 w-5">
+              <Icon icon="lucide:ellipsis" class="h-3 w-3" />
+            </Button>
+          </DropdownMenu>
         </div>
-
-        {/* 子节点 */}
-        <Show when={hasChildren() && isExpanded()}>
-          <For each={props.node.children}>
-            {(child) => (
-              <TreeNodeItem
-                node={child}
-                level={props.level + 1}
-                selectedId={props.selectedId}
-                expandedIds={props.expandedIds}
-                onSelect={props.onSelect}
-                onToggle={props.onToggle}
-                handlers={props.handlers}
-                defaultModuleId={props.defaultModuleId}
-                displayMode={childDisplayMode()}
-                dnd={props.dnd}
-              />
-            )}
-          </For>
-        </Show>
       </div>
-    </ContextMenu>
+
+      {/* 子节点：渲染在本节点右键菜单之外，避免子节点的菜单被 Ark 误判为父节点菜单的子菜单（会悬停展开） */}
+      <Show when={hasChildren() && isExpanded()}>
+        <For each={props.node.children}>
+          {(child) => (
+            <TreeNodeItem
+              node={child}
+              level={props.level + 1}
+              selectedId={props.selectedId}
+              expandedIds={props.expandedIds}
+              onSelect={props.onSelect}
+              onToggle={props.onToggle}
+              handlers={props.handlers}
+              defaultModuleId={props.defaultModuleId}
+              displayMode={childDisplayMode()}
+              dnd={props.dnd}
+            />
+          )}
+        </For>
+      </Show>
+    </div>
   )
 }
