@@ -5,7 +5,7 @@
 import { Icon } from "@iconify-icon/solid"
 import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from "solid-js"
 
-import { SSEService, WebSocketService } from "@/../bindings/PostPigeon/internal/services"
+import { HTTPService, WebSocketService } from "@/../bindings/PostPigeon/internal/services"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
@@ -570,14 +570,15 @@ export function EndpointDetail(props: EndpointDetailProps) {
   }
   const wsConnect = async () => {
     markConnecting(ep().id)
-    try { await WebSocketService.Connect(ep().id, wsUrl(ep().baseUrl, ep().path), wsHeaders()) } catch (e) { console.error("WebSocket 连接失败", e) }
+    // 传入接口级代理选择：WebSocket 与普通请求一样按「接口→项目→全局」解析生效代理
+    try { await WebSocketService.Connect(ep().id, wsUrl(ep().baseUrl, ep().path), wsHeaders(), ep().proxyConfig || "") } catch (e) { console.error("WebSocket 连接失败", e) }
   }
   const wsDisconnect = async () => { try { await WebSocketService.Close(ep().id) } catch (e) { console.error(e) } }
-  // 停止普通接口的 SSE 流式响应
+  // 停止流式响应（响应体为 text/event-stream 的流式 HTTP 响应）
   const stopStream = async () => {
     const id = props.response?.streamId
     if (!id) return
-    try { await SSEService.Close(id) } catch (e) { console.error(e) }
+    try { await HTTPService.StopStream(id) } catch (e) { console.error(e) }
   }
 
   // 文档头部：名称 + 保存/删除

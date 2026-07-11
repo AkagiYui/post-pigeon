@@ -27,7 +27,6 @@ const (
 	EndpointTypeHTTP      EndpointType = "http"
 	EndpointTypeDoc       EndpointType = "doc"
 	EndpointTypeWebSocket EndpointType = "websocket"
-	EndpointTypeSSE       EndpointType = "sse"
 )
 
 // HTTPMethod 常见的 HTTP 方法

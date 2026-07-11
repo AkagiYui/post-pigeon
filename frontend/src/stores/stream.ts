@@ -1,6 +1,8 @@
-// WebSocket / SSE 流式连接的全局状态。
+// 流式连接的全局状态：WebSocket 消息流 + HTTP 流式响应（text/event-stream）。
 // 连接存活于 Go 侧；本 store 在模块级订阅一次 Wails 事件，按 connId 缓冲消息，
 // 这样即使前端切换标签页（面板组件卸载）也不会丢失消息。
+// 注意：SSE 不是独立的请求类型，只是响应体为 text/event-stream 的流式 HTTP 响应，
+// 因此其事件与普通流式响应统一走 http:stream。
 import { Events } from "@wailsio/runtime"
 import { createRoot, createSignal } from "solid-js"
 
@@ -18,7 +20,7 @@ interface StreamState {
 }
 
 const WS_EVENT = "ws:event"
-const SSE_EVENT = "sse:event"
+const HTTP_STREAM_EVENT = "http:stream"
 
 const [state, setState] = createRoot(() => {
   const [get, set] = createSignal<StreamState>({ messages: {}, status: {} })
@@ -46,7 +48,7 @@ function applyEvent(ev: { connId: string; kind: string; data: string; timestamp:
 if (typeof window !== "undefined") {
   try {
     Events.On(WS_EVENT, (e: any) => applyEvent(e?.data))
-    Events.On(SSE_EVENT, (e: any) => applyEvent(e?.data))
+    Events.On(HTTP_STREAM_EVENT, (e: any) => applyEvent(e?.data))
   } catch (err) {
     console.error("订阅流式事件失败", err)
   }

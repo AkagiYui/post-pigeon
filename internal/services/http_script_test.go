@@ -26,7 +26,7 @@ func TestSendRequestWithScripts(t *testing.T) {
 		t.Fatalf("保存环境变量失败: %v", err)
 	}
 
-	httpSvc := NewHTTPService(db, nil)
+	httpSvc := NewHTTPService(db)
 	resp, err := httpSvc.SendRequest(SendRequestData{
 		EnvironmentID: env.ID,
 		Method:        "POST",
@@ -95,7 +95,7 @@ func TestSendRequestPostScriptMutatesBody(t *testing.T) {
 	server := echoServer(t)
 	defer server.Close()
 
-	httpSvc := NewHTTPService(db, nil)
+	httpSvc := NewHTTPService(db)
 	resp, err := httpSvc.SendRequest(SendRequestData{
 		Method:  "GET",
 		BaseURL: server.URL,

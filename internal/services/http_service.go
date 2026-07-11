@@ -3,6 +3,7 @@ package services
 import (
 	"PostPigeon/internal/models"
 	"PostPigeon/internal/scripting"
+	"bufio"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -18,21 +19,29 @@ import (
 	"net/http/httputil"
 	"net/url"
 	"strings"
+	"sync"
 	"time"
 
 	"gorm.io/gorm"
 )
 
+// HTTPStreamEventName 是前端监听的 HTTP 流式响应事件名。
+// SSE 不是独立的请求类型，而是「响应体为 text/event-stream 的流式 HTTP 响应」；
+// 因此所有流式响应（含 SSE 帧解析）都经由统一的、带代理的 HTTP 客户端处理并通过此事件推送。
+const HTTPStreamEventName = "http:stream"
+
 // HTTPService HTTP 请求服务
 type HTTPService struct {
 	db     *gorm.DB
 	engine *scripting.Engine
-	sse    *SSEService // 用于普通接口收到 SSE 响应时的流式输出
+	// streams 记录活跃的流式响应连接（connID -> cancel），供前端主动停止。
+	mu      sync.Mutex
+	streams map[string]context.CancelFunc
 }
 
-// NewHTTPService 创建 HTTP 服务实例。sse 用于普通接口的 SSE 流式响应，可为 nil。
-func NewHTTPService(db *gorm.DB, sse *SSEService) *HTTPService {
-	return &HTTPService{db: db, engine: scripting.New(), sse: sse}
+// NewHTTPService 创建 HTTP 服务实例
+func NewHTTPService(db *gorm.DB) *HTTPService {
+	return &HTTPService{db: db, engine: scripting.New(), streams: map[string]context.CancelFunc{}}
 }
 
 // SendRequestData 发送请求的参数
@@ -219,13 +228,23 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	}
 	parsedURL.RawQuery = query.Encode()
 
-	// 创建请求
+	// 创建请求。
+	// 超时用「取消 + 计时器」实现，而非 context.WithTimeout：普通请求受超时约束整个收发；
+	// 一旦判定为流式响应（text/event-stream），停止计时器，让连接长存（超时仅约束到响应头）。
 	timeout := time.Duration(data.Timeout) * time.Millisecond
 	if timeout <= 0 {
 		timeout = 30 * time.Second
 	}
-	ctx, cancel := context.WithTimeout(context.Background(), timeout)
-	defer cancel()
+	ctx, cancel := context.WithCancel(context.Background())
+	timeoutTimer := time.AfterFunc(timeout, cancel)
+	streaming := false
+	defer func() {
+		timeoutTimer.Stop()
+		// 流式响应交由后台 goroutine 持有 ctx，此处不取消；其余路径正常释放。
+		if !streaming {
+			cancel()
+		}
+	}()
 
 	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(data.Method), parsedURL.String(), nil)
 	if err != nil {
@@ -277,38 +296,6 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			bodyBytes, _ := io.ReadAll(bodyReader)
 			actualReq.Body = string(bodyBytes)
 		}
-	}
-
-	// 显式声明 Accept: text/event-stream 时，直接以无超时连接流式发送（单次请求，避免探测式二次请求）。
-	if s.sse != nil && isEventStream(req.Header.Get("Accept")) {
-		streamID := data.EndpointID
-		if streamID == "" {
-			streamID = fmt.Sprintf("stream-%d", nowMillis())
-		}
-		_ = s.sse.Connect(SSEConnectData{
-			ConnID:  streamID,
-			URL:     req.URL.String(),
-			Method:  req.Method,
-			Headers: flattenHeaders(req.Header),
-			Body:    actualReq.Body,
-		})
-		if data.EnvironmentID != "" {
-			up, rm := stores.Environment.Changes()
-			_ = envService.ApplyVariableChanges(data.EnvironmentID, up, rm)
-		}
-		out := &HTTPResponseData{
-			StatusCode:    0,
-			Headers:       map[string][]string{},
-			ContentType:   "text/event-stream",
-			Timing:        models.TimingInfo{},
-			ActualRequest: actualReq,
-			Streaming:     true,
-			StreamID:      streamID,
-		}
-		if scriptResults.PreRequest != nil {
-			out.Scripts = scriptResults
-		}
-		return out, nil
 	}
 
 	// 解析接口级代理选择：优先取本次请求携带的选择，其次取已保存端点上的选择。
@@ -368,31 +355,29 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		return nil, fmt.Errorf("发送请求失败: %w", err)
 	}
 
-	// SSE 流式响应：普通接口收到 text/event-stream 时，交由流服务以无超时连接持续读取并推送事件，
-	// 返回「流式」标记而不缓冲整体响应（前端据此展示实时事件流）。
-	if s.sse != nil && isEventStream(resp.Header.Get("Content-Type")) {
-		statusCode := resp.StatusCode
-		respHeader := resp.Header
-		resp.Body.Close()
+	// 流式响应：响应体为 text/event-stream 时，不缓冲整体响应，而是保持连接、持续读取并
+	// 按 SSE 帧解析后经 http:stream 事件实时推送（前端展示为事件流）。此路径与普通请求走
+	// 同一个（已注入代理的）客户端——SSE 只是流式响应的一种文本规范，并非独立的请求类型。
+	if isEventStream(resp.Header.Get("Content-Type")) {
+		streaming = true // 通知外层 defer：ctx 交由后台 goroutine 持有，勿在此处取消
+		timeoutTimer.Stop()
 		streamID := data.EndpointID
 		if streamID == "" {
 			streamID = fmt.Sprintf("stream-%d", nowMillis())
 		}
-		_ = s.sse.Connect(SSEConnectData{
-			ConnID:  streamID,
-			URL:     parsedURL.String(),
-			Method:  strings.ToUpper(data.Method),
-			Headers: flattenHeaders(req.Header),
-			Body:    actualReq.Body,
-		})
+		s.registerStream(streamID, cancel)
+		// 持久化前置脚本对环境变量的改动
 		if data.EnvironmentID != "" {
 			up, rm := stores.Environment.Changes()
 			_ = envService.ApplyVariableChanges(data.EnvironmentID, up, rm)
 		}
+		// 后台读取事件流并推送，读到 EOF/停止后清理连接
+		go s.streamResponse(resp, streamID, cancel)
+
 		out := &HTTPResponseData{
-			StatusCode:    statusCode,
-			Headers:       respHeader,
-			ContentType:   respHeader.Get("Content-Type"),
+			StatusCode:    resp.StatusCode,
+			Headers:       resp.Header,
+			ContentType:   resp.Header.Get("Content-Type"),
 			Timing:        models.TimingInfo{Total: durMs(time.Since(start))},
 			ActualRequest: actualReq,
 			Streaming:     true,
@@ -522,6 +507,82 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	go s.saveResponseAndHistory(data, responseData)
 
 	return responseData, nil
+}
+
+// registerStream 登记一个活跃的流式连接。
+func (s *HTTPService) registerStream(connID string, cancel context.CancelFunc) {
+	s.mu.Lock()
+	s.streams[connID] = cancel
+	s.mu.Unlock()
+}
+
+// unregisterStream 移除一个流式连接登记。
+func (s *HTTPService) unregisterStream(connID string) {
+	s.mu.Lock()
+	delete(s.streams, connID)
+	s.mu.Unlock()
+}
+
+// StopStream 主动停止指定的流式响应连接（前端「停止」按钮调用）。
+func (s *HTTPService) StopStream(connID string) error {
+	s.mu.Lock()
+	cancel := s.streams[connID]
+	delete(s.streams, connID)
+	s.mu.Unlock()
+	if cancel != nil {
+		cancel()
+	}
+	return nil
+}
+
+// IsStreaming 返回指定连接是否仍在流式传输。
+func (s *HTTPService) IsStreaming(connID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.streams[connID]
+	return ok
+}
+
+// streamResponse 持续读取 text/event-stream 响应体，按 SSE 帧解析后经 http:stream 事件推送。
+// 读到 EOF 或被取消（StopStream）后清理连接。cancel 用于结束时释放请求上下文。
+func (s *HTTPService) streamResponse(resp *http.Response, connID string, cancel context.CancelFunc) {
+	defer resp.Body.Close()
+	defer cancel()
+	defer s.unregisterStream(connID)
+
+	emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "open", Data: fmt.Sprintf("%d", resp.StatusCode), Timestamp: nowMillis()})
+
+	reader := bufio.NewReader(resp.Body)
+	var dataLines []string
+	flush := func() {
+		if len(dataLines) == 0 {
+			return
+		}
+		emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "message", Data: strings.Join(dataLines, "\n"), Timestamp: nowMillis()})
+		dataLines = dataLines[:0]
+	}
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			trimmed := strings.TrimRight(line, "\r\n")
+			switch {
+			case trimmed == "":
+				flush() // 空行表示一个事件结束
+			case strings.HasPrefix(trimmed, ":"):
+				// 注释行，忽略
+			case strings.HasPrefix(trimmed, "data:"):
+				dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(trimmed, "data:")))
+			default:
+				// 其它字段（event:/id:/retry:）原样透传
+				dataLines = append(dataLines, trimmed)
+			}
+		}
+		if err != nil {
+			flush()
+			emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: err.Error(), Timestamp: nowMillis()})
+			return
+		}
+	}
 }
 
 // setRequestBody 设置请求体

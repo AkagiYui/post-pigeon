@@ -195,6 +195,22 @@ func TestResolveEffectiveProxy_Chain(t *testing.T) {
 	}
 }
 
+func TestModuleIDFromEndpoint(t *testing.T) {
+	db := newTestDB(t)
+	proj := mustCreateProject(t, db, "P")
+	mod := defaultModule(t, db, proj.ID)
+	ep, err := NewEndpointService(db).CreateEndpoint(mod.ID, nil, "e", "GET", "/")
+	if err != nil {
+		t.Fatalf("创建端点失败: %v", err)
+	}
+	if got := moduleIDFromEndpoint(db, ep.ID); got != mod.ID {
+		t.Fatalf("moduleIDFromEndpoint=%q，期望 %q", got, mod.ID)
+	}
+	if got := moduleIDFromEndpoint(db, "nope"); got != "" {
+		t.Fatalf("未知端点应返回空串，实际 %q", got)
+	}
+}
+
 func TestListSelectableProxies(t *testing.T) {
 	db := newTestDB(t)
 	svc := NewProxyService(db)

@@ -1,6 +1,6 @@
-// WebSocket / SSE 流式视图组件。连接由 Go 侧维护，切换标签页不会断开。
+// 流式视图组件：WebSocket 消息流 + HTTP 流式响应（text/event-stream）。连接由 Go 侧维护，切换标签页不会断开。
 // WebSocket 端点复用普通接口详情页布局：连接按钮在顶部请求行，响应区为消息流。
-// 普通接口收到 SSE 响应时，响应区展示实时事件流。
+// 普通接口收到 text/event-stream 响应时，响应区展示实时事件流（SSE 只是流式响应的一种文本规范）。
 import { Icon } from "@iconify-icon/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 
@@ -78,7 +78,7 @@ export function WebSocketResponse(props: { connId: string }) {
   )
 }
 
-/** SSE 流式响应区：实时事件流 + 停止按钮（用于普通接口的 event-stream 响应） */
+/** 流式响应区：实时事件流 + 停止按钮（用于响应体为 text/event-stream 的流式 HTTP 响应） */
 export function StreamEventLog(props: { streamId: string; onStop?: () => void }) {
   const status = createMemo(() => streamStatus(props.streamId))
   return (

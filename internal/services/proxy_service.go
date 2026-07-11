@@ -149,6 +149,18 @@ func lookupScopeProxy(db *gorm.DB, moduleID, scope, id string) (models.ProxyConf
 	return models.ProxyConfig{}, false
 }
 
+// moduleIDFromEndpoint 由端点 ID 反查所属模块 ID；endpointID 为空或查不到时返回空串。
+func moduleIDFromEndpoint(db *gorm.DB, endpointID string) string {
+	if endpointID == "" {
+		return ""
+	}
+	var ep models.Endpoint
+	if err := db.Select("module_id").Where("id = ?", endpointID).First(&ep).Error; err != nil {
+		return ""
+	}
+	return ep.ModuleID
+}
+
 // projectIDFromModule 由模块 ID 反查项目 ID；moduleID 为空或查不到时返回空串。
 func projectIDFromModule(db *gorm.DB, moduleID string) string {
 	if moduleID == "" {

@@ -523,16 +523,13 @@ function TreeNodeItem(props: {
               ? <Icon icon="lucide:folder-open" class="h-3.5 w-3.5 text-amber-500 shrink-0" />
               : <Icon icon="lucide:folder" class="h-3.5 w-3.5 text-amber-500 shrink-0" />}
           </Show>
-          {/* 端点叶子图标：文档 / WebSocket / SSE 使用独立图标，普通接口显示方法徽章 */}
+          {/* 端点叶子图标：文档 / WebSocket 使用独立图标，普通接口显示方法徽章 */}
           <Show when={props.node.type === "endpoint"}>
             <Show when={props.node.endpointType === "doc"}>
               <Icon icon="lucide:file-text" class="h-3.5 w-3.5 text-violet-500 shrink-0" />
             </Show>
             <Show when={props.node.endpointType === "websocket"}>
               <Icon icon="lucide:webhook" class="h-3.5 w-3.5 text-teal-500 shrink-0" />
-            </Show>
-            <Show when={props.node.endpointType === "sse"}>
-              <Icon icon="lucide:radio" class="h-3.5 w-3.5 text-pink-500 shrink-0" />
             </Show>
             <Show when={(!props.node.endpointType || props.node.endpointType === "http") && props.node.method}>
               {/* 方法徽章：无底色，仅用文字颜色区分；固定 w-6 列宽以对齐各方法，同时把与名称的间距收紧到接近接口 Tab 栏 */}

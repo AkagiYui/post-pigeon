@@ -13,7 +13,7 @@ export type AuthType = "none" | "basic" | "bearer" | "apikey" | "inherit"
 export type ParamLocation = "query" | "path" | "cookie"
 
 /** 端点类型 */
-export type EndpointType = "http" | "doc" | "websocket" | "sse"
+export type EndpointType = "http" | "doc" | "websocket"
 
 /** 操作阶段 */
 export type OperationStage = "pre" | "post"

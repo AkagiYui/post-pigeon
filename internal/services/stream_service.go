@@ -1,18 +1,18 @@
 package services
 
 import (
-	"bufio"
 	"context"
 	"fmt"
-	"io"
-	"log/slog"
 	"net/http"
 	"strings"
 	"sync"
 	"time"
 
+	"PostPigeon/internal/models"
+
 	"github.com/coder/websocket"
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"gorm.io/gorm"
 )
 
 // StreamEvent 是推送给前端的流式事件（WebSocket / SSE 通用）。
@@ -39,6 +39,7 @@ func nowMillis() int64 { return time.Now().UnixMilli() }
 
 // WebSocketService 管理多个持久 WebSocket 连接。
 type WebSocketService struct {
+	db    *gorm.DB
 	mu    sync.Mutex
 	conns map[string]*wsConn
 }
@@ -48,22 +49,35 @@ type wsConn struct {
 	cancel context.CancelFunc
 }
 
-// NewWebSocketService 创建 WebSocket 服务实例
-func NewWebSocketService() *WebSocketService {
-	return &WebSocketService{conns: map[string]*wsConn{}}
+// NewWebSocketService 创建 WebSocket 服务实例。db 用于按端点解析生效代理。
+func NewWebSocketService(db *gorm.DB) *WebSocketService {
+	return &WebSocketService{db: db, conns: map[string]*wsConn{}}
 }
 
 // WSEventName 是前端监听的 WebSocket 事件名
 const WSEventName = "ws:event"
 
-// Connect 建立一个 WebSocket 连接。connID 由前端生成，用于区分不同标签页的连接。
-func (s *WebSocketService) Connect(connID, urlStr string, headers map[string]string) error {
+// Connect 建立一个 WebSocket 连接。connID 由前端生成（对已保存端点即端点 ID），
+// 用于区分不同标签页的连接，并据此解析该端点的生效代理。proxyConfig 为接口级代理选择（可空）。
+func (s *WebSocketService) Connect(connID, urlStr string, headers map[string]string, proxyConfig string) error {
 	s.Close(connID) // 若已存在同 ID 连接，先关闭
 
 	ctx, cancel := context.WithCancel(context.Background())
 	opts := &websocket.DialOptions{HTTPHeader: http.Header{}}
 	for k, v := range headers {
 		opts.HTTPHeader.Set(k, v)
+	}
+
+	// 代理：按端点(connID)反查模块→项目，沿「接口→项目→全局」解析生效代理并注入拨号传输。
+	if s.db != nil {
+		var ep models.EndpointProxy
+		if strings.TrimSpace(proxyConfig) != "" {
+			_ = models.FromJSON(proxyConfig, &ep)
+		}
+		moduleID := moduleIDFromEndpoint(s.db, connID)
+		if pf := buildProxyFunc(resolveEffectiveProxy(s.db, moduleID, ep), nil); pf != nil {
+			opts.HTTPClient = &http.Client{Transport: &http.Transport{Proxy: pf}}
+		}
 	}
 
 	conn, _, err := websocket.Dial(ctx, urlStr, opts)
@@ -136,144 +150,6 @@ func (s *WebSocketService) cleanup(connID string) {
 
 // IsConnected 返回指定连接是否处于活动状态。
 func (s *WebSocketService) IsConnected(connID string) bool {
-	s.mu.Lock()
-	defer s.mu.Unlock()
-	_, ok := s.conns[connID]
-	return ok
-}
-
-// ---- SSE（Server-Sent Events） ----
-
-// SSEService 管理多个持久 SSE 连接。
-type SSEService struct {
-	mu    sync.Mutex
-	conns map[string]context.CancelFunc
-}
-
-// NewSSEService 创建 SSE 服务实例
-func NewSSEService() *SSEService {
-	return &SSEService{conns: map[string]context.CancelFunc{}}
-}
-
-// SSEEventName 是前端监听的 SSE 事件名
-const SSEEventName = "sse:event"
-
-// SSEConnectData SSE 连接参数
-type SSEConnectData struct {
-	ConnID  string            `json:"connId"`
-	URL     string            `json:"url"`
-	Method  string            `json:"method"`
-	Headers map[string]string `json:"headers"`
-	Body    string            `json:"body"`
-}
-
-// Connect 建立一个 SSE 连接并持续读取事件流。
-func (s *SSEService) Connect(data SSEConnectData) error {
-	s.Close(data.ConnID)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	method := data.Method
-	if method == "" {
-		method = http.MethodGet
-	}
-	var bodyReader io.Reader
-	if data.Body != "" {
-		bodyReader = strings.NewReader(data.Body)
-	}
-	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(method), data.URL, bodyReader)
-	if err != nil {
-		cancel()
-		return fmt.Errorf("创建 SSE 请求失败: %w", err)
-	}
-	req.Header.Set("Accept", "text/event-stream")
-	req.Header.Set("Cache-Control", "no-cache")
-	for k, v := range data.Headers {
-		req.Header.Set(k, v)
-	}
-
-	s.mu.Lock()
-	s.conns[data.ConnID] = cancel
-	s.mu.Unlock()
-
-	go s.readLoop(req, data.ConnID)
-	return nil
-}
-
-func (s *SSEService) readLoop(req *http.Request, connID string) {
-	resp, err := http.DefaultClient.Do(req)
-	if err != nil {
-		emitStream(SSEEventName, StreamEvent{ConnID: connID, Kind: "error", Data: err.Error(), Timestamp: nowMillis()})
-		s.cleanup(connID)
-		return
-	}
-	s.streamBody(resp, connID)
-}
-
-// streamBody 读取响应体作为 SSE 事件流并推送，读到 EOF 或出错后清理连接。
-func (s *SSEService) streamBody(resp *http.Response, connID string) {
-	defer resp.Body.Close()
-
-	emitStream(SSEEventName, StreamEvent{ConnID: connID, Kind: "open", Data: fmt.Sprintf("%d", resp.StatusCode), Timestamp: nowMillis()})
-
-	reader := bufio.NewReader(resp.Body)
-	var dataLines []string
-	flush := func() {
-		if len(dataLines) == 0 {
-			return
-		}
-		emitStream(SSEEventName, StreamEvent{ConnID: connID, Kind: "message", Data: strings.Join(dataLines, "\n"), Timestamp: nowMillis()})
-		dataLines = dataLines[:0]
-	}
-	for {
-		line, err := reader.ReadString('\n')
-		if len(line) > 0 {
-			trimmed := strings.TrimRight(line, "\r\n")
-			switch {
-			case trimmed == "":
-				flush() // 空行表示一个事件结束
-			case strings.HasPrefix(trimmed, ":"):
-				// 注释行，忽略
-			case strings.HasPrefix(trimmed, "data:"):
-				dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(trimmed, "data:")))
-			default:
-				// 其它字段（event:/id:/retry:）原样透传
-				dataLines = append(dataLines, trimmed)
-			}
-		}
-		if err != nil {
-			flush()
-			emitStream(SSEEventName, StreamEvent{ConnID: connID, Kind: "close", Data: err.Error(), Timestamp: nowMillis()})
-			s.cleanup(connID)
-			return
-		}
-	}
-}
-
-// Close 关闭并移除指定 SSE 连接。
-func (s *SSEService) Close(connID string) error {
-	s.mu.Lock()
-	cancel := s.conns[connID]
-	delete(s.conns, connID)
-	s.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-	return nil
-}
-
-func (s *SSEService) cleanup(connID string) {
-	s.mu.Lock()
-	cancel := s.conns[connID]
-	delete(s.conns, connID)
-	s.mu.Unlock()
-	if cancel != nil {
-		cancel()
-	}
-	slog.Debug("SSE 连接已清理", "connId", connID)
-}
-
-// IsConnected 返回指定 SSE 连接是否活动。
-func (s *SSEService) IsConnected(connID string) bool {
 	s.mu.Lock()
 	defer s.mu.Unlock()
 	_, ok := s.conns[connID]

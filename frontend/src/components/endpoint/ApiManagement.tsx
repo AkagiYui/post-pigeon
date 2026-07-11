@@ -801,12 +801,12 @@ export function ApiManagement(props: ApiManagementProps) {
       sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript)
       sendData.postResponseScript = deriveScriptFromOps(ep.operations, "post", ep.postResponseScript)
 
-      // SSE 流按 endpointId 推送事件，发送前清理上一次的缓冲
+      // 流式响应按 endpointId 推送事件，发送前清理上一次的缓冲
       if (ct?.saved && ep.id) clearStream(ep.id)
       const resp = await HTTPService.SendRequest(sendData)
       if (resp) {
         if (resp.streaming) {
-          // SSE 流式响应：以实时事件流展示（事件通过 sse:event 持续推送）
+          // 流式响应（text/event-stream）：以实时事件流展示（事件通过 http:stream 持续推送）
           setResponseData({
             statusCode: resp.statusCode,
             timing: toTimingData(resp.timing),
