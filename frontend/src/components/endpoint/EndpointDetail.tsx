@@ -116,6 +116,8 @@ export interface EndpointData {
   inheritOperations: boolean
   /** 本接口禁用的全局(模块) query 参数名列表（仅影响本接口） */
   disabledGlobalParams: string[]
+  /** 接口级代理选择（EndpointProxy 的 JSON，空表示 inherit 跟随项目） */
+  proxyConfig: string
   /** 前置/后置操作列表 */
   operations: OperationRow[]
   /** 响应示例（不在此编辑，仅透传保存以免丢失） */
@@ -713,6 +715,8 @@ export function EndpointDetail(props: EndpointDetailProps) {
                     status={ep().status}
                     tags={ep().tags}
                     description={ep().description}
+                    proxyConfig={ep().proxyConfig}
+                    projectId={props.projectId}
                     onChange={(patch) => props.onChange?.(patch)}
                   />
                   default: return null

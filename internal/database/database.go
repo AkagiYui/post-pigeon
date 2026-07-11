@@ -7,6 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"path"
+	"sort"
 	"strconv"
 	"strings"
 
@@ -161,26 +162,31 @@ func stampGooseVersion(db *gorm.DB) error {
 	if _, err := goose.EnsureDBVersion(sqlDB); err != nil {
 		return err
 	}
-	latest, err := latestMigrationVersion()
+	// 历史库经 AutoMigrate 已收敛到「全部迁移应用后」的最新 schema，因此需将每个现有迁移
+	// 版本都登记为已应用（而非仅登记最新版）。否则 goose.Up 会因存在未登记的中间版本
+	// （如仅登记了 2、缺 1）而报 “missing migrations” 并中止。
+	versions, err := allMigrationVersions()
 	if err != nil {
 		return err
 	}
 	// 直接写入版本记录：goose_db_version(version_id, is_applied)，表结构见 goose sqlite3 方言
-	if _, err := sqlDB.Exec(
-		"INSERT INTO "+goose.TableName()+" (version_id, is_applied) VALUES (?, 1)", latest,
-	); err != nil {
-		return err
+	for _, v := range versions {
+		if _, err := sqlDB.Exec(
+			"INSERT INTO "+goose.TableName()+" (version_id, is_applied) VALUES (?, 1)", v,
+		); err != nil {
+			return err
+		}
 	}
 	return nil
 }
 
-// latestMigrationVersion 返回嵌入迁移文件中最大的版本号（文件名形如 00001_xxx.sql）。
-func latestMigrationVersion() (int64, error) {
+// allMigrationVersions 返回嵌入迁移文件中的全部版本号（升序，文件名形如 00001_xxx.sql）。
+func allMigrationVersions() ([]int64, error) {
 	entries, err := fs.ReadDir(migrationsFS, migrationsDir)
 	if err != nil {
-		return 0, err
+		return nil, err
 	}
-	var maxV int64
+	var versions []int64
 	for _, e := range entries {
 		if e.IsDir() || !strings.HasSuffix(e.Name(), ".sql") {
 			continue
@@ -194,14 +200,22 @@ func latestMigrationVersion() (int64, error) {
 		if err != nil {
 			continue
 		}
-		if v > maxV {
-			maxV = v
-		}
+		versions = append(versions, v)
 	}
-	if maxV == 0 {
-		return 0, fmt.Errorf("未找到任何迁移文件")
+	if len(versions) == 0 {
+		return nil, fmt.Errorf("未找到任何迁移文件")
 	}
-	return maxV, nil
+	sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
+	return versions, nil
+}
+
+// latestMigrationVersion 返回嵌入迁移文件中最大的版本号。
+func latestMigrationVersion() (int64, error) {
+	versions, err := allMigrationVersions()
+	if err != nil {
+		return 0, err
+	}
+	return versions[len(versions)-1], nil
 }
 
 // tableExists 判断指定表是否存在。

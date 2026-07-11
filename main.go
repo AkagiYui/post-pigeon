@@ -60,6 +60,7 @@ func main() {
 	globalVariableService := services.NewGlobalVariableService(db)
 	scriptLibraryService := services.NewScriptLibraryService(db)
 	scopeSettingsService := services.NewScopeSettingsService(db)
+	proxyService := services.NewProxyService(db)
 
 	// 注册数据变更事件
 	application.RegisterEvent[string]("data:changed")
@@ -89,6 +90,7 @@ func main() {
 			application.NewService(globalVariableService),
 			application.NewService(scriptLibraryService),
 			application.NewService(scopeSettingsService),
+			application.NewService(proxyService),
 			application.NewService(webSocketService),
 			application.NewService(sseService),
 		},

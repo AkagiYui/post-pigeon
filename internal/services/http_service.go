@@ -52,6 +52,8 @@ type SendRequestData struct {
 	Auth            *models.EndpointAuth       `json:"auth"`
 	Timeout         int                        `json:"timeout"`
 	FollowRedirects bool                       `json:"followRedirects"`
+	// ProxyConfig 接口级代理选择（EndpointProxy 的 JSON）。空表示 inherit（跟随项目/全局）。
+	ProxyConfig string `json:"proxyConfig"`
 	// PreRequestScript 前置脚本，请求发送前执行
 	PreRequestScript string `json:"preRequestScript"`
 	// PostResponseScript 后置脚本，响应返回后执行
@@ -309,11 +311,25 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		return out, nil
 	}
 
+	// 解析接口级代理选择：优先取本次请求携带的选择，其次取已保存端点上的选择。
+	// 空则为 inherit（跟随项目 → 全局）。据此沿层级解析出最终生效的代理条目并构建代理函数。
+	epProxyJSON := data.ProxyConfig
+	if strings.TrimSpace(epProxyJSON) == "" && loadedEndpoint != nil {
+		epProxyJSON = loadedEndpoint.ProxyConfig
+	}
+	var epProxy models.EndpointProxy
+	if strings.TrimSpace(epProxyJSON) != "" {
+		_ = models.FromJSON(epProxyJSON, &epProxy)
+	}
+	effectiveProxy := resolveEffectiveProxy(s.db, data.ModuleID, epProxy)
+	proxyFunc := buildProxyFunc(effectiveProxy, vars)
+
 	// 创建 HTTP 客户端
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{
 		Jar: jar,
 		Transport: &http.Transport{
+			Proxy: proxyFunc,
 			TLSClientConfig: &tls.Config{
 				InsecureSkipVerify: false,
 			},

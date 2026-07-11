@@ -68,6 +68,8 @@ type Endpoint struct {
 	// DisabledGlobalParams 本接口禁用的全局(模块)查询参数名列表，JSON 字符串数组。
 	// 仅影响本接口是否附加对应的模块自动参数，不改变模块级参数自身的启用状态。
 	DisabledGlobalParams string `gorm:"type:text" json:"disabledGlobalParams"`
+	// ProxyConfig 接口级代理选择（EndpointProxy 的 JSON）。空字符串表示 inherit（跟随项目）。
+	ProxyConfig string `gorm:"type:text" json:"proxyConfig"`
 	// PreRequestScript 前置脚本，请求发送前执行（JavaScript）——旧字段，保留以兼容历史数据
 	PreRequestScript string `gorm:"type:text" json:"preRequestScript"`
 	// PostResponseScript 后置脚本，响应返回后执行（JavaScript）——旧字段，保留以兼容历史数据

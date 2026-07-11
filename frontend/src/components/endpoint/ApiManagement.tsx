@@ -77,6 +77,7 @@ interface UnsavedRequestData {
   description: string
   inheritOperations: boolean
   disabledGlobalParams: string[]
+  proxyConfig: string
   operations: OperationRow[]
   examples: any[]
   schemas: any[]
@@ -88,6 +89,7 @@ const endpointDefaults = {
   docContent: "", status: "", tags: "", description: "",
   inheritOperations: true, operations: [] as OperationRow[],
   disabledGlobalParams: [] as string[],
+  proxyConfig: "",
   examples: [] as any[], schemas: [] as any[],
 }
 
@@ -715,6 +717,7 @@ export function ApiManagement(props: ApiManagementProps) {
           status: detail.status || "", tags: detail.tags || "", description: detail.description || "",
           inheritOperations: detail.inheritOperations ?? true,
           disabledGlobalParams: parseStringArray(detail.disabledGlobalParams),
+          proxyConfig: detail.proxyConfig || "",
           operations: fromOperationModels(detail.operations),
           examples: (detail.examples as any[]) || [], schemas: (detail.schemas as any[]) || [],
         } as EndpointData)
@@ -752,6 +755,7 @@ export function ApiManagement(props: ApiManagementProps) {
         docContent: unsaved.docContent ?? "", status: unsaved.status ?? "", tags: unsaved.tags ?? "",
         description: unsaved.description ?? "", inheritOperations: unsaved.inheritOperations ?? true,
         disabledGlobalParams: unsaved.disabledGlobalParams ?? [],
+        proxyConfig: unsaved.proxyConfig ?? "",
         operations: unsaved.operations ?? [], examples: unsaved.examples ?? [], schemas: unsaved.schemas ?? [],
       } as EndpointData)
     }
@@ -792,6 +796,7 @@ export function ApiManagement(props: ApiManagementProps) {
       sendData.bodyContent = ep.bodyContent; sendData.contentType = ep.contentType
       sendData.bodyFields = toBodyFieldModels(ep.bodyFields); sendData.auth = toAuthModel(ep.auth)
       sendData.timeout = ep.timeout; sendData.followRedirects = ep.followRedirects
+      sendData.proxyConfig = ep.proxyConfig
       // 已保存端点由后端根据操作组合脚本；未保存请求在此把 script 类型操作拼接为前置/后置脚本
       sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript)
       sendData.postResponseScript = deriveScriptFromOps(ep.operations, "post", ep.postResponseScript)
@@ -864,6 +869,7 @@ export function ApiManagement(props: ApiManagementProps) {
         type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
         description: ep.description, inheritOperations: ep.inheritOperations,
         disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
+        proxyConfig: ep.proxyConfig,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations),
@@ -891,6 +897,7 @@ export function ApiManagement(props: ApiManagementProps) {
         type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
         description: ep.description, inheritOperations: ep.inheritOperations,
         disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
+        proxyConfig: ep.proxyConfig,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
@@ -905,6 +912,7 @@ export function ApiManagement(props: ApiManagementProps) {
           type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
           description: ep.description, inheritOperations: ep.inheritOperations,
           disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
+          proxyConfig: ep.proxyConfig,
           params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
           headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
           operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],

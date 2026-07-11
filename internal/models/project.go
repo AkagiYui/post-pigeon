@@ -10,12 +10,14 @@ import (
 
 // Project 项目模型，顶层容器
 type Project struct {
-	ID          string    `gorm:"primaryKey" json:"id"`
-	Name        string    `gorm:"not null" json:"name"`
-	Description string    `json:"description"`
-	SortOrder   int64     `gorm:"default:0" json:"sortOrder"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	ID          string `gorm:"primaryKey" json:"id"`
+	Name        string `gorm:"not null" json:"name"`
+	Description string `json:"description"`
+	SortOrder   int64  `gorm:"default:0" json:"sortOrder"`
+	// ProxySettings 项目级代理设置（ScopeProxySettings 的 JSON）。空字符串表示跟随全局。
+	ProxySettings string    `gorm:"type:text" json:"proxySettings"`
+	CreatedAt     time.Time `json:"createdAt"`
+	UpdatedAt     time.Time `json:"updatedAt"`
 
 	// 关联（constraint:OnDelete:CASCADE 使删除项目时，数据库自动级联删除其下所有内容）
 	Modules         []Module         `gorm:"constraint:OnDelete:CASCADE" json:"-"`

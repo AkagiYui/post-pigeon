@@ -118,6 +118,7 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 			"description":            data.Description,
 			"inherit_operations":     data.InheritOperations,
 			"disabled_global_params": data.DisabledGlobalParams,
+			"proxy_config":           data.ProxyConfig,
 		}).Error; err != nil {
 			return err
 		}
@@ -320,14 +321,16 @@ type EndpointSaveData struct {
 	Description       string `json:"description"`
 	InheritOperations bool   `json:"inheritOperations"`
 	// DisabledGlobalParams 本接口禁用的全局(模块)查询参数名列表，JSON 字符串数组
-	DisabledGlobalParams string                     `json:"disabledGlobalParams"`
-	Params               []models.EndpointParam     `json:"params"`
-	BodyFields           []models.EndpointBodyField `json:"bodyFields"`
-	Headers              []models.EndpointHeader    `json:"headers"`
-	Auth                 *models.EndpointAuth       `json:"auth"`
-	Operations           []models.Operation         `json:"operations"`
-	Examples             []models.ResponseExample   `json:"examples"`
-	Schemas              []models.ResponseSchema    `json:"schemas"`
+	DisabledGlobalParams string `json:"disabledGlobalParams"`
+	// ProxyConfig 接口级代理选择（EndpointProxy 的 JSON），空表示 inherit
+	ProxyConfig string                     `json:"proxyConfig"`
+	Params      []models.EndpointParam     `json:"params"`
+	BodyFields  []models.EndpointBodyField `json:"bodyFields"`
+	Headers     []models.EndpointHeader    `json:"headers"`
+	Auth        *models.EndpointAuth       `json:"auth"`
+	Operations  []models.Operation         `json:"operations"`
+	Examples    []models.ResponseExample   `json:"examples"`
+	Schemas     []models.ResponseSchema    `json:"schemas"`
 }
 
 // SaveResponse 保存端点响应（upsert）
@@ -396,6 +399,7 @@ func (s *EndpointService) CreateFullEndpoint(moduleID string, folderID *string, 
 		Timeout:              data.Timeout,
 		FollowRedirects:      data.FollowRedirects,
 		DisabledGlobalParams: data.DisabledGlobalParams,
+		ProxyConfig:          data.ProxyConfig,
 		SortOrder:            maxSort + 1,
 	}
 
@@ -543,6 +547,7 @@ func (s *EndpointService) DuplicateEndpoint(id string) (*models.Endpoint, error)
 		Timeout:              src.Timeout,
 		FollowRedirects:      src.FollowRedirects,
 		DisabledGlobalParams: src.DisabledGlobalParams,
+		ProxyConfig:          src.ProxyConfig,
 		SortOrder:            maxSort + 1,
 	}
 

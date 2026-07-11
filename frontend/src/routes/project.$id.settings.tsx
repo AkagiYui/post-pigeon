@@ -7,6 +7,7 @@ import { createSignal, onMount } from "solid-js"
 import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
 import { GlobalVariablesSettings } from "@/components/settings/GlobalVariablesSettings"
 import { ProjectEnvironmentSettings } from "@/components/settings/ProjectEnvironmentSettings"
+import { ProxySettingsPanel } from "@/components/settings/ProxySettingsPanel"
 import { ScriptLibrarySettings } from "@/components/settings/ScriptLibrarySettings"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
@@ -22,6 +23,7 @@ const projectSettingsTabs = [
   { key: "environment", label: "", icon: <Icon icon="lucide:globe" class="h-4 w-4" /> },
   { key: "globalVars", label: "", icon: <Icon icon="lucide:variable" class="h-4 w-4" /> },
   { key: "scriptLibrary", label: "", icon: <Icon icon="lucide:file-code" class="h-4 w-4" /> },
+  { key: "proxy", label: "", icon: <Icon icon="lucide:network" class="h-4 w-4" /> },
 ]
 
 export const Route = createFileRoute("/project/$id/settings")({
@@ -120,6 +122,7 @@ function ProjectSettingsPage() {
     environment: t("environment.title"),
     globalVars: t("globalVar.title"),
     scriptLibrary: t("scriptLib.title"),
+    proxy: t("proxy.title"),
   }
   const tabs = () => projectSettingsTabs.map(tab => ({
     ...tab,
@@ -202,6 +205,12 @@ function ProjectSettingsPage() {
                 return (
                   <div class="h-full">
                     <ScriptLibrarySettings projectId={projectId()} />
+                  </div>
+                )
+              case "proxy":
+                return (
+                  <div class="h-full p-6">
+                    <ProxySettingsPanel scope="project" projectId={projectId()} />
                   </div>
                 )
               default:

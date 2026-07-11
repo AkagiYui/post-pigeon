@@ -27,6 +27,7 @@ const (
 	SettingsKeyLanguage    = "language"     // zh-CN, en
 	SettingsKeyUIScale     = "ui.scale"     // 0.8, 0.9, 1.0, 1.1, 1.25, 1.5
 	SettingsKeyWindowState = "window.state" // 窗口位置和大小
+	SettingsKeyProxyGlobal = "proxy.global" // 全局代理设置（ScopeProxySettings 的 JSON）
 )
 
 // DefaultSettings 默认设置值
