@@ -1,7 +1,7 @@
 package services
 
 import (
-	"post-pigeon/internal/config"
+	"PostPigeon/internal/config"
 	"time"
 )
 

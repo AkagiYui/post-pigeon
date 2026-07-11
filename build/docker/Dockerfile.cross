@@ -194,7 +194,7 @@ fi
 # 注入构建信息
 BUILD_HASH=${BUILD_HASH:-$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")}
 APP_VERSION=${APP_VERSION:-"0.0.1"}
-LDFLAGS="$LDFLAGS -X post-pigeon/internal/config.BuildHash=$BUILD_HASH -X post-pigeon/internal/config.Version=$APP_VERSION"
+LDFLAGS="$LDFLAGS -X PostPigeon/internal/config.BuildHash=$BUILD_HASH -X PostPigeon/internal/config.Version=$APP_VERSION"
 
 TAGS="production"
 if [ -n "$EXTRA_TAGS" ]; then

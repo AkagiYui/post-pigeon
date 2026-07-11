@@ -14,9 +14,9 @@
     ProcessorArchitecture="x64" />
   
   <Properties>
-    <DisplayName>Post Pigeon</DisplayName>
+    <DisplayName>PostPigeon</DisplayName>
     <PublisherDisplayName>AkagiYui</PublisherDisplayName>
-    <Description>A post-pigeon application</Description>
+    <Description>A PostPigeon application</Description>
     <Logo>Assets\StoreLogo.png</Logo>
   </Properties>
   

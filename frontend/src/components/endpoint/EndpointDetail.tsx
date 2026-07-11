@@ -5,7 +5,7 @@
 import { Icon } from "@iconify-icon/solid"
 import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from "solid-js"
 
-import { SSEService, WebSocketService } from "@/../bindings/post-pigeon/internal/services"
+import { SSEService, WebSocketService } from "@/../bindings/PostPigeon/internal/services"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"

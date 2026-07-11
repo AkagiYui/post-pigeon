@@ -1,6 +1,6 @@
 # 测试服务器
 
-基于 [gin](https://github.com/gin-gonic/gin) 的接口测试服务器，覆盖不同 HTTP 方法、请求体、响应类型与协议（HTTP / WebSocket / SSE），用于测试 Post Pigeon。
+基于 [gin](https://github.com/gin-gonic/gin) 的接口测试服务器，覆盖不同 HTTP 方法、请求体、响应类型与协议（HTTP / WebSocket / SSE），用于测试 PostPigeon。
 
 ## 启动
 
@@ -12,7 +12,7 @@ go run ./testserver -addr :8080
 启动后：
 
 - 首页接口索引：<http://localhost:9900/>
-- OpenAPI 文档：<http://localhost:9900/openapi.json> —— 可直接导入 Post Pigeon 批量测试
+- OpenAPI 文档：<http://localhost:9900/openapi.json> —— 可直接导入 PostPigeon 批量测试
 
 ## 覆盖内容
 

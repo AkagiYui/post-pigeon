@@ -9,7 +9,7 @@ includes:
   android: ./build/android/Taskfile.yml
 
 vars:
-  APP_NAME: "post-pigeon"
+  APP_NAME: "PostPigeon"
   BIN_DIR: "bin"
   VITE_PORT: '{{.WAILS_VITE_PORT | default 9245}}'
   # 应用版本号，从 config.yml 自动读取（读取 info.version 字段）

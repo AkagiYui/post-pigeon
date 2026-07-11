@@ -3,7 +3,7 @@
 import { createFileRoute, useParams } from "@tanstack/solid-router"
 import { createSignal, onMount, Show } from "solid-js"
 
-import { EnvironmentService, ModuleService, ProjectService } from "@/../bindings/post-pigeon/internal/services"
+import { EnvironmentService, ModuleService, ProjectService } from "@/../bindings/PostPigeon/internal/services"
 import { ApiManagement } from "@/components/endpoint/ApiManagement"
 import { t } from "@/hooks/useI18n"
 import { getCurrentEnvironmentId, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"

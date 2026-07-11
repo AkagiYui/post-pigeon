@@ -3,26 +3,26 @@
 #
 # The lines below are called `modelines`. See `:help modeline`
 
-name: "post-pigeon"
+name: "PostPigeon"
 arch: ${GOARCH}
 platform: "linux"
 version: "0.0.1"
 section: "default"
 priority: "extra"
 maintainer: ${GIT_COMMITTER_NAME} <${GIT_COMMITTER_EMAIL}>
-description: "Post Pigeon Application"
+description: "PostPigeon Application"
 vendor: "AkagiYui"
 homepage: "https://wails.io"
 license: "MIT"
 release: "1"
 
 contents:
-  - src: "./bin/post-pigeon"
-    dst: "/usr/local/bin/post-pigeon"
+  - src: "./bin/PostPigeon"
+    dst: "/usr/local/bin/PostPigeon"
   - src: "./build/appicon.png"
-    dst: "/usr/share/icons/hicolor/128x128/apps/post-pigeon.png"
-  - src: "./build/linux/post-pigeon.desktop"
-    dst: "/usr/share/applications/post-pigeon.desktop"
+    dst: "/usr/share/icons/hicolor/128x128/apps/PostPigeon.png"
+  - src: "./build/linux/PostPigeon.desktop"
+    dst: "/usr/share/applications/PostPigeon.desktop"
 
 # Default dependencies for Debian 12/Ubuntu 22.04+ with WebKit 4.1
 depends:

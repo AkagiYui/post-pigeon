@@ -4,7 +4,7 @@
 import { Icon } from "@iconify-icon/solid"
 import { createMemo, createSignal, For, Show } from "solid-js"
 
-import { WebSocketService } from "@/../bindings/post-pigeon/internal/services"
+import { WebSocketService } from "@/../bindings/PostPigeon/internal/services"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"

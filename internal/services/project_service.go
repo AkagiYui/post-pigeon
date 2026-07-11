@@ -8,7 +8,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 // ProjectService 项目管理服务

@@ -80,11 +80,11 @@ def parse_build_job(job: dict) -> dict | None:
 
     # 根据操作系统和架构生成产物名称（与 workflow 中 artifact 名称一致）
     artifact_map = {
-        "macos-latest": f"post-pigeon-macos-{arch}",
-        "windows-latest": f"post-pigeon-windows-{arch}",
-        "ubuntu-latest": f"post-pigeon-linux-{arch}",
+        "macos-latest": f"PostPigeon-macos-{arch}",
+        "windows-latest": f"PostPigeon-windows-{arch}",
+        "ubuntu-latest": f"PostPigeon-linux-{arch}",
     }
-    artifact = artifact_map.get(os_part, f"post-pigeon-{os_part}-{arch}")
+    artifact = artifact_map.get(os_part, f"PostPigeon-{os_part}-{arch}")
 
     return {
         "os": os_part,
@@ -184,7 +184,7 @@ def render_build_results(results: list[dict]) -> str:
 def render_summary(build_results: list[dict], commits: list[dict] | None) -> str:
     """生成完整的 Action Summary Markdown 内容。"""
     lines = [
-        "## 🚀 Post Pigeon 构建摘要",
+        "## 🚀 PostPigeon 构建摘要",
         "",
     ]
 

@@ -12,7 +12,7 @@ import {
 } from "@thisbeyond/solid-dnd"
 import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 
-import { ImportExportService, ProjectService } from "@/../bindings/post-pigeon/internal/services"
+import { ImportExportService, ProjectService } from "@/../bindings/PostPigeon/internal/services"
 import { Button } from "@/components/ui/button"
 import { ContextMenu } from "@/components/ui/context-menu"
 import { Dialog } from "@/components/ui/dialog"

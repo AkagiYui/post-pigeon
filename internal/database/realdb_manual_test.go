@@ -4,7 +4,7 @@ import (
 	"os"
 	"testing"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 // TestRealDBMigration 针对真实（可能半迁移）数据库副本验证升级迁移与级联。

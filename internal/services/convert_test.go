@@ -3,7 +3,7 @@ package services
 import (
 	"testing"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 // TestConvertFolderToModule 验证「文件夹转换为模块」：

@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 // TestSendRequestWithScripts 端到端验证前置/后置脚本在真实请求流程中的行为：

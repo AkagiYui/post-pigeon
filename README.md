@@ -1,9 +1,9 @@
-# Post Pigeon
+# PostPigeon
 
 [![Build](https://github.com/AkagiYui/post-pigeon/actions/workflows/build.yaml/badge.svg)](https://github.com/AkagiYui/post-pigeon/actions/workflows/build.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
-Post Pigeon 是一个基于 Wails3 构建的 API 测试工具。
+PostPigeon 是一个基于 Wails3 构建的 API 测试工具。
 
 ## 如何使用
 

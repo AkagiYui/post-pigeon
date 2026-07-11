@@ -4,7 +4,7 @@ import (
 	"path/filepath"
 	"testing"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 // TestFreshDBUsesGoose 全新数据库应由 goose 建立 schema 并登记到最新版本。

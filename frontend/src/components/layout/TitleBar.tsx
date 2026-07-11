@@ -7,7 +7,7 @@ import { createSortable, DragDropProvider, type DragEvent, DragOverlay, Sortable
 import { System, Window } from "@wailsio/runtime"
 import { createEffect, createMemo, createResource, createSignal, For, type JSX, onCleanup, onMount, Show } from "solid-js"
 
-import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
+import { ProjectService } from "@/../bindings/PostPigeon/internal/services"
 import { Select } from "@/components/ui/select"
 import { Tooltip } from "@/components/ui/tooltip"
 import { useFullscreen } from "@/hooks/useFullscreen"

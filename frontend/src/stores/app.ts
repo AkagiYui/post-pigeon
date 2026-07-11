@@ -3,7 +3,7 @@ import { createEffect, createRoot, createSignal } from "solid-js"
 
 // ---- localStorage 持久化工具 ----
 
-const STORAGE_PREFIX = "post-pigeon:"
+const STORAGE_PREFIX = "PostPigeon:"
 
 /**
  * 从 localStorage 读取 JSON 数据

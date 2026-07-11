@@ -4,7 +4,7 @@ import (
 	"testing"
 	"time"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 // ---------- 项目 ----------

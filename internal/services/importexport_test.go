@@ -4,7 +4,7 @@ import (
 	"strings"
 	"testing"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 func TestImportExportRoundTrip(t *testing.T) {

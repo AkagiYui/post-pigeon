@@ -8,8 +8,8 @@ import (
 	"testing"
 	"time"
 
-	"post-pigeon/internal/database"
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/database"
+	"PostPigeon/internal/models"
 
 	"gorm.io/gorm"
 )

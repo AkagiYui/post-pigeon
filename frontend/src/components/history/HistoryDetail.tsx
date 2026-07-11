@@ -2,8 +2,8 @@
 import { Icon } from "@iconify-icon/solid"
 import { createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 
-import type { RequestHistory } from "@/../bindings/post-pigeon/internal/models"
-import { RequestHistoryService } from "@/../bindings/post-pigeon/internal/services"
+import type { RequestHistory } from "@/../bindings/PostPigeon/internal/models"
+import { RequestHistoryService } from "@/../bindings/PostPigeon/internal/services"
 import { Badge } from "@/components/ui/badge"
 import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"

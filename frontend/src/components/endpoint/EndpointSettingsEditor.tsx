@@ -1,8 +1,8 @@
 // 端点设置编辑器：超时、重定向、代理，以及接口元数据（状态 / 标签 / 描述）
 import { createEffect, createSignal, on } from "solid-js"
 
-import { SelectableProxy } from "@/../bindings/post-pigeon/internal/models"
-import { ProxyService } from "@/../bindings/post-pigeon/internal/services"
+import { SelectableProxy } from "@/../bindings/PostPigeon/internal/models"
+import { ProxyService } from "@/../bindings/PostPigeon/internal/services"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"

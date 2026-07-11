@@ -3,15 +3,15 @@
 // 支持未保存的请求标签页和已保存的端点标签页
 import { createEffect, createSignal, For, on, onMount, Show } from "solid-js"
 
-import { EndpointAuth, EndpointBodyField, EndpointHeader, EndpointParam, Operation, ResponseExample, ResponseSchema } from "@/../bindings/post-pigeon/internal/models"
+import { EndpointAuth, EndpointBodyField, EndpointHeader, EndpointParam, Operation, ResponseExample, ResponseSchema } from "@/../bindings/PostPigeon/internal/models"
 import type {
   EndpointDetail as EndpointDetailType,
   FolderTree,
   HTTPResponseData,
   ModuleTree,
   OpenAPIPreview,
-} from "@/../bindings/post-pigeon/internal/services"
-import type { ApifoxPreview } from "@/../bindings/post-pigeon/internal/services"
+} from "@/../bindings/PostPigeon/internal/services"
+import type { ApifoxPreview } from "@/../bindings/PostPigeon/internal/services"
 import {
   ApifoxService,
   EndpointService,
@@ -21,8 +21,8 @@ import {
   ImportExportService,
   ModuleService,
   ProjectService,
-} from "@/../bindings/post-pigeon/internal/services"
-import { SendRequestData } from "@/../bindings/post-pigeon/internal/services"
+} from "@/../bindings/PostPigeon/internal/services"
+import { SendRequestData } from "@/../bindings/PostPigeon/internal/services"
 import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type HeaderRow, type OperationRow, type ParamRow, type ResponseData, type TimingData } from "@/components/endpoint/EndpointDetail"
 import { EndpointTree, type TreeNode } from "@/components/endpoint/EndpointTree"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"

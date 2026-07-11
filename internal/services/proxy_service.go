@@ -7,7 +7,7 @@ import (
 	"strconv"
 	"strings"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 
 	"gorm.io/gorm"
 )

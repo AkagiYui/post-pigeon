@@ -1,7 +1,7 @@
 // 关于页面组件
 import { createSignal, onMount } from "solid-js"
 
-import { AppInfo, AppService } from "@/bindings/post-pigeon/internal/services"
+import { AppInfo, AppService } from "@/bindings/PostPigeon/internal/services"
 import { ExternalLink } from "@/components/ui/external-link"
 import { t } from "@/hooks/useI18n"
 

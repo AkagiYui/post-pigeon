@@ -1,4 +1,4 @@
-module post-pigeon
+module PostPigeon
 
 go 1.26.1
 

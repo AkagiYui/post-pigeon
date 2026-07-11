@@ -10,7 +10,7 @@ import (
 	"strings"
 	"time"
 
-	"post-pigeon/internal/config"
+	"PostPigeon/internal/config"
 )
 
 // Setup 初始化日志系统

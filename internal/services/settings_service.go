@@ -1,9 +1,9 @@
 package services
 
 import (
+	"PostPigeon/internal/models"
 	"fmt"
 	"log/slog"
-	"post-pigeon/internal/models"
 
 	"gorm.io/gorm"
 )

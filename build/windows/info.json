@@ -6,10 +6,10 @@
 		"0000": {
 			"ProductVersion": "0.0.1",
 			"CompanyName": "AkagiYui",
-			"FileDescription": "Post Pigeon Application",
+			"FileDescription": "PostPigeon Application",
 			"LegalCopyright": "(c) 2026, AkagiYui",
-			"ProductName": "Post Pigeon",
-			"Comments": "Post Pigeon Application"
+			"ProductName": "PostPigeon",
+			"Comments": "PostPigeon Application"
 		}
 	}
 }

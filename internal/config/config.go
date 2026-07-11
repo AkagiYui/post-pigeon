@@ -14,7 +14,7 @@ var (
 	// BuildTime 构建时间，通过 ldflags 注入
 	BuildTime = "dev"
 	// AppName 应用名称
-	AppName = "Post Pigeon"
+	AppName = "PostPigeon"
 	// AppIdentifier 应用唯一标识符
 	AppIdentifier = "com.akagiyui.postpigeon"
 )

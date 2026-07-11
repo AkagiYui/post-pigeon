@@ -16,7 +16,7 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 // migrationsFS 将 goose SQL 迁移文件打进二进制，运行时无需外部文件。

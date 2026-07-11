@@ -2,7 +2,7 @@
 set -e
 
 # Build configuration
-APP_NAME="post-pigeon"
+APP_NAME="PostPigeon"
 BUNDLE_ID="com.akagiyui.postpigeon"
 VERSION="0.0.1"
 BUILD_NUMBER="0.0.1"

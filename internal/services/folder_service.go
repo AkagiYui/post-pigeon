@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 // FolderService 文件夹管理服务

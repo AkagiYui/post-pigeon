@@ -56,7 +56,7 @@ func buildGlobals(vm *goja.Runtime) {
 	vm.Set("global", vm.GlobalObject())
 	// 部分打包库（jsrsasign、jspm 内核垫片）会读取 navigator。
 	nav := vm.NewObject()
-	nav.Set("userAgent", "post-pigeon-goja")
+	nav.Set("userAgent", "PostPigeon-goja")
 	nav.Set("platform", "")
 	nav.Set("language", "en")
 	vm.Set("navigator", nav)

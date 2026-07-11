@@ -4,8 +4,8 @@
 import { Icon } from "@iconify-icon/solid"
 import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 
-import type { ScriptLibrary } from "@/../bindings/post-pigeon/internal/models"
-import { ScriptLibraryService } from "@/../bindings/post-pigeon/internal/services"
+import type { ScriptLibrary } from "@/../bindings/PostPigeon/internal/models"
+import { ScriptLibraryService } from "@/../bindings/PostPigeon/internal/services"
 import { emptyOperation, type OperationRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"

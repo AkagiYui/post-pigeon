@@ -8,12 +8,12 @@ import (
 	"runtime"
 	"time"
 
-	"post-pigeon/internal/config"
-	"post-pigeon/internal/database"
-	"post-pigeon/internal/logger"
-	"post-pigeon/internal/models"
-	"post-pigeon/internal/platform"
-	"post-pigeon/internal/services"
+	"PostPigeon/internal/config"
+	"PostPigeon/internal/database"
+	"PostPigeon/internal/logger"
+	"PostPigeon/internal/models"
+	"PostPigeon/internal/platform"
+	"PostPigeon/internal/services"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
@@ -35,7 +35,7 @@ func main() {
 	}
 	defer logFile.Close()
 
-	slog.Info("Post Pigeon 应用启动", "version", config.Version, "buildHash", config.BuildHash)
+	slog.Info("PostPigeon 应用启动", "version", config.Version, "buildHash", config.BuildHash)
 
 	// 初始化数据库
 	db, err := database.Initialize(cfg.DBPath)
@@ -248,5 +248,5 @@ func main() {
 		os.Exit(1)
 	}
 
-	slog.Info("Post Pigeon 应用退出")
+	slog.Info("PostPigeon 应用退出")
 }

@@ -1,9 +1,9 @@
 package main
 
-// openAPISpec 是本测试服务器的 OpenAPI 3.0 文档，可直接导入 Post Pigeon。
+// openAPISpec 是本测试服务器的 OpenAPI 3.0 文档，可直接导入 PostPigeon。
 var openAPISpec = []byte(`{
   "openapi": "3.0.3",
-  "info": { "title": "Post Pigeon 测试服务器", "version": "1.0.0", "description": "覆盖不同方法、协议、请求与响应的测试接口" },
+  "info": { "title": "PostPigeon 测试服务器", "version": "1.0.0", "description": "覆盖不同方法、协议、请求与响应的测试接口" },
   "servers": [ { "url": "http://localhost:9900", "description": "本地测试环境" } ],
   "paths": {
     "/api/ping": { "get": { "summary": "健康检查", "responses": { "200": { "description": "pong" } } } },

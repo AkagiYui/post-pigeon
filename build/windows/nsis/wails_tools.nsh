@@ -5,13 +5,13 @@
 !include "FileFunc.nsh"
 
 !ifndef INFO_PROJECTNAME
-    !define INFO_PROJECTNAME "post-pigeon"
+    !define INFO_PROJECTNAME "PostPigeon"
 !endif
 !ifndef INFO_COMPANYNAME
     !define INFO_COMPANYNAME "AkagiYui"
 !endif
 !ifndef INFO_PRODUCTNAME
-    !define INFO_PRODUCTNAME "Post Pigeon"
+    !define INFO_PRODUCTNAME "PostPigeon"
 !endif
 !ifndef INFO_PRODUCTVERSION
     !define INFO_PRODUCTVERSION "0.0.1"

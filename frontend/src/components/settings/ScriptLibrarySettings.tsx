@@ -2,8 +2,8 @@
 import { Icon } from "@iconify-icon/solid"
 import { createSignal, For, onMount, Show } from "solid-js"
 
-import type { ScriptLibrary } from "@/../bindings/post-pigeon/internal/models"
-import { ScriptLibraryService } from "@/../bindings/post-pigeon/internal/services"
+import type { ScriptLibrary } from "@/../bindings/PostPigeon/internal/models"
+import { ScriptLibraryService } from "@/../bindings/PostPigeon/internal/services"
 import { Button } from "@/components/ui/button"
 import { CodeEditor } from "@/components/ui/code-editor"
 import { Input } from "@/components/ui/input"

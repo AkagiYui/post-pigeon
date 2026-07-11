@@ -8,17 +8,17 @@
         AllowPromptForPassword="false">
     </Settings>
     <Installer
-        Path="post-pigeon"
+        Path="PostPigeon"
         Arguments=""
-        InstallLocation="C:\Program Files\AkagiYui\Post Pigeon">
+        InstallLocation="C:\Program Files\AkagiYui\PostPigeon">
     </Installer>
     <PackageInformation
-        PackageName="Post Pigeon"
-        PackageDisplayName="Post Pigeon"
+        PackageName="PostPigeon"
+        PackageDisplayName="PostPigeon"
         PublisherName="CN=AkagiYui"
         PublisherDisplayName="AkagiYui"
         Version="0.1.0.0"
-        PackageDescription="A post-pigeon application">
+        PackageDescription="A PostPigeon application">
         <Capabilities>
             <Capability Name="runFullTrust" />
             
@@ -26,9 +26,9 @@
         <Applications>
             <Application
                 Id="com.akagiyui.postpigeon"
-                Description="A post-pigeon application"
-                DisplayName="Post Pigeon"
-                ExecutableName="post-pigeon"
+                Description="A PostPigeon application"
+                DisplayName="PostPigeon"
+                ExecutableName="PostPigeon"
                 EntryPoint="Windows.FullTrustApplication">
                 
             </Application>
@@ -41,13 +41,13 @@
         </Dependencies>
         <Properties>
             <Framework>false</Framework>
-            <DisplayName>Post Pigeon</DisplayName>
+            <DisplayName>PostPigeon</DisplayName>
             <PublisherDisplayName>AkagiYui</PublisherDisplayName>
-            <Description>A post-pigeon application</Description>
+            <Description>A PostPigeon application</Description>
             <Logo>Assets\AppIcon.png</Logo>
         </Properties>
     </PackageInformation>
-    <SaveLocation PackagePath="post-pigeon.msix" />
+    <SaveLocation PackagePath="PostPigeon.msix" />
     <PackageIntegrity>
         <CertificatePath></CertificatePath>
     </PackageIntegrity>

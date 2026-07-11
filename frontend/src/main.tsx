@@ -2,7 +2,7 @@
 import { RouterProvider } from "@tanstack/solid-router"
 import { render } from "solid-js/web"
 
-import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
+import { ProjectService } from "@/../bindings/PostPigeon/internal/services"
 import { initI18n } from "@/hooks/useI18n"
 import { initScaleShortcuts, initTheme } from "@/hooks/useTheme"
 import { getRouter } from "@/router"

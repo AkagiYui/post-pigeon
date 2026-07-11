@@ -34,10 +34,10 @@ jobs:
         include:
           - os: macos-latest
             arch: arm64
-            artifact: post-pigeon-macos-arm64
+            artifact: PostPigeon-macos-arm64
           - os: windows-latest
             arch: x64
-            artifact: post-pigeon-windows-x64
+            artifact: PostPigeon-windows-x64
     
     name: 构建 ${{ matrix.os }} (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}

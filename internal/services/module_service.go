@@ -6,7 +6,7 @@ import (
 
 	"gorm.io/gorm"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 // ModuleService 模块管理服务

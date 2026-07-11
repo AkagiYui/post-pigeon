@@ -4,7 +4,7 @@
 import * as i18n from "@solid-primitives/i18n"
 import { createSignal } from "solid-js"
 
-import { SettingsService } from "@/../bindings/post-pigeon/internal/services"
+import { SettingsService } from "@/../bindings/PostPigeon/internal/services"
 import en from "@/i18n/en.json"
 import zhCN from "@/i18n/zh-CN.json"
 import { type Language } from "@/lib/types"

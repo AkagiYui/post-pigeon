@@ -3,7 +3,7 @@ package services
 import (
 	"gorm.io/gorm"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 // deleteOperations 删除一批归属者（端点 / 文件夹 / 模块）的前置/后置操作。

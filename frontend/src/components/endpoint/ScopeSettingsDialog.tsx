@@ -3,8 +3,8 @@
 import { Icon } from "@iconify-icon/solid"
 import { createEffect, createSignal } from "solid-js"
 
-import { ModuleParam, Operation } from "@/../bindings/post-pigeon/internal/models"
-import { FolderSettings, ModuleSettings, ScopeSettingsService } from "@/../bindings/post-pigeon/internal/services"
+import { ModuleParam, Operation } from "@/../bindings/PostPigeon/internal/models"
+import { FolderSettings, ModuleSettings, ScopeSettingsService } from "@/../bindings/PostPigeon/internal/services"
 import { AuthEditor } from "@/components/endpoint/AuthEditor"
 import { type AuthState, emptyAuth, emptyOperation, type OperationRow } from "@/components/endpoint/EndpointDetail"
 import { OperationsEditor } from "@/components/endpoint/OperationsEditor"

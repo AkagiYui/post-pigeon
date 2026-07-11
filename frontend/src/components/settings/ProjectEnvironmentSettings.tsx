@@ -12,9 +12,9 @@ import {
 import { createEffect, createMemo, createSignal, For, on, onCleanup, Show } from "solid-js"
 import { createStore } from "solid-js/store"
 
-import type { Environment, Module } from "@/../bindings/post-pigeon/internal/models/models"
-import { EnvironmentVariable } from "@/../bindings/post-pigeon/internal/models/models"
-import { EnvironmentService, ModuleService } from "@/../bindings/post-pigeon/internal/services"
+import type { Environment, Module } from "@/../bindings/PostPigeon/internal/models/models"
+import { EnvironmentVariable } from "@/../bindings/PostPigeon/internal/models/models"
+import { EnvironmentService, ModuleService } from "@/../bindings/PostPigeon/internal/services"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"

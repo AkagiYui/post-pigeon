@@ -4,7 +4,7 @@ import { Icon } from "@iconify-icon/solid"
 import { createFileRoute, useParams } from "@tanstack/solid-router"
 import { createSignal, onMount } from "solid-js"
 
-import { ProjectService } from "@/../bindings/post-pigeon/internal/services"
+import { ProjectService } from "@/../bindings/PostPigeon/internal/services"
 import { GlobalVariablesSettings } from "@/components/settings/GlobalVariablesSettings"
 import { ProjectEnvironmentSettings } from "@/components/settings/ProjectEnvironmentSettings"
 import { ProxySettingsPanel } from "@/components/settings/ProxySettingsPanel"

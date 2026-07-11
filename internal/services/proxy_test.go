@@ -4,7 +4,7 @@ import (
 	"net/http"
 	"testing"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 // reqTo 构造一个指向给定 URL 的请求，用于测试代理函数。

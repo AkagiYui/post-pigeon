@@ -1,6 +1,8 @@
 package services
 
 import (
+	"PostPigeon/internal/models"
+	"PostPigeon/internal/scripting"
 	"bytes"
 	"context"
 	"crypto/tls"
@@ -15,8 +17,6 @@ import (
 	"net/http/httptrace"
 	"net/http/httputil"
 	"net/url"
-	"post-pigeon/internal/models"
-	"post-pigeon/internal/scripting"
 	"strings"
 	"time"
 

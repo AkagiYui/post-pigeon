@@ -11,7 +11,7 @@ import (
 	"testing"
 	"time"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 )
 
 // echoServer 回显请求信息的测试服务器

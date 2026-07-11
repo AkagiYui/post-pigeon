@@ -3,7 +3,7 @@ package services
 import (
 	"net/http"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 
 	"gorm.io/gorm"
 )

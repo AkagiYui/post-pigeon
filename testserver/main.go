@@ -1,6 +1,6 @@
 // Command testserver 是一个基于 gin 的接口测试服务器，覆盖不同方法、协议、请求与响应，
-// 用于本项目（Post Pigeon）的功能测试。启动后访问 http://localhost:9900/ 查看接口索引，
-// 或将 http://localhost:9900/openapi.json 导入 Post Pigeon 进行测试。
+// 用于本项目（PostPigeon）的功能测试。启动后访问 http://localhost:9900/ 查看接口索引，
+// 或将 http://localhost:9900/openapi.json 导入 PostPigeon 进行测试。
 package main
 
 import (
@@ -27,7 +27,7 @@ func main() {
 
 	// 首页：接口索引
 	r.GET("/", indexHandler)
-	// OpenAPI 文档（可导入 Post Pigeon）
+	// OpenAPI 文档（可导入 PostPigeon）
 	r.GET("/openapi.json", func(c *gin.Context) { c.Data(http.StatusOK, "application/json; charset=utf-8", openAPISpec) })
 
 	registerHTTPMethods(r)

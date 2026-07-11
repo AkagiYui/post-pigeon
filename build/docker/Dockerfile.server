@@ -24,7 +24,7 @@ RUN go mod tidy
 
 # Build the server binary
 RUN BUILD_HASH_FINAL=${BUILD_HASH:-$(git rev-parse --short HEAD 2>/dev/null || echo "unknown")} && \
-    go build -tags server -ldflags="-s -w -X post-pigeon/internal/config.BuildHash=$BUILD_HASH_FINAL -X post-pigeon/internal/config.Version=$APP_VERSION" -o server .
+    go build -tags server -ldflags="-s -w -X PostPigeon/internal/config.BuildHash=$BUILD_HASH_FINAL -X PostPigeon/internal/config.Version=$APP_VERSION" -o server .
 
 # Runtime stage - minimal image
 FROM gcr.io/distroless/static-debian12

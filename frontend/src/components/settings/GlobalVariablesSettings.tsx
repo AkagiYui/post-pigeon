@@ -2,8 +2,8 @@
 import { Icon } from "@iconify-icon/solid"
 import { createSignal, onMount } from "solid-js"
 
-import { GlobalVariable } from "@/../bindings/post-pigeon/internal/models"
-import { GlobalVariableService } from "@/../bindings/post-pigeon/internal/services"
+import { GlobalVariable } from "@/../bindings/PostPigeon/internal/models"
+import { GlobalVariableService } from "@/../bindings/PostPigeon/internal/services"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"

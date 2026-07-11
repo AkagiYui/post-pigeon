@@ -8,8 +8,8 @@ import (
 	"gorm.io/gorm"
 	"gorm.io/gorm/logger"
 
-	"post-pigeon/internal/database"
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/database"
+	"PostPigeon/internal/models"
 )
 
 // countIn 返回某模型表中满足条件的行数。cond 为空时统计全表。

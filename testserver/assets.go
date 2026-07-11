@@ -25,7 +25,7 @@ func buildMinimalPDF() []byte {
 		"<< /Type /Catalog /Pages 2 0 R >>",
 		"<< /Type /Pages /Kids [3 0 R] /Count 1 >>",
 		"<< /Type /Page /Parent 2 0 R /MediaBox [0 0 300 144] /Contents 4 0 R /Resources << /Font << /F1 5 0 R >> >> >>",
-		"<< /Length 58 >>\nstream\nBT /F1 24 Tf 30 90 Td (Post Pigeon Test PDF) Tj ET\nendstream",
+		"<< /Length 58 >>\nstream\nBT /F1 24 Tf 30 90 Td (PostPigeon Test PDF) Tj ET\nendstream",
 		"<< /Type /Font /Subtype /Type1 /BaseFont /Helvetica >>",
 	}
 
@@ -49,7 +49,7 @@ func buildMinimalPDF() []byte {
 // indexHTML 首页，列出可用测试接口。
 const indexHTML = `<!doctype html>
 <html lang="zh-CN">
-<head><meta charset="utf-8"><title>Post Pigeon 测试服务器</title>
+<head><meta charset="utf-8"><title>PostPigeon 测试服务器</title>
 <style>
 body{font-family:system-ui,sans-serif;max-width:820px;margin:40px auto;padding:0 16px;color:#222;line-height:1.6}
 h1{font-size:22px} h2{font-size:16px;margin-top:24px;border-bottom:1px solid #eee;padding-bottom:4px}
@@ -58,8 +58,8 @@ code{background:#f4f4f5;padding:1px 5px;border-radius:4px;font-size:13px}
 a{color:#0a7}
 </style></head>
 <body>
-<h1>🐦 Post Pigeon 测试服务器</h1>
-<p>将 <a href="/openapi.json">/openapi.json</a> 导入 Post Pigeon 即可批量测试。</p>
+<h1>🐦 PostPigeon 测试服务器</h1>
+<p>将 <a href="/openapi.json">/openapi.json</a> 导入 PostPigeon 即可批量测试。</p>
 <h2>HTTP 方法</h2>
 <ul>
 <li><span class="m">GET</span><code>/api/ping</code></li>

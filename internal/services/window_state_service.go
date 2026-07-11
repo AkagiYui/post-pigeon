@@ -5,7 +5,7 @@ import (
 	"sync"
 	"time"
 
-	"post-pigeon/internal/models"
+	"PostPigeon/internal/models"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"github.com/wailsapp/wails/v3/pkg/events"
