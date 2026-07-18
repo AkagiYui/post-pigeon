@@ -682,6 +682,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
           {/* 请求设置（HTTP 与 WebSocket 完全一致） */}
           <div class={cn("flex-1 min-h-0 min-w-0 overflow-hidden", responseLayout() === "right" ? "border-r border-border" : "border-b border-border")}>
             <Tabs
+              variant="line"
               tabs={requestTabs()}
               value={activeRequestTab()}
               onChange={setActiveRequestTab}
@@ -798,6 +799,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                       }
                     >
                       <Tabs
+                        variant="line"
                         tabs={getResponseTabs()}
                         value={activeResponseTab()}
                         onChange={setActiveResponseTab}

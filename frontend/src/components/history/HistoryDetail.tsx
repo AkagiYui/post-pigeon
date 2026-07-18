@@ -165,6 +165,7 @@ export function HistoryDetail(props: HistoryDetailProps) {
         {/* 主 Tab 内容区 */}
         <div class="flex-1 overflow-hidden">
           <Tabs
+            variant="line"
             tabs={[
               { key: "response", label: t("history.response") },
               { key: "request", label: t("history.request") },
@@ -179,6 +180,7 @@ export function HistoryDetail(props: HistoryDetailProps) {
                   <Match when={tab() === "response"}>
                     <div class="flex flex-col h-full">
                       <Tabs
+                        variant="line"
                         tabs={[
                           { key: "body", label: t("response.body") },
                           { key: "headers", label: t("response.headers") },
@@ -296,6 +298,7 @@ export function HistoryDetail(props: HistoryDetailProps) {
                   <Match when={tab() === "request"}>
                     <div class="flex flex-col h-full">
                       <Tabs
+                        variant="line"
                         tabs={[
                           { key: "body", label: t("endpoint.body") },
                           { key: "headers", label: t("endpoint.headers") },

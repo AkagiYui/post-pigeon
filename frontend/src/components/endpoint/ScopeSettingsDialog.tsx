@@ -133,7 +133,7 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
     <Dialog open={props.open} onClose={props.onClose} title={t("scope.settingsTitle", { name: props.scopeName })} closeOnEsc closeOnOverlayClick width="640px">
       <div class="flex flex-col h-[70vh]">
         <div class="flex-1 min-h-0">
-          <Tabs tabs={tabs()} value={tab()} onChange={setTab}>
+          <Tabs variant="line" tabs={tabs()} value={tab()} onChange={setTab}>
             {(key) => {
               if (key === "auth") return <AuthEditor value={auth()} onChange={setAuth} />
               if (key === "operations") return <OperationsEditor operations={operations()} onChange={setOperations} projectId={props.projectId} />

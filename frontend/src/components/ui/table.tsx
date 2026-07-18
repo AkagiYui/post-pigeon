@@ -60,7 +60,7 @@ export function Table<T extends object>(props: TableProps<T>) {
               {(col) => (
                 <th
                   class={cn(
-                    "text-left font-semibold text-foreground whitespace-nowrap",
+                    "text-left font-bold text-foreground whitespace-nowrap",
                     local.compact ? "px-2 py-1.5 text-xs" : "px-3 py-2 text-sm",
                   )}
                   style={col.width ? { width: col.width } : undefined}

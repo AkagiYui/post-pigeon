@@ -34,13 +34,21 @@ export interface TabsProps {
   class?: string
   /** 标签栏右侧额外内容 */
   extra?: JSX.Element
+  /**
+   * 标签栏样式：
+   * - card（默认）：卡片式，用于顶层「打开的接口」标签，活动标签抬起为卡片；
+   * - line：下划线式（Apifox 参数 tab 风格），用于接口详情内部的 参数/Cookies/Body 等内容标签，
+   *   平铺、活动标签文字为品牌色 + 底部 2px 品牌色墨条，与卡片式明确区分。
+   */
+  variant?: "card" | "line"
 }
 
 /**
  * Tabs 标签页组件
  */
 export function Tabs(props: TabsProps) {
-  const [local] = splitProps(props, ["tabs", "value", "onChange", "onClose", "children", "class", "extra"])
+  const [local] = splitProps(props, ["tabs", "value", "onChange", "onClose", "children", "class", "extra", "variant"])
+  const variant = () => local.variant ?? "card"
 
   return (
     <ArkTabs.Root
@@ -48,6 +56,14 @@ export function Tabs(props: TabsProps) {
       value={local.value}
       onValueChange={(details) => local.onChange(details.value)}
     >
+      <Show when={variant() === "line"}>
+        <LineTabList
+          tabs={local.tabs}
+          value={local.value}
+          extra={local.extra}
+        />
+      </Show>
+      <Show when={variant() === "card"}>
       {/* 卡片式标签栏（Apifox 风格）：
           活动标签抬起为卡片——表面底、上圆角、两侧+顶部描边、无底边（与下方内容融合），
           顶部 2px 品牌色墨条；非活动标签平铺、中性文字、悬停浅底，标签间细分隔线。 */}
@@ -105,11 +121,62 @@ export function Tabs(props: TabsProps) {
           <div class="shrink-0 flex items-center px-2">{local.extra}</div>
         </Show>
       </div>
+      </Show>
       {/* 标签内容 */}
-      <ArkTabs.Content value={local.value} class="flex-1 overflow-auto bg-surface">
+      <ArkTabs.Content value={local.value} class={cn("flex-1 overflow-auto", variant() === "card" && "bg-surface")}>
         {local.children(local.value)}
       </ArkTabs.Content>
     </ArkTabs.Root>
+  )
+}
+
+/**
+ * LineTabList 下划线式标签栏（Apifox 参数 tab 风格）
+ * 实测 Apifox：nav 高 40px、平铺无卡片；活动标签文字为品牌色、下方 2px 圆角品牌色墨条，
+ * 非活动为次要灰；悬停时标签文字变前景色、并出现 8px 圆角浅底「药丸」（与卡片 tab 的
+ * `bg-hover` 一致，避免两种 tab 栏悬停手感不一致）——药丸内缩于 40px 行高、居中约 28px。
+ */
+function LineTabList(props: { tabs: Tab[]; value: string; extra?: JSX.Element }) {
+  return (
+    <div class="flex items-stretch shrink-0 h-10 px-1">
+      <ArkTabs.List class="flex items-stretch overflow-x-auto no-scrollbar flex-1 gap-1">
+        <For each={props.tabs}>
+          {(tab) => {
+            const active = () => props.value === tab.key
+            return (
+              <ArkTabs.Trigger
+                value={tab.key}
+                disabled={tab.disabled}
+                class={cn(
+                  "group/ltab relative flex items-center whitespace-nowrap select-none",
+                  tab.disabled && "opacity-50 cursor-not-allowed",
+                )}
+              >
+                {/* 悬停「药丸」：8px 圆角、bg-hover 浅底，居中于行高 */}
+                <span
+                  class={cn(
+                    "flex items-center gap-1.5 px-2 py-1 rounded-lg text-sm transition-colors",
+                    active()
+                      ? "text-accent"
+                      : "text-muted-foreground group-hover/ltab:bg-hover group-hover/ltab:text-foreground",
+                  )}
+                >
+                  <Show when={tab.icon}>{tab.icon}</Show>
+                  <span>{tab.label}</span>
+                </span>
+                {/* 活动标签底部品牌色墨条（略内缩于左右内边距，与 Apifox ink-bar 一致） */}
+                <Show when={active()}>
+                  <span class="absolute left-2 right-2 bottom-0 h-0.5 rounded-t-full bg-accent" />
+                </Show>
+              </ArkTabs.Trigger>
+            )
+          }}
+        </For>
+      </ArkTabs.List>
+      <Show when={props.extra}>
+        <div class="shrink-0 flex items-center px-2">{props.extra}</div>
+      </Show>
+    </div>
   )
 }
 
