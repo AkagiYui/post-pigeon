@@ -45,7 +45,7 @@ export function Input(props: InputProps) {
       ref={(el) => bindControlledValue(el, () => local.value)}
       class={cn(
         "w-full rounded-md border bg-input text-foreground placeholder:text-muted-foreground",
-        "transition-colors focus-visible:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20",
+        "transition-colors hover:border-control-border focus-visible:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20",
         "disabled:cursor-not-allowed disabled:opacity-50",
         sizeClasses[local.size || "default"],
         local.error ? "border-red-500" : "border-border",
@@ -71,7 +71,7 @@ export function Textarea(props: TextareaProps) {
       ref={(el) => bindControlledValue(el, () => local.value)}
       class={cn(
         "w-full rounded-md border bg-input text-foreground placeholder:text-muted-foreground",
-        "transition-colors focus-visible:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20",
+        "transition-colors hover:border-control-border focus-visible:outline-none focus-visible:border-accent focus-visible:ring-2 focus-visible:ring-accent/20",
         "disabled:cursor-not-allowed disabled:opacity-50 min-h-20 px-3 py-2 text-sm",
         local.error ? "border-red-500" : "border-border",
         local.class,

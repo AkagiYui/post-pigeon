@@ -9,8 +9,9 @@ import { cn } from "@/lib/utils"
 
 export type CheckboxProps = JSX.InputHTMLAttributes<HTMLInputElement>
 
+// Apifox 复选框：16px、控件描边灰 #D0D5DD、品牌强调填充；圆角由下方 rounded-* 决定
 const baseClass = cn(
-  "size-4 shrink-0 cursor-pointer border-border accent-[var(--color-accent)]",
+  "size-4 shrink-0 cursor-pointer border-control-border accent-[var(--color-accent)]",
   "focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent/25",
   "disabled:cursor-not-allowed disabled:opacity-50",
 )

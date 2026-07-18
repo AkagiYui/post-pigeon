@@ -54,13 +54,14 @@ export function Table<T extends object>(props: TableProps<T>) {
     <div class={cn("overflow-auto", local.class)}>
       <table class="w-full text-sm">
         <thead>
-          <tr class="border-b border-border bg-muted/50">
+          {/* Apifox 无边框表头：前景色、半粗、无底色，仅一条浅分隔线 */}
+          <tr class="border-b border-divider">
             <For each={local.columns}>
               {(col) => (
                 <th
                   class={cn(
-                    "text-left font-medium text-muted-foreground whitespace-nowrap",
-                    local.compact ? "px-2 py-1.5 text-xs" : "px-3 py-2",
+                    "text-left font-semibold text-foreground whitespace-nowrap",
+                    local.compact ? "px-2 py-1.5 text-xs" : "px-3 py-2 text-sm",
                   )}
                   style={col.width ? { width: col.width } : undefined}
                 >
@@ -91,8 +92,8 @@ export function Table<T extends object>(props: TableProps<T>) {
               {(row, index) => (
                 <tr
                   class={cn(
-                    "border-b border-border transition-colors",
-                    local.onRowClick && "cursor-pointer hover:bg-muted/30",
+                    "border-b border-divider transition-colors hover:bg-hover-subtle",
+                    local.onRowClick && "cursor-pointer",
                   )}
                   onClick={() => local.onRowClick?.(row, index())}
                 >

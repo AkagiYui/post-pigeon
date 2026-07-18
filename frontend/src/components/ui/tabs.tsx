@@ -48,49 +48,65 @@ export function Tabs(props: TabsProps) {
       value={local.value}
       onValueChange={(details) => local.onChange(details.value)}
     >
-      {/* 标签栏 */}
-      <div class="flex items-center shrink-0 relative">
-        {/* 底部分割线 */}
+      {/* 卡片式标签栏（Apifox 风格）：
+          活动标签抬起为卡片——表面底、上圆角、两侧+顶部描边、无底边（与下方内容融合），
+          顶部 2px 品牌色墨条；非活动标签平铺、中性文字、悬停浅底，标签间细分隔线。 */}
+      <div class="flex items-stretch shrink-0 relative h-11 bg-surface-alt">
+        {/* 底部基线：活动卡片通过 -mb-px 覆盖它，形成融合效果 */}
         <div class="absolute bottom-0 left-0 right-0 h-px bg-border" />
-        <ArkTabs.List class="flex items-center overflow-x-auto no-scrollbar flex-1">
+        <ArkTabs.List class="flex items-stretch overflow-x-auto no-scrollbar flex-1">
           <For each={local.tabs}>
-            {(tab) => (
-              <ArkTabs.Trigger
-                value={tab.key}
-                disabled={tab.disabled}
-                class={cn(
-                  "flex items-center gap-1 px-3 py-1.5 text-sm border-b-2 transition-colors whitespace-nowrap select-none relative z-10",
-                  local.value === tab.key
-                    ? "border-accent text-foreground"
-                    : "border-transparent text-muted-foreground hover:text-foreground hover:border-border",
-                  tab.disabled && "opacity-50 cursor-not-allowed",
-                )}
-              >
-                <Show when={tab.icon}>{tab.icon}</Show>
-                <span>{tab.label}</span>
-                <Show when={tab.closable}>
-                  <span
-                    class="ml-1 rounded-sm p-0.5 hover:bg-muted transition-colors"
-                    onClick={(e) => {
-                      e.stopPropagation()
-                      local.onClose?.(tab.key)
-                    }}
+            {(tab) => {
+              const active = () => local.value === tab.key
+              return (
+                <ArkTabs.Trigger
+                  value={tab.key}
+                  disabled={tab.disabled}
+                  class={cn(
+                    "group/tab relative flex items-center gap-1.5 pl-3 pr-2 text-sm whitespace-nowrap select-none z-10",
+                    "min-w-[92px] max-w-[200px] transition-colors",
+                    active()
+                      ? "bg-surface text-foreground border-x border-t border-divider rounded-t-lg -mb-px"
+                      : "text-muted-foreground border-r border-divider hover:bg-hover hover:text-foreground",
+                    tab.disabled && "opacity-50 cursor-not-allowed",
+                  )}
+                >
+                  {/* 活动标签顶部品牌色墨条 */}
+                  <Show when={active()}>
+                    <span class="absolute left-0 right-0 top-0 h-0.5 rounded-t-full bg-accent" />
+                  </Show>
+                  <Show when={tab.icon}>{tab.icon}</Show>
+                  <span class="flex-1 truncate">{tab.label}</span>
+                  <Show
+                    when={tab.closable}
+                    fallback={<span class="w-4 shrink-0" />}
                   >
-                    <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
-                      <path d="M18 6L6 18M6 6l12 12" />
-                    </svg>
-                  </span>
-                </Show>
-              </ArkTabs.Trigger>
-            )}
+                    <span
+                      class={cn(
+                        "shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                        !active() && "opacity-0 group-hover/tab:opacity-100",
+                      )}
+                      onClick={(e) => {
+                        e.stopPropagation()
+                        local.onClose?.(tab.key)
+                      }}
+                    >
+                      <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
+                        <path d="M18 6L6 18M6 6l12 12" />
+                      </svg>
+                    </span>
+                  </Show>
+                </ArkTabs.Trigger>
+              )
+            }}
           </For>
         </ArkTabs.List>
         <Show when={local.extra}>
-          <div class="shrink-0 px-2">{local.extra}</div>
+          <div class="shrink-0 flex items-center px-2">{local.extra}</div>
         </Show>
       </div>
       {/* 标签内容 */}
-      <ArkTabs.Content value={local.value} class="flex-1 overflow-auto">
+      <ArkTabs.Content value={local.value} class="flex-1 overflow-auto bg-surface">
         {local.children(local.value)}
       </ArkTabs.Content>
     </ArkTabs.Root>

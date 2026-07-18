@@ -1,5 +1,18 @@
 // 响应体格式化与编码解码工具
 
+/** 根据响应的 Content-Type 推断格式化方案（json / xml / html）；无法识别时返回 null */
+export function formatFromContentType(contentType: string | undefined | null): string | null {
+  if (!contentType) return null
+  // 去掉参数（charset 等）并小写
+  const mime = contentType.split(";")[0].trim().toLowerCase()
+  if (!mime) return null
+  // +json / +xml 等结构化后缀（如 application/vnd.api+json、image/svg+xml）
+  if (mime === "application/json" || mime.endsWith("+json") || mime.endsWith("/json")) return "json"
+  if (mime === "text/html" || mime === "application/xhtml+xml") return "html"
+  if (mime === "text/xml" || mime === "application/xml" || mime.endsWith("+xml") || mime.endsWith("/xml")) return "xml"
+  return null
+}
+
 /** 按指定格式美化响应体；失败时原样返回 */
 export function formatBody(body: string, format: string): string {
   if (!body) return body

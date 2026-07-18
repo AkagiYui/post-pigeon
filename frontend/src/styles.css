@@ -63,6 +63,14 @@
   /* 动画 */
   --transition-fast: 120ms;
   --transition-normal: 200ms;
+
+  /* 弹层缓动（对齐 Apifox/antd）：进入用 ease-out-quint，离开用 ease-in-quint */
+  --ease-out-quint: cubic-bezier(0.23, 1, 0.32, 1);
+  --ease-in-quint: cubic-bezier(0.755, 0.05, 0.855, 0.06);
+
+  /* 模态框缓动（对齐 Apifox/antd 的 zoom 动效） */
+  --ease-out-circ: cubic-bezier(0.08, 0.82, 0.17, 1);
+  --ease-in-out-circ: cubic-bezier(0.78, 0.14, 0.15, 0.86);
 }
 
 /* 浅色模式颜色（Untitled UI 灰阶）
@@ -81,6 +89,16 @@
   --color-secondary: #f2f4f7;
   --color-secondary-foreground: #344054;
   --color-ring: rgba(147, 115, 238, 0.4);
+
+  /* Apifox 对齐令牌
+     - divider：比主边框更浅的分隔线（表格行、卡片 tab 侧边），Apifox = #F2F4F7
+     - hover：中性悬停叠加（菜单项、可点行），Apifox = rgba(16,24,40,.05)
+     - hover-subtle：更弱的悬停（表格行），Apifox = #0b111e08 ≈ 3%
+     - control-border：复选框/开关等控件描边（比文本框边框略深），Apifox = #D0D5DD */
+  --color-divider: #f2f4f7;
+  --color-hover: rgba(16, 24, 40, 0.05);
+  --color-hover-subtle: rgba(11, 17, 30, 0.03);
+  --color-control-border: #d0d5dd;
 }
 
 /* 深色模式颜色（偏冷近黑蓝）
@@ -99,6 +117,12 @@
   --color-secondary: #262835;
   --color-secondary-foreground: #c2cad1;
   --color-ring: rgba(147, 115, 238, 0.5);
+
+  /* Apifox 对齐令牌（深色）：分隔线用 muted 一族，悬停叠加改为浅色叠加 */
+  --color-divider: #262835;
+  --color-hover: rgba(255, 255, 255, 0.06);
+  --color-hover-subtle: rgba(255, 255, 255, 0.035);
+  --color-control-border: #3d4051;
 }
 
 /* ============================================
@@ -122,6 +146,10 @@
   --color-accent-hover: var(--accent-hover);
   --color-accent-muted: var(--accent-muted);
   --color-ring: var(--color-ring);
+  --color-divider: var(--color-divider);
+  --color-hover: var(--color-hover);
+  --color-hover-subtle: var(--color-hover-subtle);
+  --color-control-border: var(--color-control-border);
 }
 
 /* ============================================
@@ -354,6 +382,125 @@ body.dragging-tab iframe {
 
 .animate-slide-in {
   animation: slideIn 200ms ease-out;
+}
+
+/* ============================================
+   弹层动画（对齐 Apifox / antd 的 slide-up 动效）
+   进入：淡入 + 纵向 scaleY(0.8)→1（从弹层锚定原点展开）
+   离开：反向。原点取 Ark UI Positioner 提供的 --transform-origin（无则回退 top）。
+   ============================================ */
+
+@keyframes popIn {
+  from {
+    opacity: 0;
+    transform: scaleY(0.8);
+  }
+
+  to {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+}
+
+@keyframes popOut {
+  from {
+    opacity: 1;
+    transform: scaleY(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scaleY(0.8);
+  }
+}
+
+/* 供 Ark UI 弹层内容使用：按 data-state 播放进入/离开动画（Ark 的 presence 会等动画结束再卸载） */
+.anim-pop {
+  transform-origin: var(--transform-origin, top center);
+}
+
+.anim-pop[data-state="open"] {
+  animation: popIn 180ms var(--ease-out-quint);
+}
+
+.anim-pop[data-state="closed"] {
+  animation: popOut 150ms var(--ease-in-quint);
+}
+
+/* 供「挂载即打开」的自定义弹层使用（无 data-state，仅进入动画） */
+.anim-pop-in {
+  transform-origin: var(--transform-origin, top center);
+  animation: popIn 180ms var(--ease-out-quint);
+}
+
+/* ============================================
+   模态框动画（对齐 Apifox / antd）
+   遮罩：淡入淡出；面板：zoom（scale(0.2)→1 + 淡入，ease-out-circ 快速收敛的弹入感）
+   Ark UI Dialog 的 Backdrop / Content 均带 data-state，presence 会等动画结束再卸载。
+   ============================================ */
+
+@keyframes maskIn {
+  from {
+    opacity: 0;
+  }
+
+  to {
+    opacity: 1;
+  }
+}
+
+@keyframes maskOut {
+  from {
+    opacity: 1;
+  }
+
+  to {
+    opacity: 0;
+  }
+}
+
+@keyframes modalIn {
+  from {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+
+  to {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
+@keyframes modalOut {
+  from {
+    opacity: 1;
+    transform: scale(1);
+  }
+
+  to {
+    opacity: 0;
+    transform: scale(0.2);
+  }
+}
+
+.anim-mask[data-state="open"] {
+  animation: maskIn 200ms linear;
+}
+
+.anim-mask[data-state="closed"] {
+  animation: maskOut 200ms linear;
+}
+
+.anim-modal {
+  transform-origin: center;
+}
+
+.anim-modal[data-state="open"] {
+  animation: modalIn 240ms var(--ease-out-circ);
+}
+
+.anim-modal[data-state="closed"] {
+  animation: modalOut 180ms var(--ease-in-out-circ);
 }
 
 /* ============================================

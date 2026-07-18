@@ -39,6 +39,9 @@ export interface ComboboxProps {
   minWidth?: string
   /** 显示态的自定义渲染类名（用于外部自定义颜色等样式） */
   displayClass?: string
+  /** 是否在右侧显示下拉小箭头（Apifox 方法选择器风格）。开启时会为箭头预留右内边距，
+      并同步作用于隐藏标尺/显示态/编辑态三处，保证宽度一致、点击不抖动 */
+  caret?: boolean
 }
 
 /**
@@ -167,20 +170,29 @@ export function Combobox(props: ComboboxProps) {
     >
       {/* 隐藏标尺：始终存在，以当前值撑住容器宽度，保证编辑态和显示态宽度一致 */}
       <span
-        class="invisible absolute text-xs font-bold uppercase px-2 whitespace-nowrap"
+        class={cn("invisible absolute text-xs font-bold uppercase px-2 whitespace-nowrap", props.caret && "pr-5")}
         aria-hidden="true"
       >
         {props.value}
       </span>
+
+      {/* 下拉小箭头（Apifox 方法选择器风格）：绝对定位于右侧居中，不参与布局宽度 */}
+      <Show when={props.caret}>
+        <span class="pointer-events-none absolute right-1.5 top-1/2 -translate-y-1/2 z-30 opacity-60">
+          <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2.5">
+            <path d="M6 9l6 6 6-6" />
+          </svg>
+        </span>
+      </Show>
 
       {/* 显示态：纯展示当前值 */}
       <Show when={!editing()}>
         <button
           class={cn(
             "w-full h-full flex items-center px-2 text-xs font-bold uppercase whitespace-nowrap",
-            "cursor-pointer select-none rounded-l transition-colors",
+            "cursor-pointer select-none rounded transition-colors justify-center",
+            props.caret && "pr-5",
             props.displayClass,
-            "justify-center",
           )}
           onClick={startEditing}
           disabled={props.disabled}
@@ -197,7 +209,8 @@ export function Combobox(props: ComboboxProps) {
           <Show when={!inputValue()}>
             <div
               class={cn(
-                "absolute inset-0 flex items-center px-2 text-xs font-bold uppercase whitespace-nowrap pointer-events-none",
+                "absolute inset-0 flex items-center justify-center px-2 text-xs font-bold uppercase whitespace-nowrap pointer-events-none",
+                props.caret && "pr-5",
                 props.displayClass,
                 "opacity-40",
               )}
@@ -212,10 +225,11 @@ export function Combobox(props: ComboboxProps) {
             ref={inputRef}
             type="text"
             class={cn(
-              "w-full h-full rounded-md bg-transparent text-foreground",
+              "w-full h-full rounded bg-transparent text-foreground text-center",
               "focus-visible:outline-none",
               "text-xs px-2 font-bold uppercase",
               "relative z-10",
+              props.caret && "pr-5",
             )}
             value={inputValue()}
             onInput={handleInput}
@@ -226,7 +240,7 @@ export function Combobox(props: ComboboxProps) {
         </div>
 
         {/* 下拉菜单 */}
-        <div class="absolute top-full left-0 z-50 mt-0.5 bg-surface border border-border rounded-md shadow-lg overflow-hidden min-w-28">
+        <div class="anim-pop-in absolute top-full left-0 z-50 mt-0.5 bg-popover border border-border rounded-md shadow-xl overflow-hidden min-w-28">
           <div class="combobox-listbox max-h-60 overflow-y-auto" role="listbox">
             {/* 自定义选项：输入不匹配预设时显示 */}
             <Show when={inputValue().trim() && !isExactMatch()}>

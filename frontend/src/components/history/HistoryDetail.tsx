@@ -9,7 +9,7 @@ import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"
 import { Tabs } from "@/components/ui/tabs"
 import { t } from "@/hooks/useI18n"
-import { formatBody } from "@/lib/format"
+import { formatBody, formatFromContentType } from "@/lib/format"
 import { cn } from "@/lib/utils"
 
 export interface HistoryDetailProps {
@@ -57,6 +57,9 @@ export function HistoryDetail(props: HistoryDetailProps) {
       setLoading(true)
       const data = await RequestHistoryService.GetHistory(props.historyId)
       setDetail(data)
+      // 按 Content-Type 自动选择格式化方案
+      const auto = formatFromContentType(data?.contentType)
+      if (auto) setFormat(auto)
     } catch (e) {
       console.error("加载请求历史详情失败", e)
     } finally {

@@ -14,6 +14,7 @@ import { Input } from "@/components/ui/input"
 import { Tabs } from "@/components/ui/tabs"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
+import { formatFromContentType } from "@/lib/format"
 import { getStatusInfo, statusClass } from "@/lib/http-status"
 import { type AuthType, type BodyType, CONTENT_TYPES, type EndpointType, formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
 import { byteLength, cn, extractPathParams, hasURLScheme } from "@/lib/utils"
@@ -376,8 +377,10 @@ function EnvironmentBadge(props: {
       <span
         ref={badgeRef}
         class={cn(
-          "inline-flex items-center gap-1 px-2 ml-1 my-1 text-xs rounded-sm cursor-pointer select-none hover:opacity-80 transition-opacity min-w-0 shrink max-w-50",
-          props.baseUrl ? "bg-accent-muted text-accent" : "bg-muted text-muted-foreground",
+          "inline-flex items-center gap-1 h-6 px-2 text-xs rounded cursor-pointer select-none transition-colors min-w-0 shrink max-w-50",
+          props.baseUrl
+            ? "text-accent bg-accent-muted hover:bg-accent-muted/70"
+            : "text-muted-foreground hover:bg-hover",
         )}
         onClick={handleBadgeClick}
         title={props.baseUrl || t("endpoint.baseUrl.notSet")}
@@ -394,7 +397,7 @@ function EnvironmentBadge(props: {
           onClick={(e) => { e.stopPropagation(); setOpen(false) }}
         />
         <div
-          class="fixed z-50 min-w-80 bg-surface border border-border rounded-md shadow-lg p-1 flex flex-col gap-0.5"
+          class="anim-pop-in fixed z-50 min-w-80 bg-popover border border-border rounded-md shadow-xl p-1 flex flex-col gap-0.5"
           style={{ left: `${menuPos().x}px`, top: `${menuPos().y}px` }}
           onClick={(e) => e.stopPropagation()}
         >
@@ -404,10 +407,10 @@ function EnvironmentBadge(props: {
               return (
                 <div
                   class={cn(
-                    "flex items-center gap-1 px-1.5 py-1 text-sm cursor-pointer transition-colors rounded-sm select-none",
+                    "flex items-center gap-1 px-1.5 py-1 text-sm cursor-pointer transition-colors rounded select-none",
                     isActive
                       ? "bg-accent-muted text-accent"
-                      : "text-foreground hover:bg-muted",
+                      : "text-foreground hover:bg-hover",
                   )}
                   onClick={() => {
                     props.onEnvironmentChange?.(item.environmentId)
@@ -501,6 +504,12 @@ export function EndpointDetail(props: EndpointDetailProps) {
   const [renderMode, setRenderMode] = createSignal("pretty")
   const [format, setFormat] = createSignal("json")
   const [encoding, setEncoding] = createSignal("utf-8")
+
+  // 新响应到达时，按 Content-Type 自动选择格式化方案（用户随后可手动切换，直到下一个响应）
+  createEffect(on(() => props.response?.contentType, (ct) => {
+    const auto = formatFromContentType(ct)
+    if (auto) setFormat(auto)
+  }))
 
   // ---- 响应区尺寸调整 / 收起（上下布局调高度，左右布局调宽度） ----
   const MIN_RESPONSE_H = 140 // 上下布局最低高度
@@ -607,22 +616,21 @@ export function EndpointDetail(props: EndpointDetailProps) {
       <div class="flex flex-col h-full" ref={containerRef}>
         {/* 上部：请求行 */}
         <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
-          {/* 内嵌方法选择器的 URL 输入组 */}
-          <div class="flex-1 flex items-stretch border border-border rounded-md bg-input">
-            {/* HTTP 方法选择器 */}
+          {/* 内嵌方法选择器的 URL 输入组（Apifox 风格）：灰底圆角外框，内部方法为彩色小药丸，
+              路径输入透明加粗，环境徽章作为内嵌段落。 */}
+          <div class="flex-1 flex items-center gap-1 h-8 px-1 border border-border rounded-md bg-surface-alt transition-colors hover:border-control-border focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20">
+            {/* HTTP 方法选择器（彩色药丸 + 下拉小箭头） */}
             <Combobox
               options={methodOptions}
               value={ep().method}
               onChange={(val) => props.onChange?.({ method: val as HTTPMethod })}
-              minWidth="78px"
+              minWidth="72px"
+              caret
               customLabel={(val) => val}
               displayClass={methodColors[ep().method] || defaultMethodColor}
               optionTextClass={(val) => METHOD_COLORS[val] || "text-gray-600 dark:text-gray-400"}
-              class="rounded-l shrink-0"
+              class="h-6 shrink-0 self-center"
             />
-
-            {/* 分隔线 */}
-            <div class="w-px self-stretch bg-border shrink-0" />
 
             {/* 前置 baseUrl 环境切换按钮：仅取决于接口路径是否带协议头。
               只要是相对地址（不含协议头）就显示；当前环境该模块未设置 baseUrl 时显示"未设置"。 */}
@@ -635,13 +643,13 @@ export function EndpointDetail(props: EndpointDetailProps) {
               />
             </Show>
 
-            {/* 端点路径 */}
+            {/* 端点路径（透明、加粗，与 Apifox 一致） */}
             <Input
               size="sm"
               value={ep().path}
               onInput={(e) => props.onChange?.({ path: e.currentTarget.value })}
               placeholder={isWs() ? "wss://example.com/socket" : "/api/endpoint"}
-              class="border-0 bg-transparent rounded-none flex-1 min-w-0"
+              class="border-0 bg-transparent rounded-none flex-1 min-w-0 font-semibold hover:border-0 focus-visible:ring-0"
             />
           </div>
 

@@ -43,16 +43,16 @@ export interface DropdownMenuProps {
   class?: string
 }
 
-/** 菜单面板通用样式 */
-const CONTENT_CLASS = "z-50 min-w-45 max-h-[80vh] overflow-y-auto bg-surface border border-border rounded-md shadow-lg py-1 outline-none"
+/** 菜单面板通用样式（Apifox：8px 圆角、柔和大投影、上下 4px 内边距、slide-up 弹出动画） */
+const CONTENT_CLASS = "anim-pop z-50 min-w-45 max-h-[80vh] overflow-y-auto bg-popover border border-border rounded-md shadow-xl py-1 outline-none"
 
-/** 单个菜单项通用样式 */
+/** 单个菜单项通用样式（Apifox：中性灰悬停、保留文字色、4px 圆角内嵌） */
 function itemClass(disabled?: boolean): string {
   return cn(
-    "flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded-sm select-none outline-none",
+    "flex items-center gap-2 px-3 py-1.5 text-sm cursor-pointer transition-colors mx-1 rounded select-none outline-none",
     disabled
       ? "text-muted-foreground cursor-not-allowed"
-      : "text-foreground data-[highlighted]:bg-accent-muted data-[highlighted]:text-accent",
+      : "text-foreground data-[highlighted]:bg-hover",
   )
 }
 
@@ -84,7 +84,7 @@ function renderItems(items: MenuItem[]): JSX.Element {
       {(item) => (
         <Show
           when={!item.separator}
-          fallback={<ArkMenu.Separator class="my-1 border-t border-border" />}
+          fallback={<ArkMenu.Separator class="my-1 border-t border-divider" />}
         >
           <Show
             when={item.children?.length}

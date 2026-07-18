@@ -121,7 +121,7 @@ export function Select(props: SelectProps) {
         </ArkSelect.Control>
         <Portal>
           <ArkSelect.Positioner>
-            <ArkSelect.Content class="z-[101] bg-surface border border-border rounded-md shadow-lg overflow-y-auto max-h-60 p-0 focus-visible:outline-none">
+            <ArkSelect.Content class="anim-pop z-[101] bg-popover border border-border rounded-md shadow-xl overflow-y-auto max-h-60 p-0 focus-visible:outline-none">
               <For each={collection().items}>
                 {(item) => (
                   <ArkSelect.Item
