@@ -18,6 +18,8 @@
 - **cURL 双向互转**：从 cURL 命令新建请求（兼容浏览器「Copy as cURL」），
   以及把当前请求复制为可直接执行的 cURL
 - **Postman Collection v2.x 导入**与 **OpenAPI 3.1 导出**
+- **GraphQL 请求体**：查询与变量分栏编辑，发送时组装为标准的
+  GraphQL over HTTP JSON；cURL / OpenAPI 导出与 Postman 导入同步支持
 - **TLS 设置**（接口 → 项目 → 全局三级）：跳过证书校验、自定义 CA、
   客户端证书（双向 TLS）、最低 TLS 版本
 - **Digest 与 OAuth 2.0 认证**（client_credentials / password 授权，令牌自动缓存）
@@ -45,6 +47,7 @@
 - 下拉框中值为空字符串的选项（「无」「默认」等）现在可以正常选中与显示
 - 修复应用初始化与全屏状态读取的未捕获 Promise 拒绝
 - WebSocket 二进制帧不再被错误地按文本解码
+- macOS 的 platform 包补上 framework 链接声明，此前无法单独构建与测试
 
 ### 安全
 
