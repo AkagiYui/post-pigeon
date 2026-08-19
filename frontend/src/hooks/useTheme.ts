@@ -4,6 +4,7 @@ import { createEffect, createSignal, onMount } from "solid-js"
 
 import { SettingsService } from "@/../bindings/PostPigeon/internal/services"
 import { ACCENT_COLORS, type ThemeAccent, type ThemeMode } from "@/lib/types"
+import { toastError } from "@/stores/toast"
 
 /** 缩放配置 */
 export const UI_SCALE_CONFIG = {
@@ -106,7 +107,7 @@ export async function changeThemeMode(mode: ThemeMode) {
   try {
     await SettingsService.SetSetting("theme.mode", mode)
   } catch (e) {
-    console.warn("保存主题模式失败", e)
+    toastError(e, "error.op.saveFailed")
   }
 }
 
@@ -117,7 +118,7 @@ export async function changeThemeAccent(accent: ThemeAccent) {
   try {
     await SettingsService.SetSetting("theme.accent", accent)
   } catch (e) {
-    console.warn("保存主题色失败", e)
+    toastError(e, "error.op.saveFailed")
   }
 }
 
@@ -130,7 +131,7 @@ export async function changeUIScale(scale: number) {
   try {
     await SettingsService.SetSetting("ui.scale", clampedScale.toString())
   } catch (e) {
-    console.warn("保存缩放比例失败", e)
+    toastError(e, "error.op.saveFailed")
   }
 }
 

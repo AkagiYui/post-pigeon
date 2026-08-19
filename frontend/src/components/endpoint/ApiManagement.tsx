@@ -37,10 +37,12 @@ import { Tabs } from "@/components/ui/tabs"
 import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
+import { errorMessage } from "@/lib/errors"
 import { type BodyType, type EndpointType, type HTTPMethod, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, notifyBaseUrlsChanged, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
 import { clearStream } from "@/stores/stream"
+import { toastError, toastSuccess, toastWarning } from "@/stores/toast"
 
 // ---- 类型定义 ----
 
@@ -289,6 +291,8 @@ export function ApiManagement(props: ApiManagementProps) {
   // 使用 createCachedStore 替代 createStore，自动缓存且保持细粒度响应式
   const [endpointData, setEndpointData] = cache.createCachedStore<EndpointData>("endpointData", { ...emptyEndpoint })
   const [sending, setSending] = createSignal(false)
+  // 进行中请求的 ID：后端据此可中途取消；空表示当前没有进行中的请求
+  const [activeRequestId, setActiveRequestId] = createSignal("")
   const [saveDialogOpen, setSaveDialogOpen] = createSignal(false)
   const [saveName, setSaveName] = createSignal("")
   const [selectedSaveLocation, setSelectedSaveLocation] = cache.createCachedSignal<string>("selectedSaveLocation", "")
@@ -365,7 +369,7 @@ export function ApiManagement(props: ApiManagementProps) {
       const tree = await ProjectService.GetProjectTree(props.projectId)
       setTreeData((tree || []).map(mapModule))
     } catch (e) {
-      console.error("加载项目树失败", e)
+      toastError(e, "error.op.loadFailed")
     }
   }
 
@@ -453,17 +457,17 @@ export function ApiManagement(props: ApiManagementProps) {
     try {
       // 从选中的树节点解析目标模块与父文件夹
       const location = createFolderLocation()
-      if (!location) { console.error(t("module.notSelected")); return }
+      if (!location) { toastWarning(t("module.notSelected")); return }
       const { moduleId, folderId } = resolveSaveLocation(location)
       if (!moduleId) {
-        console.error("无法确定所属模块 ID")
+        toastWarning(t("module.notSelected"))
         return
       }
       await FolderService.CreateFolder(moduleId, folderId ?? null, name)
       setCreateFolderOpen(false)
       await loadTree()
     } catch (e) {
-      console.error("创建文件夹失败", e)
+      toastError(e, "error.op.createFailed")
     }
   }
 
@@ -482,7 +486,7 @@ export function ApiManagement(props: ApiManagementProps) {
       setCreateModuleOpen(false)
       await loadTree()
     } catch (e) {
-      console.error("创建模块失败", e)
+      toastError(e, "error.op.createFailed")
     }
   }
 
@@ -510,7 +514,7 @@ export function ApiManagement(props: ApiManagementProps) {
       // 新模块默认展开，便于用户立即看到转换结果
       if (created) setExpandedIds([...new Set([...expandedIds(), created.id])])
     } catch (e) {
-      console.error("转换为模块失败", e)
+      toastError(e, "error.op.convertFailed")
     } finally {
       setConverting(false)
     }
@@ -737,7 +741,7 @@ export function ApiManagement(props: ApiManagementProps) {
           })
         } else setResponseData(null)
       }
-    } catch (e) { console.error("加载端点详情失败", e) }
+    } catch (e) { toastError(e, "error.op.loadFailed") }
   }
 
   // ---- 切换标签页 ----
@@ -787,8 +791,12 @@ export function ApiManagement(props: ApiManagementProps) {
     const ep = endpointData
     if (!ep.id) return
     setSending(true)
+    // 每次发送生成唯一 ID，后端据此登记进行中的请求，用户可随时取消
+    const requestId = crypto.randomUUID()
+    setActiveRequestId(requestId)
     try {
       const sendData = new SendRequestData()
+      sendData.requestId = requestId
       const ct = requestTabs().find(t => t.id === activeTabId())
       sendData.endpointId = ct?.saved ? ep.id : ""
       // 已保存端点：带上所属模块 ID，后端据此记录请求历史
@@ -806,8 +814,9 @@ export function ApiManagement(props: ApiManagementProps) {
       sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript)
       sendData.postResponseScript = deriveScriptFromOps(ep.operations, "post", ep.postResponseScript)
 
-      // 流式响应按 endpointId 推送事件，发送前清理上一次的缓冲
-      if (ct?.saved && ep.id) clearStream(ep.id)
+      // 流 ID 由后端生成且全局唯一，发送前清掉上一条流的缓冲，避免 store 无限增长
+      const previousStreamId = responseData()?.streamId
+      if (previousStreamId) clearStream(previousStreamId)
       const resp = await HTTPService.SendRequest(sendData)
       if (resp) {
         if (resp.streaming) {
@@ -828,13 +837,15 @@ export function ApiManagement(props: ApiManagementProps) {
             cookies: resp.cookies as any || [], contentType: resp.contentType,
             actualRequest: resp.actualRequest,
             scripts: (resp.scripts as any) || undefined,
+            truncated: resp.truncated, truncatedLimit: resp.truncatedLimit,
+            rawBodyOmitted: resp.rawBodyOmitted, skipped: resp.skipped,
           })
         }
       }
     } catch (e) {
       // 请求失败（如协议错误、连接失败、超时等）：将错误信息展示到响应框，而非仅打印到控制台
-      console.error("发送请求失败", e)
-      const message = e instanceof Error ? e.message : String(e)
+      toastError(e, "error.op.sendFailed")
+      const message = errorMessage(e, "error.op.sendFailed")
       setResponseData({
         statusCode: 0,
         timing: toTimingData(null),
@@ -842,7 +853,18 @@ export function ApiManagement(props: ApiManagementProps) {
         actualRequest: null,
         error: message,
       })
-    } finally { setSending(false) }
+    } finally { setSending(false); setActiveRequestId("") }
+  }
+
+  /** 取消进行中的请求 */
+  const handleCancelSend = async () => {
+    const id = activeRequestId()
+    if (!id) return
+    try {
+      await HTTPService.CancelRequest(id)
+    } catch (e) {
+      toastError(e)
+    }
   }
 
   // ---- 保存逻辑 ----
@@ -883,7 +905,7 @@ export function ApiManagement(props: ApiManagementProps) {
       })
       setRequestTabs(pt => pt.map(t => t.id === ep.id ? { ...t, dirty: false } : t))
       await loadTree()
-    } catch (e) { console.error("保存端点失败", e) }
+    } catch (e) { toastError(e, "error.op.saveFailed") }
   }
 
   const handleSaveToProject = async () => {
@@ -894,7 +916,7 @@ export function ApiManagement(props: ApiManagementProps) {
     setSaving(true)
     try {
       const { moduleId, folderId } = resolveSaveLocation(selectedSaveLocation())
-      if (!moduleId) { console.error(t("module.notSelected")); return }
+      if (!moduleId) { toastWarning(t("module.notSelected")); return }
       const created = await EndpointService.CreateFullEndpoint(moduleId, folderId ?? null, {
         id: "", name, method: ep.method, path: ep.path,
         bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
@@ -932,7 +954,7 @@ export function ApiManagement(props: ApiManagementProps) {
         setUnsavedRequests(p => { const n = { ...p }; delete n[ct.id]; return n })
         setActiveTabId(created.id); setSaveDialogOpen(false); await loadTree()
       }
-    } catch (e) { console.error("保存到项目失败", e) } finally { setSaving(false) }
+    } catch (e) { toastError(e, "error.op.saveFailed") } finally { setSaving(false) }
   }
 
   // ---- 关闭标签页 ----
@@ -993,7 +1015,7 @@ export function ApiManagement(props: ApiManagementProps) {
     const id = deletingEndpointId()
     if (!id) return
     setDeleting(true)
-    try { await EndpointService.DeleteEndpoint(id); closeTab(id); setDeleteConfirmOpen(false); setDeletingEndpointId(null); await loadTree() } catch (e) { console.error("删除端点失败", e) } finally { setDeleting(false) }
+    try { await EndpointService.DeleteEndpoint(id); closeTab(id); setDeleteConfirmOpen(false); setDeletingEndpointId(null); await loadTree() } catch (e) { toastError(e, "error.op.deleteFailed") } finally { setDeleting(false) }
   }
 
   // ---- 树节点操作：重命名（模块 / 文件夹 / 端点） ----
@@ -1017,7 +1039,7 @@ export function ApiManagement(props: ApiManagementProps) {
       if (endpointData.id === node.id) setEndpointData({ name } as Partial<EndpointData>)
       setRenameOpen(false); setRenameNode(null)
       await loadTree()
-    } catch (e) { console.error("重命名失败", e) } finally { setRenaming(false) }
+    } catch (e) { toastError(e, "error.op.renameFailed") } finally { setRenaming(false) }
   }
 
   // ---- 树节点操作：复制（模块 / 文件夹 / 端点） ----
@@ -1027,7 +1049,7 @@ export function ApiManagement(props: ApiManagementProps) {
       else if (node.type === "folder") await FolderService.DuplicateFolder(node.id)
       else await EndpointService.DuplicateEndpoint(node.id)
       await loadTree()
-    } catch (e) { console.error("复制失败", e) }
+    } catch (e) { toastError(e, "error.op.copyFailed") }
   }
 
   // ---- 树节点操作：删除（模块 / 文件夹 / 端点） ----
@@ -1055,7 +1077,7 @@ export function ApiManagement(props: ApiManagementProps) {
       }
       setTreeDeleteOpen(false); setTreeDeleteNode(null)
       await loadTree()
-    } catch (e) { console.error("删除失败", e) } finally { setTreeDeleting(false) }
+    } catch (e) { toastError(e, "error.op.deleteFailed") } finally { setTreeDeleting(false) }
   }
 
   // ---- 树节点操作：移动（文件夹 / 端点，模块不可移动） ----
@@ -1081,7 +1103,7 @@ export function ApiManagement(props: ApiManagementProps) {
       else if (node.type === "folder") await FolderService.MoveFolderTo(node.id, moduleId, folderId ?? null)
       setMoveOpen(false); setMoveNode(null)
       await loadTree()
-    } catch (e) { console.error("移动失败", e) } finally { setMoving(false) }
+    } catch (e) { toastError(e, "error.op.moveFailed") } finally { setMoving(false) }
   }
 
   /** 移动目标选择器中禁止选中的节点（被移动节点自身及其后代） */
@@ -1116,7 +1138,7 @@ export function ApiManagement(props: ApiManagementProps) {
         // 默认全选所有接口
         setOpenApiSelectedIndexes(new Set((preview?.items ?? []).map(item => item.index)))
       } catch (e) {
-        console.error("解析接口文档失败", e)
+        toastError(e, "error.op.previewFailed")
         setOpenApiError(t("openapi.parseFailed"))
       }
     }
@@ -1135,6 +1157,7 @@ export function ApiManagement(props: ApiManagementProps) {
         selectedIndexes: Array.from(openApiSelectedIndexes()),
       })
       setOpenApiOpen(false)
+      toastSuccess(t("importexport.imported"))
       // 模块名/环境/前置 URL 可能变化：刷新树、项目环境列表，并通知 baseUrl 变更
       await loadTree()
       try {
@@ -1143,7 +1166,7 @@ export function ApiManagement(props: ApiManagementProps) {
       } catch { /* 刷新环境列表失败时忽略 */ }
       notifyBaseUrlsChanged()
     } catch (e) {
-      console.error("导入接口文档失败", e)
+      toastError(e, "error.op.importFailed")
       setOpenApiError(t("openapi.importFailed"))
     } finally { setOpenApiImporting(false) }
   }
@@ -1173,7 +1196,7 @@ export function ApiManagement(props: ApiManagementProps) {
         // 默认全选所有可导入项
         setApifoxSelectedIndexes(new Set((preview?.items ?? []).map(item => item.index)))
       } catch (e) {
-        console.error("解析 Apifox 文件失败", e)
+        toastError(e, "error.op.previewFailed")
         setApifoxError(t("apifox.parseFailed"))
       }
     }
@@ -1186,6 +1209,7 @@ export function ApiManagement(props: ApiManagementProps) {
     try {
       await ApifoxService.ImportApifox(props.projectId, apifoxJson(), Array.from(apifoxSelectedIndexes()))
       setApifoxOpen(false)
+      toastSuccess(t("importexport.imported"))
       await loadTree()
       try {
         const envs = await EnvironmentService.ListEnvironments(props.projectId)
@@ -1193,7 +1217,7 @@ export function ApiManagement(props: ApiManagementProps) {
       } catch { /* 刷新环境列表失败时忽略 */ }
       notifyBaseUrlsChanged()
     } catch (e) {
-      console.error("导入 Apifox 失败", e)
+      toastError(e, "error.op.importFailed")
       setApifoxError(t("apifox.importFailed"))
     } finally { setApifoxImporting(false) }
   }
@@ -1201,7 +1225,7 @@ export function ApiManagement(props: ApiManagementProps) {
   // ---- 新建文档（doc 类型端点，作为叶子与接口同级） ----
   const handleCreateDocument = async (parentNodeId: string | undefined, _type?: "module" | "folder") => {
     const location = parentNodeId && findNodeInTree(treeData(), parentNodeId) ? parentNodeId : getEffectiveSaveLocation()
-    if (!location) { console.error(t("module.notSelected")); return }
+    if (!location) { toastWarning(t("module.notSelected")); return }
     const { moduleId, folderId } = resolveSaveLocation(location)
     if (!moduleId) return
     try {
@@ -1212,13 +1236,13 @@ export function ApiManagement(props: ApiManagementProps) {
         setActiveTabId(doc.id)
         await loadSavedEndpointData(doc.id)
       }
-    } catch (e) { console.error("创建文档失败", e) }
+    } catch (e) { toastError(e, "error.op.createFailed") }
   }
 
   // ---- 新建 WebSocket 端点（直接创建并打开） ----
   const handleCreateTyped = async (parentNodeId: string | undefined, _type: "module" | "folder" | undefined, endpointType: "websocket") => {
     const location = parentNodeId && findNodeInTree(treeData(), parentNodeId) ? parentNodeId : getEffectiveSaveLocation()
-    if (!location) { console.error(t("module.notSelected")); return }
+    if (!location) { toastWarning(t("module.notSelected")); return }
     const { moduleId, folderId } = resolveSaveLocation(location)
     if (!moduleId) return
     const name = t("endpoint.newWebSocket")
@@ -1230,7 +1254,7 @@ export function ApiManagement(props: ApiManagementProps) {
         setActiveTabId(ep.id)
         await loadSavedEndpointData(ep.id)
       }
-    } catch (e) { console.error("创建端点失败", e) }
+    } catch (e) { toastError(e, "error.op.createFailed") }
   }
 
   // ---- 设置模块下接口显示方式（名称 / URL） ----
@@ -1238,7 +1262,7 @@ export function ApiManagement(props: ApiManagementProps) {
     try {
       await ModuleService.SetEndpointDisplay(moduleId, mode)
       await loadTree()
-    } catch (e) { console.error("设置接口显示方式失败", e) }
+    } catch (e) { toastError(e, "error.op.saveFailed") }
   }
 
   // ---- 端点拖拽排序 ----
@@ -1246,7 +1270,7 @@ export function ApiManagement(props: ApiManagementProps) {
     try {
       await EndpointService.ReorderEndpoints(orderedIds)
       await loadTree()
-    } catch (e) { console.error("排序端点失败", e) }
+    } catch (e) { toastError(e, "error.op.reorderFailed") }
   }
 
   // ---- 打开模块/文件夹设置 ----
@@ -1317,7 +1341,7 @@ export function ApiManagement(props: ApiManagementProps) {
             >
               {() => endpointData.id ? <EndpointDetail
                 endpoint={endpointData} response={responseData()} sending={sending()}
-                isUnsaved={isActiveTabUnsaved()} onSend={handleSend} onSave={handleSave}
+                isUnsaved={isActiveTabUnsaved()} onSend={handleSend} onCancelSend={handleCancelSend} onSave={handleSave}
                 onDelete={handleDelete} onChange={handleDataChange}
                 currentEnvironmentId={getCurrentEnvironmentId(props.projectId)}
                 environmentBaseUrls={environmentBaseUrls()}

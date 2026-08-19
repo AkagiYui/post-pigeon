@@ -7,6 +7,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { t } from "@/hooks/useI18n"
+import { toastError } from "@/stores/toast"
 
 export interface EndpointSettingsEditorProps {
   timeout: number
@@ -19,10 +20,43 @@ export interface EndpointSettingsEditorProps {
   description: string
   /** 接口级代理选择（EndpointProxy 的 JSON，空表示 inherit 跟随项目） */
   proxyConfig?: string
+  /** 接口级 TLS 选择（EndpointTLS 的 JSON，空表示 inherit 跟随项目） */
+  tlsConfig?: string
   /** 所属项目 ID，用于拉取可选代理列表 */
   projectId?: string
-  onChange?: (data: { timeout?: number; followRedirects?: boolean; status?: string; tags?: string; description?: string; proxyConfig?: string }) => void
+  onChange?: (data: {
+    timeout?: number
+    followRedirects?: boolean
+    status?: string
+    tags?: string
+    description?: string
+    proxyConfig?: string
+    tlsConfig?: string
+  }) => void
 }
+
+/** 将接口 TLS JSON 转为下拉选择的 key */
+function tlsModeFromJSON(json?: string): string {
+  if (!json || !json.trim()) return "inherit"
+  try {
+    const parsed = JSON.parse(json) as { mode?: string }
+    return parsed.mode === "strict" || parsed.mode === "insecure" ? parsed.mode : "inherit"
+  } catch {
+    return "inherit"
+  }
+}
+
+/** 将下拉选择的 key 转回接口 TLS JSON（inherit 存空串） */
+function tlsJSONFromMode(mode: string): string {
+  return mode === "strict" || mode === "insecure" ? JSON.stringify({ mode }) : ""
+}
+
+/** 接口级证书校验选项 */
+const tlsOptions = () => [
+  { value: "inherit", label: t("tls.endpoint.inherit") },
+  { value: "strict", label: t("tls.endpoint.strict") },
+  { value: "insecure", label: t("tls.endpoint.insecure") },
+]
 
 /** 将接口代理 JSON 转为下拉选择的 key */
 function proxyKeyFromJSON(json?: string): string {
@@ -80,7 +114,7 @@ export function EndpointSettingsEditor(props: EndpointSettingsEditorProps) {
       const list = await ProxyService.ListSelectableProxies(pid || "")
       setSelectable(list || [])
     } catch (e) {
-      console.error("加载可选代理失败", e)
+      toastError(e, "error.op.loadFailed")
       setSelectable([])
     }
   }))
@@ -154,6 +188,16 @@ export function EndpointSettingsEditor(props: EndpointSettingsEditorProps) {
           options={proxyOptions()}
           value={proxyKeyFromJSON(props.proxyConfig)}
           onChange={(v) => props.onChange?.({ proxyConfig: proxyJSONFromKey(v) })}
+          size="sm"
+          class="w-64"
+        />
+      </div>
+      <div class="flex items-center gap-3">
+        <label class="text-sm font-medium w-28 shrink-0">{t("tls.endpoint.label")}</label>
+        <Select
+          options={tlsOptions()}
+          value={tlsModeFromJSON(props.tlsConfig)}
+          onChange={(v) => props.onChange?.({ tlsConfig: tlsJSONFromMode(v) })}
           size="sm"
           class="w-64"
         />

@@ -9,6 +9,7 @@ import { CodeEditor } from "@/components/ui/code-editor"
 import { Input } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
+import { toastError } from "@/stores/toast"
 
 export interface ScriptLibrarySettingsProps {
   projectId: string | null
@@ -27,7 +28,7 @@ export function ScriptLibrarySettings(props: ScriptLibrarySettingsProps) {
       const list = await ScriptLibraryService.ListScripts(props.projectId)
       setScripts((list || []) as ScriptLibrary[])
       if (!selectedId() && list && list.length > 0) select(list[0])
-    } catch (e) { console.error("加载脚本库失败", e) }
+    } catch (e) { toastError(e, "error.op.loadFailed") }
   }
   onMount(load)
 
@@ -43,7 +44,7 @@ export function ScriptLibrarySettings(props: ScriptLibrarySettingsProps) {
       const s = await ScriptLibraryService.CreateScript(props.projectId, t("scriptLib.untitled"), "", "")
       await load()
       if (s) select(s)
-    } catch (e) { console.error("新建脚本失败", e) }
+    } catch (e) { toastError(e, "error.op.createFailed") }
   }
 
   const save = async () => {
@@ -52,7 +53,7 @@ export function ScriptLibrarySettings(props: ScriptLibrarySettingsProps) {
     try {
       await ScriptLibraryService.UpdateScript(selectedId(), name(), content(), "")
       await load()
-    } catch (e) { console.error("保存脚本失败", e) } finally { setSaving(false) }
+    } catch (e) { toastError(e, "error.op.saveFailed") } finally { setSaving(false) }
   }
 
   const remove = async (id: string) => {
@@ -60,7 +61,7 @@ export function ScriptLibrarySettings(props: ScriptLibrarySettingsProps) {
       await ScriptLibraryService.DeleteScript(id)
       if (selectedId() === id) { setSelectedId(""); setName(""); setContent("") }
       await load()
-    } catch (e) { console.error("删除脚本失败", e) }
+    } catch (e) { toastError(e, "error.op.deleteFailed") }
   }
 
   return (

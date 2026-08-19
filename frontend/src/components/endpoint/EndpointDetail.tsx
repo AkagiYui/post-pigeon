@@ -20,6 +20,7 @@ import { type AuthType, type BodyType, CONTENT_TYPES, type EndpointType, formatS
 import { byteLength, cn, extractPathParams, hasURLScheme } from "@/lib/utils"
 import { responseLayout, setResponseLayout } from "@/stores/app"
 import { markConnecting, streamStatus } from "@/stores/stream"
+import { toastError } from "@/stores/toast"
 
 import { AuthEditor } from "./AuthEditor"
 import { BodyEditor } from "./BodyEditor"
@@ -282,6 +283,14 @@ export interface ResponseData {
   scripts?: ScriptResultsData
   /** 请求失败时的错误信息（如协议错误、连接失败等）；有值时展示错误而非正常响应 */
   error?: string
+  /** 响应体超过限额被截断，只保留了前 size 字节 */
+  truncated?: boolean
+  /** 触发截断时的字节上限，用于提示文案 */
+  truncatedLimit?: number
+  /** 响应过大未回传原始字节，字符集切换不可用 */
+  rawBodyOmitted?: boolean
+  /** 请求被前置脚本 pm.execution.skipRequest() 跳过，未真正发出 */
+  skipped?: boolean
   /** 响应为 SSE 流：以实时事件流展示（Body 为空，事件按 streamId 推送） */
   streaming?: boolean
   /** SSE 流连接标识 */
@@ -309,6 +318,8 @@ export interface EndpointDetailProps {
   isUnsaved?: boolean
   /** 发送请求回调 */
   onSend?: () => void
+  /** 取消进行中请求的回调 */
+  onCancelSend?: () => void
   /** 保存回调 */
   onSave?: () => void
   /** 删除回调 */
@@ -582,14 +593,14 @@ export function EndpointDetail(props: EndpointDetailProps) {
   const wsConnect = async () => {
     markConnecting(ep().id)
     // 传入接口级代理选择：WebSocket 与普通请求一样按「接口→项目→全局」解析生效代理
-    try { await WebSocketService.Connect(ep().id, wsUrl(ep().baseUrl, ep().path), wsHeaders(), ep().proxyConfig || "", ep().tlsConfig || "") } catch (e) { console.error("WebSocket 连接失败", e) }
+    try { await WebSocketService.Connect(ep().id, wsUrl(ep().baseUrl, ep().path), wsHeaders(), ep().proxyConfig || "", ep().tlsConfig || "") } catch (e) { toastError(e, "error.op.connectFailed") }
   }
-  const wsDisconnect = async () => { try { await WebSocketService.Close(ep().id) } catch (e) { console.error(e) } }
+  const wsDisconnect = async () => { try { await WebSocketService.Close(ep().id) } catch (e) { toastError(e) } }
   // 停止流式响应（响应体为 text/event-stream 的流式 HTTP 响应）
   const stopStream = async () => {
     const id = props.response?.streamId
     if (!id) return
-    try { await HTTPService.StopStream(id) } catch (e) { console.error(e) }
+    try { await HTTPService.StopStream(id) } catch (e) { toastError(e) }
   }
 
   // 文档头部：名称 + 保存/删除
@@ -657,12 +668,23 @@ export function EndpointDetail(props: EndpointDetailProps) {
 
           {/* 主操作：HTTP 为发送；WebSocket 为连接/断开 */}
           <Show when={isWs()} fallback={
-            <Tooltip content="Ctrl+Enter">
-              <Button size="sm" onClick={props.onSend} disabled={props.sending}>
-                <Icon icon="lucide:send" class="h-3.5 w-3.5" />
-                {props.sending ? t("common.sending") : t("endpoint.send")}
-              </Button>
-            </Tooltip>
+            // 发送中时按钮切换为「取消」：此前长超时请求点下去只能干等
+            <Show
+              when={!props.sending}
+              fallback={
+                <Button size="sm" variant="outline" onClick={props.onCancelSend}>
+                  <Icon icon="lucide:square" class="h-3.5 w-3.5" />
+                  {t("endpoint.cancelSend")}
+                </Button>
+              }
+            >
+              <Tooltip content="Ctrl+Enter">
+                <Button size="sm" onClick={props.onSend}>
+                  <Icon icon="lucide:send" class="h-3.5 w-3.5" />
+                  {t("endpoint.send")}
+                </Button>
+              </Tooltip>
+            </Show>
           }>
             <Show when={wsStatus() === "open"} fallback={
               <Button size="sm" onClick={wsConnect}><Icon icon="lucide:plug-zap" class="h-3.5 w-3.5" />{t("stream.connect")}</Button>
@@ -728,6 +750,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                     tags={ep().tags}
                     description={ep().description}
                     proxyConfig={ep().proxyConfig}
+                    tlsConfig={ep().tlsConfig}
                     projectId={props.projectId}
                     onChange={(patch) => props.onChange?.(patch)}
                   />
@@ -816,6 +839,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                                 onFormatChange={setFormat}
                                 encoding={encoding()}
                                 onEncodingChange={setEncoding}
+                                encodingDisabled={props.response?.rawBodyOmitted}
                               />
                             </Show>
                             {/* 状态码：hover 展示该状态码的名称与释义 */}

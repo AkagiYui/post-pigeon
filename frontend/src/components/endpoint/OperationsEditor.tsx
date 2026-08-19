@@ -15,6 +15,7 @@ import { Select } from "@/components/ui/select"
 import { t } from "@/hooks/useI18n"
 import type { OperationStage, OperationType } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { toastError } from "@/stores/toast"
 
 export interface OperationsEditorProps {
   operations: OperationRow[]
@@ -71,7 +72,7 @@ export function OperationsEditor(props: OperationsEditorProps) {
     try {
       const list = await ScriptLibraryService.ListScripts(props.projectId)
       setLibraries((list || []) as ScriptLibrary[])
-    } catch (e) { console.error("获取脚本库失败", e) }
+    } catch (e) { toastError(e, "error.op.loadFailed") }
   })
 
   // 当前阶段的操作（保持在整表中的索引以便原地更新）

@@ -17,6 +17,7 @@ import { Table } from "@/components/ui/table"
 import { Tabs } from "@/components/ui/tabs"
 import { t } from "@/hooks/useI18n"
 import type { AuthType, OperationStage, OperationType } from "@/lib/types"
+import { toastError } from "@/stores/toast"
 
 // ---- 认证 / 操作 模型 <-> 编辑态 转换 ----
 
@@ -97,7 +98,7 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
         setAuth(authToState(s?.authType || "inherit", s?.authData || ""))
         setOperations((s?.operations || []).map(opToRow))
       }
-    } catch (e) { console.error("加载作用域设置失败", e) }
+    } catch (e) { toastError(e, "error.op.loadFailed") }
   }
   // 每次渲染时确保加载（open 变化触发）
   createEffectOnOpen(() => props.open, ensureLoaded)
@@ -115,7 +116,7 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
       }
       setLoadedFor("")
       props.onClose()
-    } catch (e) { console.error("保存作用域设置失败", e) } finally { setSaving(false) }
+    } catch (e) { toastError(e, "error.op.saveFailed") } finally { setSaving(false) }
   }
 
   const tabs = () => {

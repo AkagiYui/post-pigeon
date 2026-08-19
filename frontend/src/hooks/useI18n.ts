@@ -95,6 +95,8 @@ export async function changeLanguage(lang: Language | "system") {
   try {
     await SettingsService.SetSetting("language", lang === "system" ? "" : lang)
   } catch (e) {
+    // 这里刻意不弹 toast：toast 文案要经 i18n 渲染，而本模块正是 i18n 自身，
+    // 互相 import 会形成循环依赖；语言偏好没存住也不影响当前会话的使用。
     console.warn("保存语言设置失败", e)
   }
 }

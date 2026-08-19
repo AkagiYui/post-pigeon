@@ -1,6 +1,7 @@
 // SplitPane 分割面板组件，支持拖拽调整大小
 import { createSignal, type JSX, onCleanup, Show, splitProps } from "solid-js"
 
+import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
 
 export interface SplitPaneProps {
@@ -58,6 +59,25 @@ export function SplitPane(props: SplitPaneProps) {
     document.addEventListener("mouseup", handleMouseUp)
   }
 
+  /** 键盘调整：方向键按步进移动，Home/End 直接到最小/最大 */
+  const handleKeyDown = (e: KeyboardEvent) => {
+    if (local.collapsed) return
+    const min = local.minSize || 150
+    const max = local.maxSize || 600
+    const step = e.shiftKey ? 50 : 10
+    let next: number | null = null
+    switch (e.key) {
+      case "ArrowLeft": next = size() - step; break
+      case "ArrowRight": next = size() + step; break
+      case "Home": next = min; break
+      case "End": next = max; break
+      case "Enter": local.onCollapsedChange?.(true); e.preventDefault(); return
+      default: return
+    }
+    e.preventDefault()
+    setSize(Math.max(min, Math.min(max, next)))
+  }
+
   onCleanup(() => {
     setDragging(false)
   })
@@ -73,12 +93,23 @@ export function SplitPane(props: SplitPaneProps) {
           {local.left}
         </div>
         {/* 分割条 */}
+        {/* 分隔条：以 separator 语义暴露当前/最小/最大值，并支持键盘调整，
+            否则只有能精确拖拽鼠标的用户才改得动面板宽度 */}
         <div
+          role="separator"
+          tabIndex={0}
+          aria-orientation="vertical"
+          aria-label={t("splitPane.resize")}
+          aria-valuenow={Math.round(size())}
+          aria-valuemin={local.minSize || 150}
+          aria-valuemax={local.maxSize || 600}
           class={cn(
             "w-px shrink-0 cursor-col-resize bg-border hover:bg-accent/30 transition-colors relative",
+            "focus-visible:outline-none focus-visible:bg-accent",
             dragging() && "bg-accent/50",
           )}
           onMouseDown={handleMouseDown}
+          onKeyDown={handleKeyDown}
         >
           {/* 扩展可点击区域（不可见） */}
           <div class="absolute inset-y-0 -left-2 -right-2 cursor-col-resize" />
@@ -95,6 +126,8 @@ export function SplitPane(props: SplitPaneProps) {
         {/* 折叠时的展开按钮 */}
         <Show when={local.collapsed}>
           <button
+            type="button"
+            aria-label={t("splitPane.expand")}
             class="absolute left-0 top-1/2 -translate-y-1/2 z-10 bg-surface border border-border rounded-r-md p-1 hover:bg-muted transition-colors"
             onClick={() => local.onCollapsedChange?.(false)}
           >

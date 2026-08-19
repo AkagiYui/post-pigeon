@@ -13,6 +13,7 @@ import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
+import { toastError } from "@/stores/toast"
 
 /** 自定义代理编辑行（前端态） */
 interface ProxyRow {
@@ -80,7 +81,7 @@ export function ProxySettingsPanel(props: ProxySettingsPanelProps) {
         }))
       setRows(customs)
     } catch (e) {
-      console.error("加载代理设置失败", e)
+      toastError(e, "error.op.loadFailed")
     }
   }
 
@@ -135,7 +136,7 @@ export function ProxySettingsPanel(props: ProxySettingsPanelProps) {
       setSaved(true)
       await load()
     } catch (e) {
-      console.error("保存代理设置失败", e)
+      toastError(e, "error.op.saveFailed")
     } finally {
       setSaving(false)
     }

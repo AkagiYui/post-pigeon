@@ -9,6 +9,7 @@ import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Table } from "@/components/ui/table"
 import { t } from "@/hooks/useI18n"
+import { toastError } from "@/stores/toast"
 
 interface VarRow {
   id: string
@@ -32,7 +33,7 @@ export function GlobalVariablesSettings(props: GlobalVariablesSettingsProps) {
     try {
       const list = await GlobalVariableService.ListGlobalVariables(props.projectId)
       setRows((list || []).map(v => ({ id: crypto.randomUUID(), key: v.key, value: v.value, description: v.description, enabled: v.enabled })))
-    } catch (e) { console.error("加载全局变量失败", e) }
+    } catch (e) { toastError(e, "error.op.loadFailed") }
   })
 
   const addRow = () => setRows(prev => [...prev, { id: crypto.randomUUID(), key: "", value: "", description: "", enabled: true }])
@@ -47,7 +48,7 @@ export function GlobalVariablesSettings(props: GlobalVariablesSettingsProps) {
       const models = rows().filter(r => r.key.trim()).map(r => new GlobalVariable({ key: r.key, value: r.value, description: r.description, enabled: r.enabled }))
       await GlobalVariableService.SaveGlobalVariables(props.projectId, models)
       setSaved(true)
-    } catch (e) { console.error("保存全局变量失败", e) } finally { setSaving(false) }
+    } catch (e) { toastError(e, "error.op.saveFailed") } finally { setSaving(false) }
   }
 
   return (

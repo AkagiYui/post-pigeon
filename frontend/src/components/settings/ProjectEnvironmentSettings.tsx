@@ -22,6 +22,7 @@ import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
 import { notifyBaseUrlsChanged, setProjectEnvironmentsList } from "@/stores/app"
+import { showToast, toastError } from "@/stores/toast"
 
 export interface ProjectEnvironmentSettingsProps {
   /** 项目 ID */
@@ -70,7 +71,7 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
         }
       }
     } catch (e) {
-      console.error("加载环境列表失败", e)
+      toastError(e, "error.op.loadFailed")
     } finally {
       setLoading(false)
     }
@@ -89,14 +90,14 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
       setCreating(true)
       const newEnv = await EnvironmentService.CreateEnvironment(props.projectId, newEnvName().trim())
       if (!newEnv) {
-        console.error("创建环境失败：返回空结果")
+        showToast("error", t("error.op.createFailed"))
         return
       }
       setNewEnvName("")
       setSelectedEnvId(newEnv.id)
       await loadEnvironments()
     } catch (e) {
-      console.error("创建环境失败", e)
+      toastError(e, "error.op.createFailed")
     } finally {
       setCreating(false)
     }
@@ -145,7 +146,7 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
       await EnvironmentService.DeleteEnvironment(envId)
       await loadEnvironments()
     } catch (e) {
-      console.error("删除环境失败", e)
+      toastError(e, "error.op.deleteFailed")
     }
   }
 
@@ -274,7 +275,7 @@ function EnvironmentDetailEditor(props: { projectId: string; environmentId: stri
       setOriginalEnvName(envName())
       await props.onEnvSaved?.()
     } catch (e) {
-      console.error("保存环境设置失败", e)
+      toastError(e, "error.op.saveFailed")
     } finally {
       setSaving(false)
     }
@@ -288,7 +289,7 @@ function EnvironmentDetailEditor(props: { projectId: string; environmentId: stri
       setEnvName(name)
       setOriginalEnvName(name)
     } catch (e) {
-      console.error("加载环境名称失败", e)
+      toastError(e, "error.op.loadFailed")
     }
   }
 
@@ -405,7 +406,7 @@ function ModuleBaseUrlsEditor(props: { ref: EditorSaveRef; projectId: string; en
       setBaseUrls(urlMap)
       setOriginalBaseUrls({ ...urlMap })
     } catch (e) {
-      console.error("加载模块前置 URL 失败", e)
+      toastError(e, "error.op.loadFailed")
     } finally {
       setLoading(false)
     }
@@ -510,7 +511,7 @@ function EnvironmentVariablesEditor(props: { ref: EditorSaveRef; environmentId: 
       setDraftEnabled(true)
       setDraftIsSecret(false)
     } catch (e) {
-      console.error("加载环境变量失败", e)
+      toastError(e, "error.op.loadFailed")
     }
   }
 

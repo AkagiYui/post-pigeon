@@ -12,6 +12,7 @@ import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
 import { METHOD_COLORS } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { toastError } from "@/stores/toast"
 
 const PAGE_SIZE = 50
 
@@ -50,7 +51,7 @@ function RequestHistoryPage() {
 
       setHasMore((list || []).length === PAGE_SIZE)
     } catch (e) {
-      console.error("加载请求历史失败", e)
+      toastError(e, "error.op.loadFailed")
     } finally {
       setLoading(false)
     }
@@ -79,7 +80,7 @@ function RequestHistoryPage() {
         setSelectedId(null)
       }
     } catch (err) {
-      console.error("删除历史记录失败", err)
+      toastError(err, "error.op.deleteFailed")
     }
   }
 

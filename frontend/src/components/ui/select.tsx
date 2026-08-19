@@ -45,6 +45,13 @@ const sizeClasses = {
   default: "h-8 text-sm px-3",
 }
 
+// Ark 把「空字符串」等同于「未选中」，于是 value:"" 的选项（如「无」「默认」）
+// 既显示不出来、也选不回去。这里在与 Ark 通信时把 "" 映射成一个用户数据里不会出现的
+// 哨兵值，出入口各转换一次，使空值成为一个正常可选项。
+const EMPTY_SENTINEL = "\u0000__empty__"
+const toArkValue = (value: string) => (value === "" ? EMPTY_SENTINEL : value)
+const fromArkValue = (value: string) => (value === EMPTY_SENTINEL ? "" : value)
+
 const textSizeClasses = {
   xs: "text-[11px]",
   sm: "text-xs",
@@ -61,7 +68,13 @@ export function Select(props: SelectProps) {
   const textSizeCls = () => textSizeClasses[local.textSize || local.size || "default"]
 
   // 当前语言下的实时标签（options 的 label 会随 i18n 变化）
-  const liveLabel = (value: string) => local.options.find(o => o.value === value)?.label ?? value
+  const liveLabel = (rawArkValue: string) => {
+    const value = fromArkValue(rawArkValue)
+    return local.options.find(o => o.value === value)?.label ?? value
+  }
+
+  /** 当前值对应的 Ark 选中数组；值不在选项里时返回空数组以展示 placeholder */
+  const selectedArkValue = () => local.options.some(o => o.value === local.value) ? [toArkValue(local.value)] : []
 
   // 稳定的 collection：仅当「值集合」（value + disabled）变化时才重建。
   // 父组件常在每次渲染重建 options（例如标签随 i18n 变化 → 全新对象数组），若据此重建
@@ -75,7 +88,7 @@ export function Select(props: SelectProps) {
     if (key !== cacheKey) {
       cacheKey = key
       cached = createListCollection<SelectOption>({
-        items: opts.map(o => ({ ...o })),
+        items: opts.map(o => ({ ...o, value: toArkValue(o.value) })),
         itemToValue: (item) => item.value,
         itemToString: (item) => liveLabel(item.value),
         isItemDisabled: (item) => !!item.disabled,
@@ -88,11 +101,12 @@ export function Select(props: SelectProps) {
     <div class={cn("relative", local.class)}>
       <ArkSelect.Root
         collection={collection()}
-        value={local.value ? [local.value] : []}
+        value={selectedArkValue()}
         // 仅在值真正变化时上抛，作为对残余回吐的二次防护
         onValueChange={(details) => {
-          const v = details.value[0]
-          if (v && v !== local.value) local.onChange(v)
+          if (details.value.length === 0) return
+          const v = fromArkValue(details.value[0])
+          if (v !== local.value) local.onChange(v)
         }}
         disabled={local.disabled}
         positioning={{ placement: "bottom", gutter: 4, sameWidth: true }}

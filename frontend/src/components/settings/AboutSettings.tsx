@@ -4,6 +4,7 @@ import { createSignal, onMount } from "solid-js"
 import { AppInfo, AppService } from "@/bindings/PostPigeon/internal/services"
 import { ExternalLink } from "@/components/ui/external-link"
 import { t } from "@/hooks/useI18n"
+import { toastError } from "@/stores/toast"
 
 /**
  * AboutSettings 关于页面
@@ -16,7 +17,7 @@ export function AboutSettings() {
       const info = await AppService.GetAppInfo()
       setAppInfo(info)
     } catch (error) {
-      console.error("获取应用信息失败:", error)
+      toastError(error, "error.op.loadFailed")
     }
   })
 
@@ -98,7 +99,7 @@ function BuildHashValue(props: { hash: string }) {
       // 2秒后重置状态
       setTimeout(() => setCopied(false), 2000)
     } catch (error) {
-      console.error("复制失败:", error)
+      toastError(error, "error.op.copyFailed")
     }
   }
 

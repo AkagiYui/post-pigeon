@@ -11,6 +11,7 @@ import { Tabs } from "@/components/ui/tabs"
 import { t } from "@/hooks/useI18n"
 import { formatBody, formatFromContentType } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import { toastError } from "@/stores/toast"
 
 export interface HistoryDetailProps {
   historyId: string
@@ -61,7 +62,7 @@ export function HistoryDetail(props: HistoryDetailProps) {
       const auto = formatFromContentType(data?.contentType)
       if (auto) setFormat(auto)
     } catch (e) {
-      console.error("加载请求历史详情失败", e)
+      toastError(e, "error.op.loadFailed")
     } finally {
       setLoading(false)
     }

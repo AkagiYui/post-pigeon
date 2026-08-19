@@ -10,6 +10,7 @@ import { Input } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
 import { clearStream, streamMessages, streamStatus } from "@/stores/stream"
+import { toastError } from "@/stores/toast"
 
 /** 组合 WebSocket URL（路径自带协议头时视为绝对地址） */
 export function wsUrl(baseUrl: string, path: string): string {
@@ -58,7 +59,7 @@ export function WebSocketResponse(props: { connId: string }) {
     try {
       await WebSocketService.Send(props.connId, input())
       setInput("")
-    } catch (e) { console.error("发送失败", e) }
+    } catch (e) { toastError(e, "error.op.sendFailed") }
   }
 
   return (

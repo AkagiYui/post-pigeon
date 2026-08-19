@@ -21,6 +21,7 @@ import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
 import { activeProjectId as storeActiveProjectId, closeProject, openProject, openProjectIds } from "@/stores/app"
+import { toastError, toastSuccess } from "@/stores/toast"
 
 interface Project {
   id: string
@@ -124,7 +125,7 @@ function HomePage() {
       const list = await ProjectService.ListProjects()
       setProjects(list || [])
     } catch (e) {
-      console.error("加载项目列表失败", e)
+      toastError(e, "error.op.loadFailed")
     } finally {
       setLoading(false)
     }
@@ -147,7 +148,7 @@ function HomePage() {
       setNewDesc("")
       await loadProjects()
     } catch (e) {
-      console.error("创建项目失败", e)
+      toastError(e, "error.op.createFailed")
     }
   }
 
@@ -183,7 +184,7 @@ function HomePage() {
       setProjectToDelete(null)
       await loadProjects()
     } catch (e) {
-      console.error("删除项目失败", e)
+      toastError(e, "error.op.deleteFailed")
     }
   }
 
@@ -198,9 +199,10 @@ function HomePage() {
       try {
         const text = await file.text()
         const project = await ImportExportService.ImportProject(text)
+        toastSuccess(t("importexport.imported"))
         if (project) await loadProjects()
       } catch (e) {
-        console.error("导入项目失败", e)
+        toastError(e, "error.op.importFailed")
       }
     }
     input.click()
@@ -217,8 +219,9 @@ function HomePage() {
       a.download = `${project.name || "project"}.json`
       a.click()
       URL.revokeObjectURL(url)
+      toastSuccess(t("importexport.exported"))
     } catch (e) {
-      console.error("导出项目失败", e)
+      toastError(e, "error.op.exportFailed")
     }
   }
 
@@ -245,7 +248,7 @@ function HomePage() {
     try {
       await ProjectService.ReorderProjects(reordered.map((p) => p.id))
     } catch (e) {
-      console.error("保存项目排序失败", e)
+      toastError(e, "error.op.reorderFailed")
       // 保存失败时重新加载原始顺序
       await loadProjects()
     }

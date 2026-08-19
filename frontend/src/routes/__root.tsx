@@ -7,8 +7,10 @@ import "@/styles.css"
 
 import { createRootRoute, Outlet } from "@tanstack/solid-router"
 
+import { AppErrorBoundary } from "@/components/AppErrorBoundary"
 import { Devtools } from "@/components/Devtools"
 import { AppLayout } from "@/components/layout/AppLayout"
+import { Toaster } from "@/components/ui/toaster"
 
 export const Route = createRootRoute({
   component: RootComponent,
@@ -17,7 +19,10 @@ export const Route = createRootRoute({
 function RootComponent() {
   return (
     <AppLayout>
-      <Outlet />
+      <AppErrorBoundary>
+        <Outlet />
+      </AppErrorBoundary>
+      <Toaster />
       <Devtools />
     </AppLayout>
   )

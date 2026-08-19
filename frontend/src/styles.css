@@ -546,3 +546,28 @@ body.dragging-tab iframe {
   background: var(--color-muted);
   color: var(--color-foreground);
 }
+/* ============================================
+   Toast 轻提示
+   ============================================ */
+
+/* 从右下角滑入；prefers-reduced-motion 下退化为纯淡入 */
+@keyframes toastIn {
+  from {
+    opacity: 0;
+    transform: translateY(8px) scale(0.98);
+  }
+  to {
+    opacity: 1;
+    transform: translateY(0) scale(1);
+  }
+}
+
+.toast-item {
+  animation: toastIn var(--transition-normal) var(--ease-out-quint);
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .toast-item {
+    animation: none;
+  }
+}

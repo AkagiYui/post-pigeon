@@ -7,6 +7,7 @@ import { EnvironmentService, ModuleService, ProjectService } from "@/../bindings
 import { ApiManagement } from "@/components/endpoint/ApiManagement"
 import { t } from "@/hooks/useI18n"
 import { getCurrentEnvironmentId, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
+import { toastError } from "@/stores/toast"
 
 export const Route = createFileRoute("/project/$id/")({
   component: ProjectWorkspacePage,
@@ -54,7 +55,7 @@ function ProjectWorkspacePage() {
         }
       }
     } catch (e) {
-      console.error("加载项目失败", e)
+      toastError(e, "error.op.loadFailed")
     } finally {
       setLoading(false)
     }

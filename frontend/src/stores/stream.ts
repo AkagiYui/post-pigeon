@@ -9,6 +9,8 @@ import { createRoot, createSignal } from "solid-js"
 export interface StreamMessage {
   kind: string // open, message, sent, close, error
   data: string
+  /** 为 true 时 data 是 base64 编码的二进制帧，展示前需自行解码 */
+  binary?: boolean
   timestamp: number
 }
 
@@ -27,13 +29,21 @@ const [state, setState] = createRoot(() => {
   return [get, set] as const
 })
 
-function applyEvent(ev: { connId: string; kind: string; data: string; timestamp: number }) {
+interface StreamEventPayload {
+  connId: string
+  kind: string
+  data: string
+  binary?: boolean
+  timestamp: number
+}
+
+function applyEvent(ev: StreamEventPayload | undefined) {
   if (!ev || !ev.connId) return
   setState((prev) => {
     const messages = { ...prev.messages }
     const status = { ...prev.status }
     const list = messages[ev.connId] ? [...messages[ev.connId]] : []
-    list.push({ kind: ev.kind, data: ev.data, timestamp: ev.timestamp })
+    list.push({ kind: ev.kind, data: ev.data, binary: ev.binary, timestamp: ev.timestamp })
     // 限制单连接缓冲上限，避免长连接内存膨胀
     if (list.length > 1000) list.splice(0, list.length - 1000)
     messages[ev.connId] = list
@@ -44,11 +54,13 @@ function applyEvent(ev: { connId: string; kind: string; data: string; timestamp:
   })
 }
 
-// 模块级订阅一次
+// 模块级订阅一次。
+// 这里刻意保留 console.error 而非 toast：本模块在应用挂载前就已执行，
+// 此时 Toaster 尚未渲染，提示无处可去。
 if (typeof window !== "undefined") {
   try {
-    Events.On(WS_EVENT, (e: any) => applyEvent(e?.data))
-    Events.On(HTTP_STREAM_EVENT, (e: any) => applyEvent(e?.data))
+    Events.On(WS_EVENT, (e: { data?: StreamEventPayload }) => applyEvent(e?.data))
+    Events.On(HTTP_STREAM_EVENT, (e: { data?: StreamEventPayload }) => applyEvent(e?.data))
   } catch (err) {
     console.error("订阅流式事件失败", err)
   }
@@ -69,11 +81,14 @@ export function markConnecting(connId: string) {
   setState((prev) => ({ ...prev, status: { ...prev.status, [connId]: "connecting" } }))
 }
 
-/** 清空指定连接的消息缓冲 */
+/** 清空指定连接的消息缓冲与状态。
+ * 状态必须一并清掉：只清消息会把上次的 closed/error 状态残留到新一轮连接上。 */
 export function clearStream(connId: string) {
   setState((prev) => {
     const messages = { ...prev.messages }
+    const status = { ...prev.status }
     delete messages[connId]
-    return { ...prev, messages }
+    delete status[connId]
+    return { messages, status }
   })
 }

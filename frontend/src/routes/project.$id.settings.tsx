@@ -9,6 +9,7 @@ import { GlobalVariablesSettings } from "@/components/settings/GlobalVariablesSe
 import { ProjectEnvironmentSettings } from "@/components/settings/ProjectEnvironmentSettings"
 import { ProxySettingsPanel } from "@/components/settings/ProxySettingsPanel"
 import { ScriptLibrarySettings } from "@/components/settings/ScriptLibrarySettings"
+import { TLSSettingsPanel } from "@/components/settings/TLSSettingsPanel"
 import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { SideTabs } from "@/components/ui/tabs"
@@ -16,6 +17,7 @@ import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
 import { setProjectNames } from "@/stores/app"
+import { toastError } from "@/stores/toast"
 
 /** 项目设置标签列表 */
 const projectSettingsTabs = [
@@ -24,6 +26,7 @@ const projectSettingsTabs = [
   { key: "globalVars", label: "", icon: <Icon icon="lucide:variable" class="h-4 w-4" /> },
   { key: "scriptLibrary", label: "", icon: <Icon icon="lucide:file-code" class="h-4 w-4" /> },
   { key: "proxy", label: "", icon: <Icon icon="lucide:network" class="h-4 w-4" /> },
+  { key: "tls", label: "", icon: <Icon icon="lucide:shield-check" class="h-4 w-4" /> },
 ]
 
 export const Route = createFileRoute("/project/$id/settings")({
@@ -67,7 +70,7 @@ function ProjectSettingsPage() {
         }
       }
     } catch (e) {
-      console.error("加载项目信息失败", e)
+      toastError(e, "error.op.loadFailed")
       setError(t("project.loadFailed"))
     }
   })
@@ -98,7 +101,7 @@ function ProjectSettingsPage() {
       setSavedName(trimmedName)
       setSavedDescription(trimmedDescription)
     } catch (e) {
-      console.error("保存项目设置失败", e)
+      toastError(e, "error.op.saveFailed")
       setError(t("project.saveFailed"))
     } finally {
       setSaving(false)
@@ -211,6 +214,12 @@ function ProjectSettingsPage() {
                 return (
                   <div class="h-full p-6">
                     <ProxySettingsPanel scope="project" projectId={projectId()} />
+                  </div>
+                )
+              case "tls":
+                return (
+                  <div class="h-full p-6">
+                    <TLSSettingsPanel scope="project" projectId={projectId()} />
                   </div>
                 )
               default:

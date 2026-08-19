@@ -1,12 +1,13 @@
 // 响应面板组件
-import { createMemo, For, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, on, Show } from "solid-js"
 
 import { CodeEditor, type CodeLanguage } from "@/components/ui/code-editor"
 import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"
 import { t } from "@/hooks/useI18n"
 import { decodeRawBody, formatBody } from "@/lib/format"
-import { cn } from "@/lib/utils"
+import { formatSize } from "@/lib/types"
+import { byteLength, cn } from "@/lib/utils"
 
 import type { ResponseData, ScriptRunResult } from "./EndpointDetail"
 
@@ -43,6 +44,8 @@ export interface ResponseBodyToolbarProps {
   onFormatChange: (v: string) => void
   encoding: string
   onEncodingChange: (v: string) => void
+  /** 响应过大未回传原始字节时禁用字符集切换（没有原始字节就无法重新解码） */
+  encodingDisabled?: boolean
   class?: string
 }
 
@@ -52,7 +55,7 @@ export function ResponseBodyToolbar(props: ResponseBodyToolbarProps) {
     // 使切换「格式化 / 原始 / 预览」时，左侧两个选择器的显隐不再挤动右侧的渲染模式切换器位置。
     <div class={cn("flex items-center gap-1", props.class)}>
       {/* 编码选择（格式化和原始模式可用） */}
-      <Show when={props.renderMode === "pretty" || props.renderMode === "raw"}>
+      <Show when={(props.renderMode === "pretty" || props.renderMode === "raw") && !props.encodingDisabled}>
         <Select options={encodingOptions} value={props.encoding} onChange={props.onEncodingChange} size="sm" class="w-24" />
       </Show>
       {/* 格式选择（仅格式化模式可用） */}
@@ -97,7 +100,14 @@ export interface ResponsePanelProps {
   onEncodingChange: (v: string) => void
 }
 
+/** 直接交给 CodeMirror 渲染的响应体上限；超过则先折叠，由用户显式展开 */
+const MAX_RENDER_BYTES = 512 * 1024
+
 export function ResponsePanel(props: ResponsePanelProps) {
+  // 用户点了「仍然展示」后本次不再折叠；响应变化时重置
+  const [forceRender, setForceRender] = createSignal(false)
+  createEffect(on(() => props.response.body, () => setForceRender(false), { defer: true }))
+
   // 按所选字符集解码响应体：utf-8 直接用 body；其他用 rawBody 解码，失败回退 body
   const decodedBody = createMemo(() => {
     if (props.encoding === "utf-8") return props.response.body
@@ -106,6 +116,9 @@ export function ResponsePanel(props: ResponsePanelProps) {
   })
   // pretty 模式下再按所选格式美化
   const displayBody = createMemo(() => props.renderMode === "pretty" ? formatBody(decodedBody(), props.format) : decodedBody())
+  const bodyBytes = createMemo(() => byteLength(displayBody()))
+  const oversized = createMemo(() => bodyBytes() > MAX_RENDER_BYTES)
+
   // 格式化模式下按所选格式切换 CodeMirror 高亮方案
   const bodyLanguage = (): CodeLanguage => {
     switch (props.format) {
@@ -129,7 +142,22 @@ export function ResponsePanel(props: ResponsePanelProps) {
               onFormatChange={props.onFormatChange}
               encoding={props.encoding}
               onEncodingChange={props.onEncodingChange}
+              encodingDisabled={props.response.rawBodyOmitted}
             />
+          </div>
+        </Show>
+        {/* 状态提示条：截断 / 原始字节缺省 / 被前置脚本跳过 */}
+        <Show when={props.response.skipped || props.response.truncated || props.response.rawBodyOmitted}>
+          <div class="shrink-0 border-b border-border bg-surface-alt px-3 py-1.5 text-xs text-muted-foreground space-y-0.5">
+            <Show when={props.response.skipped}>
+              <p>{t("response.skipped")}</p>
+            </Show>
+            <Show when={props.response.truncated}>
+              <p>{t("response.truncated", { limit: formatSize(props.response.truncatedLimit || 0) })}</p>
+            </Show>
+            <Show when={props.response.rawBodyOmitted}>
+              <p>{t("response.rawBodyOmitted")}</p>
+            </Show>
           </div>
         </Show>
         {/* 响应体内容 */}
@@ -138,13 +166,33 @@ export function ResponsePanel(props: ResponsePanelProps) {
             when={props.renderMode === "preview"}
             fallback={
               <Show when={displayBody()} fallback={<div class="p-3 text-sm text-muted-foreground">{t("response.empty")}</div>}>
-                {/* 格式化/原始：CodeMirror 语法高亮，按所选格式切换高亮方案 */}
-                <CodeEditor
-                  value={displayBody()}
-                  language={props.renderMode === "raw" ? "text" : bodyLanguage()}
-                  readOnly
-                  class="h-full border-0 rounded-none bg-transparent"
-                />
+                {/* 超过阈值的响应体不直接塞进 CodeMirror：几 MB 的单文档会让 WebKit
+                    在语法高亮与折行计算上卡死，改为先给出提示、由用户显式展开。 */}
+                <Show
+                  when={!oversized() || forceRender()}
+                  fallback={
+                    <div class="flex h-full flex-col items-center justify-center gap-3 p-6 text-center">
+                      <p class="text-sm text-muted-foreground">
+                        {t("response.tooLargeToRender", { size: formatSize(bodyBytes()) })}
+                      </p>
+                      <button
+                        type="button"
+                        class="rounded-md border border-border px-3 py-1.5 text-xs text-foreground transition-colors hover:bg-muted"
+                        onClick={() => setForceRender(true)}
+                      >
+                        {t("response.renderAnyway")}
+                      </button>
+                    </div>
+                  }
+                >
+                  {/* 格式化/原始：CodeMirror 语法高亮，按所选格式切换高亮方案 */}
+                  <CodeEditor
+                    value={displayBody()}
+                    language={props.renderMode === "raw" ? "text" : bodyLanguage()}
+                    readOnly
+                    class="h-full border-0 rounded-none bg-transparent"
+                  />
+                </Show>
               </Show>
             }
           >

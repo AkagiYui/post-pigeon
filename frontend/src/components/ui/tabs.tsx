@@ -4,6 +4,7 @@
 import { Tabs as ArkTabs } from "@ark-ui/solid/tabs"
 import { For, type JSX, Show, splitProps } from "solid-js"
 
+import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
 
 export interface Tab {
@@ -97,9 +98,13 @@ export function Tabs(props: TabsProps) {
                       when={tab.closable}
                       fallback={<span class="w-4 shrink-0" />}
                     >
-                      <span
+                      {/* 关闭必须是真正的 button：span 既不能用键盘触达，也没有可读名称 */}
+                      <button
+                        type="button"
+                        aria-label={t("common.close")}
                         class={cn(
                           "shrink-0 rounded p-0.5 text-muted-foreground transition-colors hover:bg-muted hover:text-foreground",
+                          "focus-visible:opacity-100 focus-visible:outline-none focus-visible:ring-1 focus-visible:ring-ring",
                           !active() && "opacity-0 group-hover/tab:opacity-100",
                         )}
                         onClick={(e) => {
@@ -110,7 +115,7 @@ export function Tabs(props: TabsProps) {
                         <svg class="h-3 w-3" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2">
                           <path d="M18 6L6 18M6 6l12 12" />
                         </svg>
-                      </span>
+                      </button>
                     </Show>
                   </ArkTabs.Trigger>
                 )

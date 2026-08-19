@@ -2,6 +2,7 @@
 import { createRenderEffect, For, type JSX, Show, splitProps } from "solid-js"
 import { createStore, reconcile } from "solid-js/store"
 
+import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
 
 export interface TableColumn<T> {
@@ -59,6 +60,7 @@ export function Table<T extends object>(props: TableProps<T>) {
             <For each={local.columns}>
               {(col) => (
                 <th
+                  scope="col"
                   class={cn(
                     "text-left font-bold text-foreground whitespace-nowrap",
                     local.compact ? "px-2 py-1.5 text-xs" : "px-3 py-2 text-sm",
@@ -83,7 +85,7 @@ export function Table<T extends object>(props: TableProps<T>) {
                     local.compact ? "py-4" : "py-8",
                   )}
                 >
-                  {local.emptyText || "暂无数据"}
+                  {local.emptyText || t("common.noData")}
                 </td>
               </tr>
             }
@@ -93,9 +95,19 @@ export function Table<T extends object>(props: TableProps<T>) {
                 <tr
                   class={cn(
                     "border-b border-divider transition-colors hover:bg-hover-subtle",
-                    local.onRowClick && "cursor-pointer",
+                    local.onRowClick && "cursor-pointer focus-visible:outline-none focus-visible:bg-hover",
                   )}
+                  // 可点击的行必须能用键盘触达并激活，否则只有鼠标用户能用
+                  role={local.onRowClick ? "button" : undefined}
+                  tabIndex={local.onRowClick ? 0 : undefined}
                   onClick={() => local.onRowClick?.(row, index())}
+                  onKeyDown={(e) => {
+                    if (!local.onRowClick) return
+                    if (e.key === "Enter" || e.key === " ") {
+                      e.preventDefault()
+                      local.onRowClick(row, index())
+                    }
+                  }}
                 >
                   <For each={local.columns}>
                     {(col) => (
