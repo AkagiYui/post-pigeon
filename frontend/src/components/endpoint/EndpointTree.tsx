@@ -59,6 +59,12 @@ export interface EndpointTreeProps {
   onImportOpenAPI?: (node: TreeNode) => void
   /** 导入 Apifox 导出文件回调（项目级） */
   onImportApifox?: () => void
+  /** 从 cURL 命令新建请求 */
+  onImportCurl?: () => void
+  /** 导入 Postman Collection */
+  onImportPostman?: () => void
+  /** 把模块导出为 OpenAPI 文档 */
+  onExportOpenAPI?: (node: TreeNode) => void
   /** 新建文档回调（模块/文件夹节点提供） */
   onCreateDocument?: (parentId: string | undefined, type: "module" | "folder") => void
   /** 打开模块/文件夹设置（认证/自动参数/前置后置操作） */
@@ -257,6 +263,18 @@ export function EndpointTree(props: EndpointTreeProps) {
             },
             { key: "sep-import", label: "", separator: true },
             {
+              key: "import-curl",
+              label: t("curl.import"),
+              icon: <Icon icon="lucide:terminal" class="h-4 w-4 text-slate-500 shrink-0" />,
+              onClick: () => props.onImportCurl?.(),
+            },
+            {
+              key: "import-postman",
+              label: t("postman.import"),
+              icon: <Icon icon="lucide:file-down" class="h-4 w-4 text-amber-600 shrink-0" />,
+              onClick: () => props.onImportPostman?.(),
+            },
+            {
               key: "import-apifox",
               label: t("apifox.import"),
               icon: <Icon icon="lucide:file-down" class="h-4 w-4 text-orange-500 shrink-0" />,
@@ -298,7 +316,7 @@ export function EndpointTree(props: EndpointTreeProps) {
 /** 创建节点的完整菜单项（右键菜单和弹出菜单共享） */
 function createAllMenuItems(
   node: TreeNode,
-  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onOpenSettings" | "onSetEndpointDisplay" | "onConvertToModule">,
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onExportOpenAPI" | "onOpenSettings" | "onSetEndpointDisplay" | "onConvertToModule">,
   isProtected: boolean,
 ): MenuItem[] {
   const items: MenuItem[] = []
@@ -334,12 +352,20 @@ function createAllMenuItems(
     )
     // 模块节点：导入 OpenAPI + 接口显示方式切换
     if (node.type === "module") {
-      items.push({
-        key: "import-openapi",
-        label: t("openapi.import"),
-        icon: <Icon icon="lucide:file-down" class="h-4 w-4 text-emerald-500 shrink-0" />,
-        onClick: () => handlers.onImportOpenAPI?.(node),
-      })
+      items.push(
+        {
+          key: "import-openapi",
+          label: t("openapi.import"),
+          icon: <Icon icon="lucide:file-down" class="h-4 w-4 text-emerald-500 shrink-0" />,
+          onClick: () => handlers.onImportOpenAPI?.(node),
+        },
+        {
+          key: "export-openapi",
+          label: t("openapi.export"),
+          icon: <Icon icon="lucide:file-up" class="h-4 w-4 text-emerald-600 shrink-0" />,
+          onClick: () => handlers.onExportOpenAPI?.(node),
+        },
+      )
       const mode = node.endpointDisplay === "url" ? "url" : "name"
       items.push(
         { key: "sep-display", label: "", separator: true },
@@ -422,7 +448,7 @@ function TreeNodeItem(props: {
   expandedIds: Set<string>
   onSelect?: (node: TreeNode) => void
   onToggle: (id: string) => void
-  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onOpenSettings" | "onSetEndpointDisplay" | "onConvertToModule">
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onExportOpenAPI" | "onOpenSettings" | "onSetEndpointDisplay" | "onConvertToModule">
   defaultModuleId?: string
   /** 由祖先模块向下继承的接口显示方式 */
   displayMode?: "name" | "url"

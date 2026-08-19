@@ -61,6 +61,8 @@ func main() {
 	scopeSettingsService := services.NewScopeSettingsService(db)
 	proxyService := services.NewProxyService(db)
 	tlsService := services.NewTLSService(db)
+	curlService := services.NewCurlService(db)
+	postmanService := services.NewPostmanService(db)
 
 	// 注册数据变更事件
 	application.RegisterEvent[string]("data:changed")
@@ -92,6 +94,8 @@ func main() {
 			application.NewService(scopeSettingsService),
 			application.NewService(proxyService),
 			application.NewService(tlsService),
+			application.NewService(curlService),
+			application.NewService(postmanService),
 			application.NewService(webSocketService),
 		},
 		Assets: application.AssetOptions{

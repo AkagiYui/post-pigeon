@@ -485,5 +485,19 @@
   "splitPane.resize": "调整面板宽度",
   "splitPane.expand": "展开侧栏",
   "importexport.imported": "导入完成",
-  "importexport.exported": "导出完成"
+  "importexport.exported": "导出完成",
+  "curl.import": "从 cURL 导入",
+  "curl.importTitle": "从 cURL 命令新建请求",
+  "curl.importHint": "粘贴 cURL 命令（支持浏览器开发者工具的「Copy as cURL」），将新建一个未保存的请求。",
+  "curl.imported": "已从 cURL 创建请求",
+  "curl.copy": "复制为 cURL",
+  "curl.copied": "已复制 cURL 命令",
+  "postman.import": "导入 Postman",
+  "postman.importTitle": "导入 Postman Collection",
+  "postman.stat.folders": "文件夹",
+  "postman.stat.endpoints": "接口",
+  "postman.stat.variables": "变量",
+  "postman.scriptsHint": "集合中的前置/后置脚本会转换为接口脚本。",
+  "postman.moduleHint": "将作为一个新模块导入当前项目；集合变量会导入为项目全局变量。",
+  "openapi.export": "导出为 OpenAPI"
 }

@@ -41,3 +41,19 @@ export function extractPathParams(path: string): string[] {
 export function byteLength(s: string): number {
   return new TextEncoder().encode(s || "").length
 }
+
+/**
+ * 触发浏览器下载一段文本内容。
+ *
+ * Wails 的 WebView 支持 Blob URL 下载，导出 JSON / cURL 命令等都走这里，
+ * 避免每个调用点各写一遍创建链接、点击、回收 URL 的样板。
+ */
+export function downloadTextFile(fileName: string, content: string, mimeType = "text/plain") {
+  const blob = new Blob([content], { type: `${mimeType};charset=utf-8` })
+  const url = URL.createObjectURL(blob)
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = fileName
+  anchor.click()
+  URL.revokeObjectURL(url)
+}

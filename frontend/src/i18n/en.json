@@ -485,5 +485,19 @@
   "splitPane.resize": "Resize panel",
   "splitPane.expand": "Expand sidebar",
   "importexport.imported": "Import complete",
-  "importexport.exported": "Export complete"
+  "importexport.exported": "Export complete",
+  "curl.import": "Import from cURL",
+  "curl.importTitle": "New request from a cURL command",
+  "curl.importHint": "Paste a cURL command (browser DevTools' Copy as cURL works) to create an unsaved request.",
+  "curl.imported": "Request created from cURL",
+  "curl.copy": "Copy as cURL",
+  "curl.copied": "cURL command copied",
+  "postman.import": "Import Postman",
+  "postman.importTitle": "Import Postman Collection",
+  "postman.stat.folders": "Folders",
+  "postman.stat.endpoints": "Endpoints",
+  "postman.stat.variables": "Variables",
+  "postman.scriptsHint": "Pre-request and test scripts are converted into endpoint scripts.",
+  "postman.moduleHint": "Imported as a new module in this project; collection variables become project global variables.",
+  "openapi.export": "Export as OpenAPI"
 }

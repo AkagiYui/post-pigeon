@@ -1,0 +1,350 @@
+package services
+
+import (
+	"encoding/json"
+	"sort"
+	"strconv"
+	"strings"
+
+	"PostPigeon/internal/apperr"
+	"PostPigeon/internal/models"
+)
+
+// 本文件把模块导出为 OpenAPI 3.1 文档。
+//
+// 此前只有导入方向：接口设计能进来，却出不去，无法交给网关、代码生成器或
+// 其它团队使用。导出走的是与导入相同的数据模型，保证往返尽量无损。
+
+// openAPIExportDoc 是导出用的文档结构（与解析用的结构分开：导出需要有序输出与
+// omitempty 控制，解析只关心宽松读取）。
+type openAPIExportDoc struct {
+	OpenAPI    string                                  `json:"openapi"`
+	Info       openAPIExportInfo                       `json:"info"`
+	Servers    []openAPIExportServer                   `json:"servers,omitempty"`
+	Paths      map[string]map[string]openAPIExportOper `json:"paths"`
+	Components *openAPIExportComponents                `json:"components,omitempty"`
+}
+
+type openAPIExportInfo struct {
+	Title       string `json:"title"`
+	Version     string `json:"version"`
+	Description string `json:"description,omitempty"`
+}
+
+type openAPIExportServer struct {
+	URL         string `json:"url"`
+	Description string `json:"description,omitempty"`
+}
+
+type openAPIExportOper struct {
+	Summary     string                     `json:"summary,omitempty"`
+	Description string                     `json:"description,omitempty"`
+	OperationID string                     `json:"operationId,omitempty"`
+	Tags        []string                   `json:"tags,omitempty"`
+	Deprecated  bool                       `json:"deprecated,omitempty"`
+	Parameters  []openAPIExportParam       `json:"parameters,omitempty"`
+	RequestBody *openAPIExportBody         `json:"requestBody,omitempty"`
+	Responses   map[string]openAPIExportRs `json:"responses"`
+	Security    []map[string][]string      `json:"security,omitempty"`
+}
+
+type openAPIExportParam struct {
+	Name        string          `json:"name"`
+	In          string          `json:"in"`
+	Description string          `json:"description,omitempty"`
+	Required    bool            `json:"required,omitempty"`
+	Schema      openAPIExportSc `json:"schema"`
+	Example     string          `json:"example,omitempty"`
+}
+
+type openAPIExportSc struct {
+	Type   string `json:"type,omitempty"`
+	Format string `json:"format,omitempty"`
+}
+
+type openAPIExportBody struct {
+	Required bool                             `json:"required,omitempty"`
+	Content  map[string]openAPIExportMediaTyp `json:"content"`
+}
+
+type openAPIExportMediaTyp struct {
+	Schema  map[string]any `json:"schema,omitempty"`
+	Example any            `json:"example,omitempty"`
+}
+
+type openAPIExportRs struct {
+	Description string                           `json:"description"`
+	Content     map[string]openAPIExportMediaTyp `json:"content,omitempty"`
+}
+
+type openAPIExportComponents struct {
+	SecuritySchemes map[string]map[string]any `json:"securitySchemes,omitempty"`
+}
+
+// ExportOpenAPI 把一个模块导出为 OpenAPI 3.1 JSON 文档。
+func (s *ImportExportService) ExportOpenAPI(moduleID string) (string, error) {
+	var module models.Module
+	if err := s.db.Where("id = ?", moduleID).First(&module).Error; err != nil {
+		return "", apperr.Wrap(err, apperr.CodeModuleNotFound, apperr.P("id", moduleID))
+	}
+
+	var endpoints []models.Endpoint
+	if err := s.db.Where("module_id = ? AND type = ?", moduleID, string(models.EndpointTypeHTTP)).
+		Order("sort_order ASC").Find(&endpoints).Error; err != nil {
+		return "", apperr.Wrap(err, apperr.CodeExportFailed)
+	}
+
+	doc := openAPIExportDoc{
+		OpenAPI: "3.1.0",
+		Info: openAPIExportInfo{
+			Title:   module.Name,
+			Version: "1.0.0",
+		},
+		Paths: map[string]map[string]openAPIExportOper{},
+	}
+
+	// 服务器地址取模块在各环境下的前置 URL
+	var baseURLs []models.ModuleBaseURL
+	if err := s.db.Where("module_id = ?", moduleID).Find(&baseURLs).Error; err == nil {
+		seen := map[string]bool{}
+		for _, item := range baseURLs {
+			url := strings.TrimSpace(item.BaseURL)
+			if url == "" || seen[url] {
+				continue
+			}
+			seen[url] = true
+			doc.Servers = append(doc.Servers, openAPIExportServer{URL: url})
+		}
+		sort.Slice(doc.Servers, func(i, j int) bool { return doc.Servers[i].URL < doc.Servers[j].URL })
+	}
+
+	securitySchemes := map[string]map[string]any{}
+
+	for _, endpoint := range endpoints {
+		detail, err := NewEndpointService(s.db).GetEndpoint(endpoint.ID)
+		if err != nil {
+			continue
+		}
+		path := endpoint.Path
+		if path == "" {
+			path = "/"
+		}
+		method := strings.ToLower(endpoint.Method)
+		if method == "" {
+			method = "get"
+		}
+
+		oper := openAPIExportOper{
+			Summary:     endpoint.Name,
+			Description: endpoint.Description,
+			OperationID: operationID(endpoint),
+			Tags:        parseTagList(endpoint.Tags),
+			Deprecated:  endpoint.Status == "deprecated",
+			Responses: map[string]openAPIExportRs{
+				"200": {Description: "OK"},
+			},
+		}
+		oper.Parameters = exportParameters(detail)
+		oper.RequestBody = exportRequestBody(endpoint, detail)
+		if scheme, security := exportSecurity(detail.Auth); scheme != nil {
+			for name, def := range scheme {
+				securitySchemes[name] = def
+			}
+			oper.Security = security
+		}
+		if len(detail.Examples) > 0 {
+			oper.Responses = exportResponses(detail.Examples)
+		}
+
+		if doc.Paths[path] == nil {
+			doc.Paths[path] = map[string]openAPIExportOper{}
+		}
+		doc.Paths[path][method] = oper
+	}
+
+	if len(securitySchemes) > 0 {
+		doc.Components = &openAPIExportComponents{SecuritySchemes: securitySchemes}
+	}
+
+	out, err := json.MarshalIndent(doc, "", "  ")
+	if err != nil {
+		return "", apperr.Wrap(err, apperr.CodeExportFailed)
+	}
+	return string(out), nil
+}
+
+// operationID 生成稳定的 operationId：method + 路径去掉非字母数字。
+func operationID(endpoint models.Endpoint) string {
+	var b strings.Builder
+	b.WriteString(strings.ToLower(endpoint.Method))
+	for _, r := range endpoint.Path {
+		switch {
+		case r >= 'a' && r <= 'z', r >= 'A' && r <= 'Z', r >= '0' && r <= '9':
+			b.WriteRune(r)
+		case r == '/' || r == '-' || r == '_':
+			b.WriteRune('_')
+		}
+	}
+	return strings.Trim(b.String(), "_")
+}
+
+// parseTagList 把存储的 JSON 字符串数组解析为标签列表。
+func parseTagList(raw string) []string {
+	if strings.TrimSpace(raw) == "" {
+		return nil
+	}
+	var tags []string
+	if err := json.Unmarshal([]byte(raw), &tags); err != nil {
+		return nil
+	}
+	return tags
+}
+
+// exportParameters 导出 query / path / cookie / header 参数。
+func exportParameters(detail *EndpointDetail) []openAPIExportParam {
+	params := make([]openAPIExportParam, 0, len(detail.Params)+len(detail.Headers))
+	for _, p := range detail.Params {
+		if !p.Enabled || p.Name == "" {
+			continue
+		}
+		params = append(params, openAPIExportParam{
+			Name:        p.Name,
+			In:          p.Type,
+			Description: p.Description,
+			// OpenAPI 要求 path 参数必须 required
+			Required: p.Required || p.Type == "path",
+			Schema:   openAPIExportSc{Type: defaultStr(p.DataType, "string")},
+			Example:  p.Example,
+		})
+	}
+	for _, h := range detail.Headers {
+		if !h.Enabled || h.Name == "" {
+			continue
+		}
+		// Content-Type / Accept 由 content 描述，不作为参数导出
+		if strings.EqualFold(h.Name, "Content-Type") || strings.EqualFold(h.Name, "Accept") {
+			continue
+		}
+		params = append(params, openAPIExportParam{
+			Name:        h.Name,
+			In:          "header",
+			Description: h.Description,
+			Required:    h.Required,
+			Schema:      openAPIExportSc{Type: "string"},
+			Example:     h.Example,
+		})
+	}
+	if len(params) == 0 {
+		return nil
+	}
+	return params
+}
+
+// exportRequestBody 依据请求体类型导出 requestBody。
+func exportRequestBody(endpoint models.Endpoint, detail *EndpointDetail) *openAPIExportBody {
+	switch endpoint.BodyType {
+	case string(models.BodyTypeJSON):
+		return &openAPIExportBody{Content: map[string]openAPIExportMediaTyp{
+			defaultStr(endpoint.ContentType, "application/json"): {
+				Schema:  map[string]any{"type": "object"},
+				Example: rawJSONOrString(endpoint.BodyContent),
+			},
+		}}
+	case string(models.BodyTypeXML):
+		return &openAPIExportBody{Content: map[string]openAPIExportMediaTyp{
+			defaultStr(endpoint.ContentType, "application/xml"): {Example: endpoint.BodyContent},
+		}}
+	case string(models.BodyTypeText):
+		return &openAPIExportBody{Content: map[string]openAPIExportMediaTyp{
+			defaultStr(endpoint.ContentType, "text/plain"): {Example: endpoint.BodyContent},
+		}}
+	case string(models.BodyTypeBinary):
+		return &openAPIExportBody{Content: map[string]openAPIExportMediaTyp{
+			defaultStr(endpoint.ContentType, "application/octet-stream"): {
+				Schema: map[string]any{"type": "string", "format": "binary"},
+			},
+		}}
+	case string(models.BodyTypeFormData), string(models.BodyTypeURLEncoded):
+		properties := map[string]any{}
+		for _, field := range detail.BodyFields {
+			if !field.Enabled || field.Name == "" {
+				continue
+			}
+			if field.FieldType == "file" {
+				properties[field.Name] = map[string]any{"type": "string", "format": "binary"}
+			} else {
+				properties[field.Name] = map[string]any{"type": "string"}
+			}
+		}
+		if len(properties) == 0 {
+			return nil
+		}
+		mediaType := "application/x-www-form-urlencoded"
+		if endpoint.BodyType == string(models.BodyTypeFormData) {
+			mediaType = "multipart/form-data"
+		}
+		return &openAPIExportBody{Content: map[string]openAPIExportMediaTyp{
+			mediaType: {Schema: map[string]any{"type": "object", "properties": properties}},
+		}}
+	}
+	return nil
+}
+
+// exportResponses 把已保存的响应示例导出为 responses。
+func exportResponses(examples []models.ResponseExample) map[string]openAPIExportRs {
+	out := map[string]openAPIExportRs{}
+	for _, example := range examples {
+		code := "200"
+		if example.StatusCode > 0 {
+			code = strconv.Itoa(example.StatusCode)
+		}
+		mediaType := defaultStr(example.ContentType, "application/json")
+		out[code] = openAPIExportRs{
+			Description: defaultStr(example.Name, "OK"),
+			Content: map[string]openAPIExportMediaTyp{
+				mediaType: {Example: rawJSONOrString(example.Body)},
+			},
+		}
+	}
+	if len(out) == 0 {
+		out["200"] = openAPIExportRs{Description: "OK"}
+	}
+	return out
+}
+
+// exportSecurity 把端点认证导出为 securityScheme + security 引用。
+func exportSecurity(auth *models.EndpointAuth) (map[string]map[string]any, []map[string][]string) {
+	if auth == nil {
+		return nil, nil
+	}
+	switch auth.Type {
+	case string(models.AuthTypeBasic):
+		return map[string]map[string]any{"basicAuth": {"type": "http", "scheme": "basic"}},
+			[]map[string][]string{{"basicAuth": {}}}
+	case string(models.AuthTypeBearer):
+		return map[string]map[string]any{"bearerAuth": {"type": "http", "scheme": "bearer"}},
+			[]map[string][]string{{"bearerAuth": {}}}
+	case string(models.AuthTypeAPIKey):
+		var data models.APIKeyAuthData
+		if err := models.FromJSON(auth.Data, &data); err != nil || data.Key == "" {
+			return nil, nil
+		}
+		in := defaultStr(data.In, "header")
+		return map[string]map[string]any{"apiKeyAuth": {"type": "apiKey", "in": in, "name": data.Key}},
+			[]map[string][]string{{"apiKeyAuth": {}}}
+	}
+	return nil, nil
+}
+
+// rawJSONOrString 能解析成 JSON 就作为结构化示例输出，否则原样作为字符串。
+func rawJSONOrString(body string) any {
+	trimmed := strings.TrimSpace(body)
+	if trimmed == "" {
+		return nil
+	}
+	var parsed any
+	if err := json.Unmarshal([]byte(trimmed), &parsed); err == nil {
+		return parsed
+	}
+	return body
+}

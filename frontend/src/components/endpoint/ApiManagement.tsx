@@ -11,15 +11,17 @@ import type {
   ModuleTree,
   OpenAPIPreview,
 } from "@/../bindings/PostPigeon/internal/services"
-import type { ApifoxPreview } from "@/../bindings/PostPigeon/internal/services"
+import type { ApifoxPreview, PostmanPreview } from "@/../bindings/PostPigeon/internal/services"
 import {
   ApifoxService,
+  CurlService,
   EndpointService,
   EnvironmentService,
   FolderService,
   HTTPService,
   ImportExportService,
   ModuleService,
+  PostmanService,
   ProjectService,
 } from "@/../bindings/PostPigeon/internal/services"
 import { SendRequestData } from "@/../bindings/PostPigeon/internal/services"
@@ -30,7 +32,7 @@ import { ScopeSettingsDialog } from "@/components/endpoint/ScopeSettingsDialog"
 import { Button } from "@/components/ui/button"
 import { Checkbox, Radio } from "@/components/ui/checkbox"
 import { Dialog } from "@/components/ui/dialog"
-import { Input } from "@/components/ui/input"
+import { Input, Textarea } from "@/components/ui/input"
 import { MethodBadge } from "@/components/ui/method-badge"
 import { SplitPane } from "@/components/ui/split-pane"
 import { Tabs } from "@/components/ui/tabs"
@@ -39,7 +41,7 @@ import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
 import { errorMessage } from "@/lib/errors"
 import { type BodyType, type EndpointType, type HTTPMethod, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
-import { cn } from "@/lib/utils"
+import { cn, downloadTextFile } from "@/lib/utils"
 import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, notifyBaseUrlsChanged, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
 import { clearStream } from "@/stores/stream"
 import { toastError, toastSuccess, toastWarning } from "@/stores/toast"
@@ -257,6 +259,16 @@ function fromAuthModel(a?: EndpointAuth | null): AuthState {
     username: d.username || "", password: d.password || "", token: d.token || "",
     apiKeyKey: d.key || "", apiKeyValue: d.value || "", apiKeyIn: d.in || "header",
   }
+}
+
+/** 导入预览里的一个统计格子 */
+function Stat(props: { label: string; value: number }) {
+  return (
+    <div class="rounded-md border border-border px-2 py-1.5 text-center">
+      <div class="text-base font-medium tabular-nums">{props.value}</div>
+      <div class="text-[11px] text-muted-foreground">{props.label}</div>
+    </div>
+  )
 }
 
 export interface ApiManagementProps {
@@ -650,33 +662,136 @@ export function ApiManagement(props: ApiManagementProps) {
 
   // ---- 创建未保存请求 ----
   // parentNodeId：右键/菜单发起时点击的模块或文件夹节点，作为默认保存位置
-  const createUnsavedTab = (parentNodeId?: string) => {
+  const createUnsavedTab = (parentNodeId?: string, override?: Partial<UnsavedRequestData>) => {
     // 记住默认保存位置：优先点击的节点，否则回退到第一个模块
     if (parentNodeId && findNodeInTree(treeData(), parentNodeId)) {
       setSelectedSaveLocation(parentNodeId)
       ensureAncestorsExpanded(parentNodeId)
     }
     const tempId = generateTempId()
+    // 展开顺序：默认值 → 调用方覆盖（cURL 导入等）；id 始终由本函数决定
     const unsaved: UnsavedRequestData = {
-      id: tempId, name: t("endpoint.newRequest"), method: "GET" as HTTPMethod,
+      name: t("endpoint.newRequest"), method: "GET" as HTTPMethod,
       path: "/", bodyType: "none" as BodyType, bodyContent: "", contentType: "",
       timeout: 30000, followRedirects: true, baseUrl: "",
       params: [], headers: [], bodyFields: [], auth: emptyAuth(),
       preRequestScript: "", postResponseScript: "",
       ...endpointDefaults,
+      ...override,
+      id: tempId,
     }
     setUnsavedRequests(prev => ({ ...prev, [tempId]: unsaved }))
     setRequestTabs(prev => [...prev, { id: tempId, name: unsaved.name, method: unsaved.method, saved: false, dirty: false }])
     setActiveTabId(tempId)
-    setEndpointData({
-      id: tempId, name: unsaved.name, method: unsaved.method, path: unsaved.path,
-      bodyType: unsaved.bodyType, bodyContent: unsaved.bodyContent, contentType: unsaved.contentType,
-      timeout: unsaved.timeout, followRedirects: unsaved.followRedirects, baseUrl: unsaved.baseUrl,
-      params: [], headers: [], bodyFields: [], auth: emptyAuth(),
-      preRequestScript: "", postResponseScript: "",
-      ...endpointDefaults,
-    } as EndpointData)
+    setEndpointData({ ...unsaved } as EndpointData)
     setResponseData(null)
+  }
+
+
+  // ---- cURL 导入 ----
+  const [curlOpen, setCurlOpen] = createSignal(false)
+  const [curlText, setCurlText] = createSignal("")
+  const [curlImporting, setCurlImporting] = createSignal(false)
+
+  const handleImportCurl = () => {
+    setCurlText("")
+    setCurlOpen(true)
+  }
+
+  /** 把解析结果落成一个未保存的请求标签页 */
+  const confirmImportCurl = async () => {
+    const command = curlText().trim()
+    if (!command) return
+    setCurlImporting(true)
+    try {
+      const parsed = await CurlService.ParseCurl(command)
+      if (!parsed) return
+      createUnsavedTab(undefined, {
+        name: parsed.url || t("endpoint.newRequest"),
+        method: (parsed.method || "GET") as HTTPMethod,
+        // cURL 里是完整地址，直接作为路径（后端识别到协议头会忽略前置 URL）
+        path: parsed.url,
+        bodyType: (parsed.bodyType || "none") as BodyType,
+        bodyContent: parsed.bodyContent || "",
+        contentType: parsed.contentType || "",
+        followRedirects: parsed.followRedirects,
+        timeout: parsed.timeoutMs > 0 ? parsed.timeoutMs : 30000,
+        params: (parsed.params || []).map(p => ({
+          id: crypto.randomUUID(), type: (p.type || "query") as ParamLocation,
+          name: p.name, value: p.value, description: "", enabled: p.enabled,
+          dataType: "string", required: false, example: "",
+        })),
+        headers: (parsed.headers || []).map(h => ({
+          id: crypto.randomUUID(), name: h.name, value: h.value,
+          description: "", enabled: h.enabled, required: false, example: "",
+        })),
+        bodyFields: (parsed.bodyFields || []).map(f => ({
+          id: crypto.randomUUID(), name: f.name, value: f.value,
+          fieldType: (f.fieldType === "file" ? "file" : "text") as "text" | "file", enabled: f.enabled,
+        })),
+        auth: fromAuthModel(parsed.auth),
+        // curl -k 对应接口级「跳过证书校验」
+        tlsConfig: parsed.insecure ? JSON.stringify({ mode: "insecure" }) : "",
+      })
+      setCurlOpen(false)
+      toastSuccess(t("curl.imported"))
+    } catch (e) {
+      toastError(e, "error.op.importFailed")
+    } finally {
+      setCurlImporting(false)
+    }
+  }
+
+  // ---- Postman Collection 导入 ----
+  const [postmanOpen, setPostmanOpen] = createSignal(false)
+  const [postmanJson, setPostmanJson] = createSignal("")
+  const [postmanPreview, setPostmanPreview] = createSignal<PostmanPreview | null>(null)
+  const [postmanImporting, setPostmanImporting] = createSignal(false)
+
+  const handleImportPostman = () => {
+    const input = document.createElement("input")
+    input.type = "file"
+    input.accept = ".json,application/json"
+    input.onchange = async () => {
+      const file = input.files?.[0]
+      if (!file) return
+      try {
+        const text = await file.text()
+        const preview = await PostmanService.PreviewPostman(text)
+        setPostmanJson(text)
+        setPostmanPreview(preview)
+        setPostmanOpen(true)
+      } catch (e) {
+        toastError(e, "error.op.previewFailed")
+      }
+    }
+    input.click()
+  }
+
+  const confirmImportPostman = async () => {
+    if (!postmanJson()) return
+    setPostmanImporting(true)
+    try {
+      await PostmanService.ImportPostman(props.projectId, postmanJson())
+      setPostmanOpen(false)
+      await loadTree()
+      toastSuccess(t("importexport.imported"))
+    } catch (e) {
+      toastError(e, "error.op.importFailed")
+    } finally {
+      setPostmanImporting(false)
+    }
+  }
+
+  // ---- 导出模块为 OpenAPI ----
+  const handleExportOpenAPI = async (node: TreeNode) => {
+    try {
+      const json = await ImportExportService.ExportOpenAPI(node.id)
+      downloadTextFile(`${node.name || "module"}.openapi.json`, json, "application/json")
+      toastSuccess(t("importexport.exported"))
+    } catch (e) {
+      toastError(e, "error.op.exportFailed")
+    }
   }
 
   // ---- 选择已保存的端点 ----
@@ -787,6 +902,33 @@ export function ApiManagement(props: ApiManagementProps) {
   }
 
   // ---- 发送请求 ----
+
+  /**
+   * 把当前编辑态组装成后端所需的请求数据。
+   * 发送与「复制为 cURL」共用同一份组装逻辑，避免两处逐渐走偏。
+   */
+  const buildSendRequestData = (ep: EndpointData, requestId = "") => {
+    const sendData = new SendRequestData()
+    sendData.requestId = requestId
+    const ct = requestTabs().find(t => t.id === activeTabId())
+    sendData.endpointId = ct?.saved ? ep.id : ""
+    // 已保存端点：带上所属模块 ID，后端据此记录请求历史
+    sendData.moduleId = ct?.saved ? (findModuleIdByNodeId(treeData(), ep.id) || "") : ""
+    sendData.environmentId = getCurrentEnvironmentId(props.projectId)
+    sendData.method = ep.method; sendData.baseUrl = ep.baseUrl; sendData.path = ep.path
+    sendData.headers = toHeaderModels(ep.headers); sendData.params = toParamModels(ep.params)
+    sendData.bodyType = ep.bodyType
+    sendData.bodyContent = ep.bodyContent; sendData.contentType = ep.contentType
+    sendData.bodyFields = toBodyFieldModels(ep.bodyFields); sendData.auth = toAuthModel(ep.auth)
+    sendData.timeout = ep.timeout; sendData.followRedirects = ep.followRedirects
+    sendData.proxyConfig = ep.proxyConfig
+    sendData.tlsConfig = ep.tlsConfig
+    // 已保存端点由后端根据操作组合脚本；未保存请求在此把 script 类型操作拼接为前置/后置脚本
+    sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript)
+    sendData.postResponseScript = deriveScriptFromOps(ep.operations, "post", ep.postResponseScript)
+    return sendData
+  }
+
   const handleSend = async () => {
     const ep = endpointData
     if (!ep.id) return
@@ -795,24 +937,7 @@ export function ApiManagement(props: ApiManagementProps) {
     const requestId = crypto.randomUUID()
     setActiveRequestId(requestId)
     try {
-      const sendData = new SendRequestData()
-      sendData.requestId = requestId
-      const ct = requestTabs().find(t => t.id === activeTabId())
-      sendData.endpointId = ct?.saved ? ep.id : ""
-      // 已保存端点：带上所属模块 ID，后端据此记录请求历史
-      sendData.moduleId = ct?.saved ? (findModuleIdByNodeId(treeData(), ep.id) || "") : ""
-      sendData.environmentId = getCurrentEnvironmentId(props.projectId)
-      sendData.method = ep.method; sendData.baseUrl = ep.baseUrl; sendData.path = ep.path
-      sendData.headers = toHeaderModels(ep.headers); sendData.params = toParamModels(ep.params)
-      sendData.bodyType = ep.bodyType
-      sendData.bodyContent = ep.bodyContent; sendData.contentType = ep.contentType
-      sendData.bodyFields = toBodyFieldModels(ep.bodyFields); sendData.auth = toAuthModel(ep.auth)
-      sendData.timeout = ep.timeout; sendData.followRedirects = ep.followRedirects
-      sendData.proxyConfig = ep.proxyConfig
-      sendData.tlsConfig = ep.tlsConfig
-      // 已保存端点由后端根据操作组合脚本；未保存请求在此把 script 类型操作拼接为前置/后置脚本
-      sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript)
-      sendData.postResponseScript = deriveScriptFromOps(ep.operations, "post", ep.postResponseScript)
+      const sendData = buildSendRequestData(ep, requestId)
 
       // 流 ID 由后端生成且全局唯一，发送前清掉上一条流的缓冲，避免 store 无限增长
       const previousStreamId = responseData()?.streamId
@@ -854,6 +979,18 @@ export function ApiManagement(props: ApiManagementProps) {
         error: message,
       })
     } finally { setSending(false); setActiveRequestId("") }
+  }
+
+  /** 把当前请求复制为 cURL 命令 */
+  const handleCopyAsCurl = async () => {
+    const ep = endpointData
+    try {
+      const command = await CurlService.ToCurl(buildSendRequestData(ep))
+      await navigator.clipboard.writeText(command)
+      toastSuccess(t("curl.copied"))
+    } catch (e) {
+      toastError(e, "error.op.copyFailed")
+    }
   }
 
   /** 取消进行中的请求 */
@@ -1309,6 +1446,9 @@ export function ApiManagement(props: ApiManagementProps) {
             onDelete={handleTreeDelete} onMove={handleTreeMove}
             onImportOpenAPI={handleImportOpenAPI}
             onImportApifox={handleImportApifox}
+            onImportCurl={handleImportCurl}
+            onImportPostman={handleImportPostman}
+            onExportOpenAPI={handleExportOpenAPI}
             onCreateDocument={handleCreateDocument}
             onOpenSettings={openScopeSettings}
             onSetEndpointDisplay={handleSetEndpointDisplay}
@@ -1341,7 +1481,8 @@ export function ApiManagement(props: ApiManagementProps) {
             >
               {() => endpointData.id ? <EndpointDetail
                 endpoint={endpointData} response={responseData()} sending={sending()}
-                isUnsaved={isActiveTabUnsaved()} onSend={handleSend} onCancelSend={handleCancelSend} onSave={handleSave}
+                isUnsaved={isActiveTabUnsaved()} onSend={handleSend} onCancelSend={handleCancelSend}
+                onCopyAsCurl={handleCopyAsCurl} onSave={handleSave}
                 onDelete={handleDelete} onChange={handleDataChange}
                 currentEnvironmentId={getCurrentEnvironmentId(props.projectId)}
                 environmentBaseUrls={environmentBaseUrls()}
@@ -1610,6 +1751,58 @@ export function ApiManagement(props: ApiManagementProps) {
       </Dialog>
 
       {/* Apifox 导入对话框 */}
+      {/* 从 cURL 导入：粘贴命令即可新建一个未保存的请求 */}
+      <Dialog open={curlOpen()} onClose={() => setCurlOpen(false)} title={t("curl.importTitle")} closeOnEsc closeOnOverlayClick width="620px">
+        <div class="px-6 py-4 flex flex-col gap-3">
+          <p class="text-sm text-muted-foreground">{t("curl.importHint")}</p>
+          <Textarea
+            value={curlText()}
+            onInput={(e) => setCurlText(e.currentTarget.value)}
+            rows={10}
+            spellcheck={false}
+            placeholder={"curl 'https://api.example.com/users' \\\n  -H 'Accept: application/json'"}
+            class="font-mono text-xs"
+          />
+        </div>
+        <div class="flex justify-end gap-2 px-6 py-3 border-t border-border">
+          <Button variant="outline" onClick={() => setCurlOpen(false)}>{t("common.cancel")}</Button>
+          <Button onClick={confirmImportCurl} disabled={!curlText().trim() || curlImporting()}>
+            {curlImporting() ? t("common.loading") : t("common.confirm")}
+          </Button>
+        </div>
+      </Dialog>
+
+      {/* 导入 Postman Collection */}
+      <Dialog open={postmanOpen()} onClose={() => setPostmanOpen(false)} title={t("postman.importTitle")} closeOnEsc closeOnOverlayClick width="520px">
+        <div class="px-6 py-4 flex flex-col gap-3">
+          <Show when={postmanPreview()}>
+            {(preview) => (
+              <div class="space-y-2 text-sm">
+                <p class="font-medium">{preview().name}</p>
+                <Show when={preview().description}>
+                  <p class="text-muted-foreground">{preview().description}</p>
+                </Show>
+                <div class="grid grid-cols-3 gap-2 pt-2">
+                  <Stat label={t("postman.stat.folders")} value={preview().folders} />
+                  <Stat label={t("postman.stat.endpoints")} value={preview().endpoints} />
+                  <Stat label={t("postman.stat.variables")} value={preview().variables} />
+                </div>
+                <Show when={preview().hasScripts}>
+                  <p class="text-xs text-muted-foreground pt-1">{t("postman.scriptsHint")}</p>
+                </Show>
+                <p class="text-xs text-muted-foreground">{t("postman.moduleHint")}</p>
+              </div>
+            )}
+          </Show>
+        </div>
+        <div class="flex justify-end gap-2 px-6 py-3 border-t border-border">
+          <Button variant="outline" onClick={() => setPostmanOpen(false)}>{t("common.cancel")}</Button>
+          <Button onClick={confirmImportPostman} disabled={!postmanPreview() || postmanImporting()}>
+            {postmanImporting() ? t("common.loading") : t("common.confirm")}
+          </Button>
+        </div>
+      </Dialog>
+
       <Dialog open={apifoxOpen()} onClose={() => setApifoxOpen(false)} title={t("apifox.importTitle")} closeOnEsc closeOnOverlayClick width="560px">
         <div class="px-6 py-4 flex flex-col h-[70vh] gap-3">
           <Show when={apifoxError()}>

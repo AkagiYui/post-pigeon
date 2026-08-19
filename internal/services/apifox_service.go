@@ -1121,7 +1121,7 @@ func convertProcessor(p apifoxProcessor) *models.Operation {
 
 func firstNonEmpty(vals ...string) string {
 	for _, v := range vals {
-		if v != "" {
+		if strings.TrimSpace(v) != "" {
 			return v
 		}
 	}

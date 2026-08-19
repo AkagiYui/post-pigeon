@@ -320,6 +320,8 @@ export interface EndpointDetailProps {
   onSend?: () => void
   /** 取消进行中请求的回调 */
   onCancelSend?: () => void
+  /** 复制为 cURL 命令的回调 */
+  onCopyAsCurl?: () => void
   /** 保存回调 */
   onSave?: () => void
   /** 删除回调 */
@@ -691,6 +693,14 @@ export function EndpointDetail(props: EndpointDetailProps) {
             }>
               <Button size="sm" variant="outline" onClick={wsDisconnect}><Icon icon="lucide:plug" class="h-3.5 w-3.5" />{t("stream.disconnect")}</Button>
             </Show>
+          </Show>
+          {/* 复制为 cURL：把当前请求（含已解析的变量）贴进工单、文档或 CI 的最短路径 */}
+          <Show when={!isWs()}>
+            <Tooltip content={t("curl.copy")}>
+              <Button variant="ghost" size="icon-sm" onClick={props.onCopyAsCurl} aria-label={t("curl.copy")}>
+                <Icon icon="lucide:terminal" class="h-3.5 w-3.5" />
+              </Button>
+            </Tooltip>
           </Show>
           <Button variant={props.isUnsaved ? "default" : "outline"} size="sm" onClick={props.onSave}>
             <Icon icon="lucide:save" class="h-3.5 w-3.5" />
