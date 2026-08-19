@@ -62,3 +62,15 @@ export function decodeRawBody(rawBodyBase64: string, encoding: string): string |
     return null
   }
 }
+
+/** 把字节数格式化为易读的大小（B / KB / MB） */
+export function formatSize(bytes: number): string {
+  if (bytes < 1024) return `${bytes} B`
+  if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
+  return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
+}
+
+/** 绝对时间：本地化的完整日期时间 */
+export function formatAbsoluteTime(date: Date | string): string {
+  return new Date(date).toLocaleString()
+}

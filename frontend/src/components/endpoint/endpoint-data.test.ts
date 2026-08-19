@@ -1,0 +1,203 @@
+import { describe, expect, it } from "vitest"
+
+import { EndpointAuth, EndpointBodyField, Operation } from "@/../bindings/PostPigeon/internal/models"
+
+import { emptyAuth } from "./editor-types"
+import {
+  authDataToState,
+  authStateToData,
+  deriveScriptFromOps,
+  fromAuthModel,
+  fromBodyFieldModels,
+  fromOperationModels,
+  parseStringArray,
+  safeParseJSON,
+  toAuthModel,
+  toBodyFieldModels,
+  toOperationModels,
+  toTimingData,
+} from "./endpoint-data"
+
+describe("parseStringArray", () => {
+  it("解析合法的字符串数组", () => {
+    expect(parseStringArray('["a","b"]')).toEqual(["a", "b"])
+  })
+
+  it("过滤非字符串项", () => {
+    expect(parseStringArray('["a",1,null]')).toEqual(["a"])
+  })
+
+  it("非法或空输入返回空数组", () => {
+    expect(parseStringArray("not json")).toEqual([])
+    expect(parseStringArray("")).toEqual([])
+    expect(parseStringArray(null)).toEqual([])
+    expect(parseStringArray(undefined)).toEqual([])
+  })
+})
+
+describe("safeParseJSON", () => {
+  it("解析 JSON 字符串", () => {
+    expect(safeParseJSON<{ a: number }>('{"a":1}', { a: 0 })).toEqual({ a: 1 })
+  })
+
+  it("已是对象时原样返回", () => {
+    const value = { a: 1 }
+    expect(safeParseJSON(value, {})).toBe(value)
+  })
+
+  it("空值与非法 JSON 回退", () => {
+    expect(safeParseJSON("", "fallback")).toBe("fallback")
+    expect(safeParseJSON("{oops", "fallback")).toBe("fallback")
+    expect(safeParseJSON(null, "fallback")).toBe("fallback")
+  })
+})
+
+describe("toTimingData", () => {
+  it("缺省字段补零", () => {
+    expect(toTimingData({ total: 12 })).toEqual({
+      total: 12, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0,
+      ttfb: 0, stalled: 0, wait: 0, download: 0, reused: false,
+    })
+  })
+
+  it("接受 null / undefined", () => {
+    expect(toTimingData(null).total).toBe(0)
+    expect(toTimingData(undefined).reused).toBe(false)
+  })
+})
+
+describe("认证转换", () => {
+  it("basic 往返无损", () => {
+    const state = { ...emptyAuth(), type: "basic" as const, username: "u", password: "p" }
+    const restored = authDataToState("basic", authStateToData(state))
+    expect(restored.type).toBe("basic")
+    expect(restored.username).toBe("u")
+    expect(restored.password).toBe("p")
+  })
+
+  it("digest 与 basic 共用凭据字段", () => {
+    const state = { ...emptyAuth(), type: "digest" as const, username: "u", password: "p" }
+    const restored = authDataToState("digest", authStateToData(state))
+    expect(restored.type).toBe("digest")
+    expect(restored.username).toBe("u")
+  })
+
+  it("oauth2 往返保留全部配置", () => {
+    const state = {
+      ...emptyAuth(),
+      type: "oauth2" as const,
+      oauthGrantType: "password",
+      oauthTokenUrl: "https://auth/token",
+      oauthClientId: "cid",
+      oauthClientSecret: "secret",
+      oauthScope: "read",
+      oauthClientAuth: "basic",
+      username: "u",
+      password: "p",
+    }
+    const restored = authDataToState("oauth2", authStateToData(state))
+    expect(restored).toMatchObject({
+      type: "oauth2",
+      oauthGrantType: "password",
+      oauthTokenUrl: "https://auth/token",
+      oauthClientId: "cid",
+      oauthClientSecret: "secret",
+      oauthScope: "read",
+      oauthClientAuth: "basic",
+      username: "u",
+      password: "p",
+    })
+  })
+
+  it("apikey 默认位置为 header", () => {
+    const restored = authDataToState("apikey", JSON.stringify({ key: "k", value: "v" }))
+    expect(restored.apiKeyIn).toBe("header")
+  })
+
+  it("未知类型退回 none，非法 JSON 不抛异常", () => {
+    expect(authDataToState("whatever", "{}").type).toBe("none")
+    expect(authDataToState("basic", "{oops").username).toBe("")
+    expect(authDataToState(null, null)).toEqual(emptyAuth())
+  })
+
+  it("none 不产生模型，其余产生模型", () => {
+    expect(toAuthModel(emptyAuth())).toBeNull()
+    const model = toAuthModel({ ...emptyAuth(), type: "bearer", token: "t" })
+    expect(model?.type).toBe("bearer")
+    expect(fromAuthModel(model).token).toBe("t")
+    expect(fromAuthModel(new EndpointAuth({ type: "none", data: "" }))).toEqual(emptyAuth())
+  })
+})
+
+describe("操作转换", () => {
+  it("script 操作往返无损", () => {
+    const rows = fromOperationModels([
+      new Operation({ stage: "pre", type: "script", name: "n", enabled: true, data: JSON.stringify({ script: "console.log(1)" }) }),
+    ])
+    expect(rows[0]).toMatchObject({ stage: "pre", type: "script", name: "n", enabled: true, script: "console.log(1)" })
+
+    const models = toOperationModels(rows)
+    expect(JSON.parse(models[0].data)).toEqual({ script: "console.log(1)" })
+    expect(models[0].sortOrder).toBe(0)
+  })
+
+  it("assert 与 wait 的字段各自落位", () => {
+    const rows = fromOperationModels([
+      new Operation({ stage: "post", type: "assert", enabled: true, data: JSON.stringify({ source: "responseJson", expression: "$.a", comparison: "eq", target: "1" }) }),
+      new Operation({ stage: "pre", type: "wait", enabled: true, data: JSON.stringify({ milliseconds: 500 }) }),
+    ])
+    expect(rows[0]).toMatchObject({ assertExpression: "$.a", assertComparison: "eq", assertTarget: "1" })
+    expect(rows[1].waitMs).toBe(500)
+  })
+
+  it("data 非法时用默认值兜底", () => {
+    const rows = fromOperationModels([new Operation({ stage: "pre", type: "wait", enabled: true, data: "{oops" })])
+    expect(rows[0].waitMs).toBe(1000)
+  })
+})
+
+describe("deriveScriptFromOps", () => {
+  const scriptOp = (stage: "pre" | "post", script: string, enabled = true) => ({
+    id: crypto.randomUUID(), stage, type: "script" as const, name: "", enabled, script,
+    libraryId: "", assertSource: "", assertExpression: "", assertComparison: "", assertTarget: "",
+    varName: "", varScope: "", varSource: "", varExpression: "", waitMs: 0,
+  })
+
+  it("拼接同阶段的启用脚本", () => {
+    const result = deriveScriptFromOps([scriptOp("pre", "a"), scriptOp("pre", "b"), scriptOp("post", "c")], "pre", "fallback")
+    expect(result).toBe("a\nb")
+  })
+
+  it("跳过禁用与空脚本", () => {
+    const result = deriveScriptFromOps([scriptOp("pre", "a", false), scriptOp("pre", "   ")], "pre", "fallback")
+    expect(result).toBe("fallback")
+  })
+
+  it("没有脚本时回退", () => {
+    expect(deriveScriptFromOps([], "post", "fb")).toBe("fb")
+    expect(deriveScriptFromOps([], "post", "")).toBe("")
+  })
+})
+
+describe("请求体字段转换", () => {
+  it("文件字段打包/解包文件名与内容", () => {
+    const models = toBodyFieldModels([
+      { id: "1", name: "f", value: "", fieldType: "file", enabled: true, fileName: "a.png", fileContent: "AAA" },
+    ])
+    expect(JSON.parse(models[0].value)).toEqual({ fileName: "a.png", content: "AAA" })
+
+    const rows = fromBodyFieldModels(models)
+    expect(rows[0]).toMatchObject({ fieldType: "file", fileName: "a.png", fileContent: "AAA", value: "" })
+  })
+
+  it("旧数据里 value 直接是文件名时也能读", () => {
+    const rows = fromBodyFieldModels([
+      new EndpointBodyField({ name: "f", value: "legacy.png", fieldType: "file", enabled: true }),
+    ])
+    expect(rows[0].fileName).toBe("legacy.png")
+  })
+
+  it("过滤掉没有名字的字段", () => {
+    expect(toBodyFieldModels([{ id: "1", name: "  ", value: "v", fieldType: "text", enabled: true }])).toHaveLength(0)
+  })
+})

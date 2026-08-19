@@ -13,7 +13,7 @@ import { Tooltip } from "@/components/ui/tooltip"
 import { useFullscreen } from "@/hooks/useFullscreen"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
-import { activeProjectId, closeProject, getCurrentEnvironmentId, openProject, openProjectIds, projectEnvironments, projectNames, reorderOpenProjects, setActiveProjectId, setCurrentEnvironment, setProjectNames, setSettingsOpen, settingsOpen } from "@/stores/app"
+import { activeProjectId, closeProject, getCurrentEnvironmentId, openProject, openProjectIds, projectEnvironments, projectNames, reorderOpenProjects, setActiveProjectId, setCurrentEnvironment, setProjectNames, setSettingsOpen } from "@/stores/app"
 
 export interface TitleBarProps {
   /** 项目标签点击回调 */
@@ -567,7 +567,7 @@ function EnvironmentSelect() {
     const id = projectId()
     if (!id) return []
     const envs = projectEnvironments()[id] || []
-    return envs.map((e: any) => ({ value: e.id, label: e.name }))
+    return envs.map((e) => ({ value: e.id, label: e.name }))
   }
 
   // 当前选中的环境

@@ -103,9 +103,10 @@ export function ProxySettingsPanel(props: ProxySettingsPanelProps) {
     if (activeId() === id) setActiveId(BUILTIN_SYSTEM)
   }
 
-  const update = (index: number, field: keyof ProxyRow, value: string | number | boolean) => {
+  // 同 updateVariable：store 的动态路径重载推不出键值对应关系，断言收在函数内部
+  const update = <K extends keyof ProxyRow>(index: number, field: K, value: ProxyRow[K]) => {
     setSaved(false)
-    setRows(index, field as any, value as any)
+    setRows(index, field, value as never)
   }
 
   const save = async () => {

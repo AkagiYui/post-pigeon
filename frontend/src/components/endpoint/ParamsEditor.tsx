@@ -5,7 +5,8 @@
 // Cookie 参数由独立的 CookiesEditor 编辑。三者共享同一份 ParamRow[]（按 type 区分），
 // 各编辑器改动时都会回传「完整」列表以保持彼此数据不丢失。
 import { Icon } from "@iconify-icon/solid"
-import { For, Show } from "solid-js"
+import type { JSX } from "solid-js"
+import { Show } from "solid-js"
 
 import type { ParamRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
@@ -173,7 +174,7 @@ export function CookiesEditor(props: { value: ParamRow[]; onChange: (rows: Param
 }
 
 /** 分区标题 */
-function SectionTitle(props: { children: any }) {
+function SectionTitle(props: { children: JSX.Element }) {
   return <h3 class="text-sm font-medium text-foreground mb-2">{props.children}</h3>
 }
 

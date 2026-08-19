@@ -71,6 +71,15 @@ export default [
       "simple-import-sort/exports": "off",
 
       "@typescript-eslint/no-deprecated": "warn",
+      // 未使用的导入/变量必须清掉：重构后残留的 import 会让人误以为某处仍有依赖
+      "@typescript-eslint/no-unused-vars": ["error", {
+        args: "none",
+        varsIgnorePattern: "^_",
+        ignoreRestSiblings: true,
+        caughtErrors: "none",
+      }],
+      // 禁止显式 any：类型信息是这套代码最主要的防呆手段
+      "@typescript-eslint/no-explicit-any": "warn",
     },
     languageOptions: {
       parser: tseslint.parser,

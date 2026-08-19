@@ -34,7 +34,7 @@ export function useRouteCache(routeName: string) {
   const projectId = () => params().id
 
   // ---- 内部注册表：记录所有需要缓存的信号/存储 ----
-  const registry = new Map<string, { get: () => any; set: (v: any) => void }>()
+  const registry = new Map<string, { get: () => unknown; set: (v: unknown) => void }>()
 
   /**
    * 创建一个自动缓存的信号（替代 createSignal）
@@ -46,7 +46,9 @@ export function useRouteCache(routeName: string) {
     const [get, set] = result
     registry.set(key, {
       get: () => get(),
-      set: (v: any) => set(v),
+      // setter 的重载会把函数值当作 updater，这里恢复的是纯数据，
+      // 用 () => value 明确表达「设为该值」，同时避免 T 可能是函数类型时的歧义。
+      set: (v: unknown) => set(() => v as T),
     })
     return result
   }
@@ -61,7 +63,7 @@ export function useRouteCache(routeName: string) {
     const [store, setStore] = result
     registry.set(key, {
       get: () => ({ ...store }),
-      set: (v: any) => setStore({ ...v }),
+      set: (v: unknown) => setStore({ ...(v as T) }),
     })
     return result
   }

@@ -320,56 +320,65 @@ function HomePage() {
         {/* 项目列表区域：动态填充剩余高度，溢出时可滚动 */}
         <div class="flex-1 overflow-y-auto min-h-0">
           <Show
-            when={projects().length > 0}
+            when={!loading()}
             fallback={
-              <div class="text-center py-16">
-                <Icon icon="lucide:folder-open" class="h-12 w-12 mx-auto text-muted-foreground mb-4" />
-                <p class="text-muted-foreground">{t("project.empty")}</p>
+              <div class="py-16 text-center">
+                <p class="text-muted-foreground">{t("common.loading")}</p>
               </div>
             }
           >
-            <DragDropProvider onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
-              <DragDropSensors />
-              <SortableProvider ids={projects().map((p) => p.id)}>
-                <div class="flex flex-col gap-3 pb-4">
-                  <For each={projects()}>
-                    {(project) => (
-                      <ContextMenu items={getMenuItems(project)}>
-                        <SortableProjectCard
-                          project={project}
-                          onDelete={handleDelete}
-                          onClick={() => {
-                            openProject(project.id)
-                            navigate({ to: "/project/$id", params: { id: project.id }, from: "/" })
-                          }}
-                        />
-                      </ContextMenu>
-                    )}
-                  </For>
+            <Show
+              when={projects().length > 0}
+              fallback={
+                <div class="text-center py-16">
+                  <Icon icon="lucide:folder-open" class="h-12 w-12 mx-auto text-muted-foreground mb-4" />
+                  <p class="text-muted-foreground">{t("project.empty")}</p>
                 </div>
-              </SortableProvider>
-              {/* DragOverlay 渲染在 DOM 顶层，不会被父容器裁剪 */}
-              <DragOverlay>
-                <Show when={activeProject()}>
-                  {(project) => (
-                    <div
-                      class="flex items-center gap-3 p-4 rounded-lg border border-accent shadow-xl shadow-accent/15 scale-[1.02] bg-surface w-[calc(100vw-4rem)] max-w-160"
-                    >
-                      <div class="w-8 h-8 shrink-0" />
-                      <div class="w-10 h-10 rounded-lg bg-accent-muted flex items-center justify-center shrink-0">
-                        <span class="text-accent font-bold text-lg">{project().name[0]}</span>
+              }
+            >
+              <DragDropProvider onDragStart={handleDragStart} onDragEnd={handleDragEnd}>
+                <DragDropSensors />
+                <SortableProvider ids={projects().map((p) => p.id)}>
+                  <div class="flex flex-col gap-3 pb-4">
+                    <For each={projects()}>
+                      {(project) => (
+                        <ContextMenu items={getMenuItems(project)}>
+                          <SortableProjectCard
+                            project={project}
+                            onDelete={handleDelete}
+                            onClick={() => {
+                              openProject(project.id)
+                              navigate({ to: "/project/$id", params: { id: project.id }, from: "/" })
+                            }}
+                          />
+                        </ContextMenu>
+                      )}
+                    </For>
+                  </div>
+                </SortableProvider>
+                {/* DragOverlay 渲染在 DOM 顶层，不会被父容器裁剪 */}
+                <DragOverlay>
+                  <Show when={activeProject()}>
+                    {(project) => (
+                      <div
+                        class="flex items-center gap-3 p-4 rounded-lg border border-accent shadow-xl shadow-accent/15 scale-[1.02] bg-surface w-[calc(100vw-4rem)] max-w-160"
+                      >
+                        <div class="w-8 h-8 shrink-0" />
+                        <div class="w-10 h-10 rounded-lg bg-accent-muted flex items-center justify-center shrink-0">
+                          <span class="text-accent font-bold text-lg">{project().name[0]}</span>
+                        </div>
+                        <div class="flex-1 min-w-0">
+                          <h3 class="font-medium text-foreground truncate">{project().name}</h3>
+                          <Show when={project().description}>
+                            <p class="text-sm text-muted-foreground truncate">{project().description}</p>
+                          </Show>
+                        </div>
                       </div>
-                      <div class="flex-1 min-w-0">
-                        <h3 class="font-medium text-foreground truncate">{project().name}</h3>
-                        <Show when={project().description}>
-                          <p class="text-sm text-muted-foreground truncate">{project().description}</p>
-                        </Show>
-                      </div>
-                    </div>
-                  )}
-                </Show>
-              </DragOverlay>
-            </DragDropProvider>
+                    )}
+                  </Show>
+                </DragOverlay>
+              </DragDropProvider>
+            </Show>
           </Show>
         </div>
       </div>

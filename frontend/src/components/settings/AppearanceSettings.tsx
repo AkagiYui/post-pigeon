@@ -1,4 +1,6 @@
 // 外观设置组件
+import type { JSX } from "solid-js"
+
 import { Select } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
 import { t } from "@/hooks/useI18n"
@@ -76,7 +78,7 @@ export function AppearanceSettings() {
 }
 
 /** 设置项布局 */
-function SettingItem(props: { label: string; children: any }) {
+function SettingItem(props: { label: string; children: JSX.Element }) {
   return (
     <div class="flex items-center justify-between">
       <label class="text-sm text-foreground">{props.label}</label>

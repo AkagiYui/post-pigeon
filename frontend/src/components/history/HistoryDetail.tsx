@@ -9,6 +9,7 @@ import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"
 import { Tabs } from "@/components/ui/tabs"
 import { t } from "@/hooks/useI18n"
+import { formatAbsoluteTime, formatSize } from "@/lib/format"
 import { formatBody, formatFromContentType } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import { toastError } from "@/stores/toast"
@@ -68,17 +69,6 @@ export function HistoryDetail(props: HistoryDetailProps) {
     }
   })
 
-  // 格式化时间
-  const formatTime = (date: Date | string) => {
-    return new Date(date).toLocaleString()
-  }
-
-  // 格式化大小
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
-  }
 
   // 获取状态码颜色
   const getStatusCodeColor = (code: number) => {
@@ -153,7 +143,7 @@ export function HistoryDetail(props: HistoryDetailProps) {
             <div class="flex items-center gap-3 text-xs text-muted-foreground mt-0.5">
               <span class="flex items-center gap-1">
                 <Icon icon="lucide:clock" class="h-3 w-3" />
-                {formatTime(detail()!.createdAt as any)}
+                {formatAbsoluteTime(detail()!.createdAt)}
               </span>
               <span>{formatSize(detail()!.size)}</span>
               <Show when={parseTiming(detail()!.timing)}>

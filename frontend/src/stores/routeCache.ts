@@ -2,7 +2,7 @@
 // 按 (projectId, routeName) 缓存页面状态，切换项目后恢复，无需重新加载或重新输入
 // 当关闭项目标签页时，自动释放对应的缓存
 import { createEffect, createRoot } from "solid-js"
-import { createStore, reconcile } from "solid-js/store"
+import { createStore } from "solid-js/store"
 
 import { openProjectIds } from "@/stores/app"
 

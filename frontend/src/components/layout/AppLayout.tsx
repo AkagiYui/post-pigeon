@@ -1,5 +1,5 @@
 // 应用主布局组件
-import { Show } from "solid-js"
+import type { JSX } from "solid-js"
 
 import { SettingsModal } from "@/components/settings/SettingsModal"
 import { setSettingsOpen, settingsOpen } from "@/stores/app"
@@ -7,7 +7,7 @@ import { setSettingsOpen, settingsOpen } from "@/stores/app"
 import { TitleBar } from "./TitleBar"
 
 export interface AppLayoutProps {
-  children?: any
+  children?: JSX.Element
 }
 
 /**

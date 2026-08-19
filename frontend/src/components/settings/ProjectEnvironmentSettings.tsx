@@ -598,8 +598,12 @@ function EnvironmentVariablesEditor(props: { ref: EditorSaveRef; environmentId: 
   }
 
   // 更新变量字段（使用 store 路径更新，保持对象引用稳定）
-  const updateVariable = (index: number, field: keyof EnvironmentVariable, value: string | boolean) => {
-    setVariables(index, field as any, value)
+  // solid-js/store 的动态路径重载推不出「键 → 值」的对应关系，
+  // 这里用一次窄化断言把它收在函数内部，调用方仍是类型安全的。
+  const updateVariable = <K extends keyof EnvironmentVariable>(
+    index: number, field: K, value: EnvironmentVariable[K],
+  ) => {
+    setVariables(index, field, value as never)
   }
 
   // 两步确认删除
@@ -643,7 +647,7 @@ function EnvironmentVariablesEditor(props: { ref: EditorSaveRef; environmentId: 
     const validVars = currentVars
       .filter(v => v.key.trim() !== "")
       .map((v, i) => ({ ...v, sortOrder: i }))
-    await EnvironmentService.SaveEnvironmentVariables(props.environmentId, validVars as any)
+    await EnvironmentService.SaveEnvironmentVariables(props.environmentId, validVars)
     await loadVariables()
   }
 
@@ -668,12 +672,6 @@ function EnvironmentVariablesEditor(props: { ref: EditorSaveRef; environmentId: 
   }
 
   // 当前拖拽的变量 ID
-  const [activeDragId, setActiveDragId] = createSignal<string | null>(null)
-  const activeDragVar = createMemo(() => {
-    const id = activeDragId()
-    if (!id) return null
-    return variables.find(v => v.id === id) ?? null
-  })
 
   // 列拖拽调整宽度（存像素值用作 CSS flex-grow，鼠标 1:1 跟手）
   const handleResizeStart = (col: string, e: MouseEvent) => {
@@ -749,7 +747,7 @@ function EnvironmentVariablesEditor(props: { ref: EditorSaveRef; environmentId: 
         </div>
 
         {/* 变量行（可拖拽排序） */}
-        <DragDropProvider onDragStart={(e) => setActiveDragId(e.draggable.id as string)} onDragEnd={handleDragEnd}>
+        <DragDropProvider onDragEnd={handleDragEnd}>
           <DragDropSensors />
           <SortableProvider ids={variables.map(v => v.id)}>
             <For each={variables}>

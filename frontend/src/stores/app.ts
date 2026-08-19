@@ -1,6 +1,8 @@
 // 全局应用状态管理
 import { createEffect, createRoot, createSignal } from "solid-js"
 
+import type { Environment } from "@/../bindings/PostPigeon/internal/models"
+
 // ---- localStorage 持久化工具 ----
 
 const STORAGE_PREFIX = "PostPigeon:"
@@ -54,7 +56,7 @@ const [projectNames, setProjectNames] = createSignal<Record<string, string>>(
 )
 
 /** 项目环境列表映射 projectId -> environments[]（持久化） */
-const [projectEnvironments, setProjectEnvironments] = createSignal<Record<string, any[]>>({})
+const [projectEnvironments, setProjectEnvironments] = createSignal<Record<string, Environment[]>>({})
 
 /** 响应面板布局方向：bottom（上下结构）/ right（左右结构）（持久化） */
 const [responseLayout, setResponseLayout] = createSignal<"bottom" | "right">(
@@ -156,11 +158,11 @@ export function setCurrentEnvironment(projectId: string, envId: string) {
 }
 
 /** 获取当前项目的环境列表 */
-export function getProjectEnvironments(projectId: string): any[] {
+export function getProjectEnvironments(projectId: string): Environment[] {
   return projectEnvironments()[projectId] || []
 }
 
 /** 设置当前项目的环境列表 */
-export function setProjectEnvironmentsList(projectId: string, envs: any[]) {
+export function setProjectEnvironmentsList(projectId: string, envs: Environment[]) {
   setProjectEnvironments(prev => ({ ...prev, [projectId]: envs }))
 }

@@ -10,6 +10,7 @@ import { Button } from "@/components/ui/button"
 import { SplitPane } from "@/components/ui/split-pane"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
+import { formatSize } from "@/lib/format"
 import { METHOD_COLORS } from "@/lib/types"
 import { cn } from "@/lib/utils"
 import { toastError } from "@/stores/toast"
@@ -100,12 +101,6 @@ function RequestHistoryPage() {
     return d.toLocaleString()
   }
 
-  // 格式化大小
-  const formatSize = (bytes: number) => {
-    if (bytes < 1024) return `${bytes} B`
-    if (bytes < 1024 * 1024) return `${(bytes / 1024).toFixed(1)} KB`
-    return `${(bytes / (1024 * 1024)).toFixed(2)} MB`
-  }
 
   // 获取状态码颜色
   const getStatusCodeColor = (code: number) => {
@@ -179,7 +174,7 @@ function RequestHistoryPage() {
                               <span>{formatSize(item.size)}</span>
                               <span class="flex items-center gap-0.5">
                                 <Icon icon="lucide:clock" class="h-3 w-3" />
-                                {formatTime(item.createdAt as any)}
+                                {formatTime(item.createdAt)}
                               </span>
                             </div>
                           </div>

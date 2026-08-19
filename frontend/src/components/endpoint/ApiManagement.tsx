@@ -1,19 +1,12 @@
 // 接口管理主界面组件
 // 左侧树形面板 + 右侧多 Tab 端点详情编辑器
 // 支持未保存的请求标签页和已保存的端点标签页
-import { createEffect, createSignal, For, on, onMount, Show } from "solid-js"
+import { createEffect, createSignal, on, onMount, Show } from "solid-js"
 
-import { EndpointAuth, EndpointBodyField, EndpointHeader, EndpointParam, Operation, ResponseExample, ResponseSchema } from "@/../bindings/PostPigeon/internal/models"
-import type {
-  EndpointDetail as EndpointDetailType,
-  FolderTree,
-  HTTPResponseData,
-  ModuleTree,
-  OpenAPIPreview,
-} from "@/../bindings/PostPigeon/internal/services"
-import type { ApifoxPreview, PostmanPreview } from "@/../bindings/PostPigeon/internal/services"
+import type { ActualRequestInfo, CookieInfo, Endpoint, ResponseExample, ResponseSchema } from "@/../bindings/PostPigeon/internal/models"
+import type { CurlRequest } from "@/../bindings/PostPigeon/internal/services"
+import type { FolderTree, ModuleTree } from "@/../bindings/PostPigeon/internal/services"
 import {
-  ApifoxService,
   CurlService,
   EndpointService,
   EnvironmentService,
@@ -21,19 +14,41 @@ import {
   HTTPService,
   ImportExportService,
   ModuleService,
-  PostmanService,
   ProjectService,
 } from "@/../bindings/PostPigeon/internal/services"
 import { SendRequestData } from "@/../bindings/PostPigeon/internal/services"
 import { CollectionRunner } from "@/components/endpoint/CollectionRunner"
+import {
+  deriveScriptFromOps,
+  endpointDefaults,
+  fromAuthModel,
+  fromBodyFieldModels,
+  fromHeaderModels,
+  fromOperationModels,
+  fromParamModels,
+  generateTempId,
+  parseStringArray,
+  safeParseJSON,
+  toAuthModel,
+  toBodyFieldModels,
+  toHeaderModels,
+  toOperationModels,
+  toParamModels,
+  toTimingData,
+} from "@/components/endpoint/endpoint-data"
 import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type HeaderRow, type OperationRow, type ParamRow, type ResponseData, type TimingData } from "@/components/endpoint/EndpointDetail"
 import { EndpointTree, type TreeNode } from "@/components/endpoint/EndpointTree"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
+import {
+  ApifoxImportDialog,
+  CurlImportDialog,
+  OpenAPIImportDialog,
+  PostmanImportDialog,
+} from "@/components/endpoint/ImportDialogs"
 import { ScopeSettingsDialog } from "@/components/endpoint/ScopeSettingsDialog"
 import { Button } from "@/components/ui/button"
-import { Checkbox, Radio } from "@/components/ui/checkbox"
 import { Dialog } from "@/components/ui/dialog"
-import { Input, Textarea } from "@/components/ui/input"
+import { Input } from "@/components/ui/input"
 import { MethodBadge } from "@/components/ui/method-badge"
 import { SplitPane } from "@/components/ui/split-pane"
 import { Tabs } from "@/components/ui/tabs"
@@ -41,7 +56,7 @@ import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
 import { errorMessage } from "@/lib/errors"
-import { type BodyType, type EndpointType, type HTTPMethod, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
+import { type BodyType, type EndpointType, type HTTPMethod, type ParamLocation } from "@/lib/types"
 import { cn, downloadTextFile } from "@/lib/utils"
 import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, notifyBaseUrlsChanged, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
 import { clearStream } from "@/stores/stream"
@@ -85,222 +100,12 @@ interface UnsavedRequestData {
   proxyConfig: string
   tlsConfig: string
   operations: OperationRow[]
-  examples: any[]
-  schemas: any[]
-}
-
-/** 端点默认字段（新字段的默认值集中在此，供各处构造 EndpointData 时展开使用） */
-const endpointDefaults = {
-  type: "http" as EndpointType,
-  docContent: "", status: "", tags: "", description: "",
-  inheritOperations: true, operations: [] as OperationRow[],
-  disabledGlobalParams: [] as string[],
-  proxyConfig: "",
-  tlsConfig: "",
-  examples: [] as any[], schemas: [] as any[],
-}
-
-/** 解析 JSON 字符串数组；非法或空时返回空数组 */
-function parseStringArray(s?: string | null): string[] {
-  if (!s) return []
-  try {
-    const arr = JSON.parse(s)
-    return Array.isArray(arr) ? arr.filter((x): x is string => typeof x === "string") : []
-  } catch {
-    return []
-  }
-}
-
-/** 安全解析 JSON；非字符串（已是对象）时原样返回，失败或空时返回 fallback。
- *  持久化响应的 headers/cookies/actualRequest/timing 均以 JSON 字符串入库，
- *  需在此解析，否则对字符串做 Object.entries 会逐字符渲染出 0/1/2… 的假数据。 */
-function safeParseJSON<T>(s: unknown, fallback: T): T {
-  if (s == null) return fallback
-  if (typeof s !== "string") return s as T
-  if (s === "") return fallback
-  try { return JSON.parse(s) as T } catch { return fallback }
-}
-
-/** 将原始计时对象（后端 TimingInfo 或持久化 JSON）映射为 TimingData，缺省补零。 */
-function toTimingData(t: any): TimingData {
-  t = t || {}
-  return {
-    total: t.total || 0, dnsLookup: t.dnsLookup || 0, tlsHandshake: t.tlsHandshake || 0,
-    tcpConnect: t.tcpConnect || 0, ttfb: t.ttfb || 0,
-    stalled: t.stalled || 0, wait: t.wait || 0, download: t.download || 0, reused: !!t.reused,
-  }
-}
-
-let tempIdCounter = 0
-function generateTempId(): string {
-  tempIdCounter++
-  return `__unsaved_${tempIdCounter}_${Date.now()}`
-}
-
-/** 从操作列表拼接指定阶段的 script 类型脚本（用于未保存请求的直接发送） */
-function deriveScriptFromOps(ops: OperationRow[], stage: OperationStage, fallback: string): string {
-  const scripts = (ops || []).filter(o => o.stage === stage && o.enabled && (o.type === "script" || o.type === "libraryScript") && o.script.trim()).map(o => o.script)
-  if (scripts.length === 0) return fallback || ""
-  return scripts.join("\n")
-}
-
-// ---- 编辑态行类型 ⇄ 后端绑定模型的相互转换 ----
-
-function toParamModels(rows: ParamRow[]): EndpointParam[] {
-  return rows.filter(r => r.name.trim()).map(r => new EndpointParam({
-    type: r.type || "query", name: r.name, value: r.value, description: r.description, enabled: r.enabled,
-    dataType: r.dataType || "string", required: r.required, example: r.example,
-  }))
-}
-
-function toHeaderModels(rows: HeaderRow[]): EndpointHeader[] {
-  return rows.filter(r => r.name.trim()).map(r => new EndpointHeader({
-    name: r.name, value: r.value, description: r.description, enabled: r.enabled,
-    required: r.required, example: r.example,
-  }))
-}
-
-/** 操作行 -> 后端 Operation 模型（按类型序列化 data） */
-function toOperationModels(rows: OperationRow[]): Operation[] {
-  return rows.map((r, i) => {
-    let data = "{}"
-    switch (r.type) {
-      case "script": data = JSON.stringify({ script: r.script }); break
-      case "libraryScript": data = JSON.stringify({ libraryId: r.libraryId, script: r.script }); break
-      case "assert": data = JSON.stringify({ source: r.assertSource, expression: r.assertExpression, comparison: r.assertComparison, target: r.assertTarget }); break
-      case "extractVar": data = JSON.stringify({ variable: r.varName, scope: r.varScope, source: r.varSource, expression: r.varExpression }); break
-      case "wait": data = JSON.stringify({ milliseconds: r.waitMs }); break
-    }
-    return new Operation({ stage: r.stage, type: r.type, name: r.name, enabled: r.enabled, sortOrder: i, data })
-  })
-}
-
-function fromOperationModels(arr?: Operation[] | null): OperationRow[] {
-  return (arr || []).map(o => {
-    let d: any = {}
-    try { d = o.data ? JSON.parse(o.data) : {} } catch { d = {} }
-    return {
-      id: crypto.randomUUID(),
-      stage: (o.stage as OperationStage) || "pre",
-      type: (o.type as OperationType) || "script",
-      name: o.name || "", enabled: o.enabled,
-      script: d.script || "", libraryId: d.libraryId || "",
-      assertSource: d.source || "responseJson", assertExpression: d.expression || "",
-      assertComparison: d.comparison || "eq", assertTarget: d.target || "",
-      varName: d.variable || "", varScope: d.scope || "environment",
-      varSource: d.source || "responseJson", varExpression: d.expression || "",
-      waitMs: d.milliseconds || 1000,
-    }
-  })
-}
-
-function toBodyFieldModels(rows: BodyFieldRow[]): EndpointBodyField[] {
-  return rows.filter(r => r.name.trim()).map(r => new EndpointBodyField({
-    name: r.name,
-    fieldType: r.fieldType,
-    enabled: r.enabled,
-    // 文件字段把文件名与 base64 内容打包进 value，后端按约定解析
-    value: r.fieldType === "file"
-      ? JSON.stringify({ fileName: r.fileName || "", content: r.fileContent || "" })
-      : r.value,
-  }))
-}
-
-function toAuthModel(a: AuthState): EndpointAuth | null {
-  if (!a || a.type === "none") return null
-  let data = "{}"
-  // digest 与 basic 的凭据形态一致，共用同一组输入
-  if (a.type === "basic" || a.type === "digest") data = JSON.stringify({ username: a.username, password: a.password })
-  else if (a.type === "bearer") data = JSON.stringify({ token: a.token })
-  else if (a.type === "apikey") data = JSON.stringify({ key: a.apiKeyKey, value: a.apiKeyValue, in: a.apiKeyIn || "header" })
-  else if (a.type === "oauth2") {
-    data = JSON.stringify({
-      grantType: a.oauthGrantType || "client_credentials",
-      tokenUrl: a.oauthTokenUrl,
-      clientId: a.oauthClientId,
-      clientSecret: a.oauthClientSecret,
-      scope: a.oauthScope,
-      clientAuth: a.oauthClientAuth || "body",
-      // password 授权复用用户名/密码输入
-      username: a.username,
-      password: a.password,
-    })
-  }
-  // inherit：无数据
-  return new EndpointAuth({ type: a.type, data })
-}
-
-function fromParamModels(arr?: EndpointParam[] | null): ParamRow[] {
-  return (arr || []).map(p => ({
-    id: crypto.randomUUID(), type: (p.type as ParamLocation) || "query", name: p.name, value: p.value,
-    description: p.description, enabled: p.enabled, dataType: p.dataType || "string", required: p.required, example: p.example || "",
-  }))
-}
-
-function fromHeaderModels(arr?: EndpointHeader[] | null): HeaderRow[] {
-  return (arr || []).map(h => ({
-    id: crypto.randomUUID(), name: h.name, value: h.value, description: h.description, enabled: h.enabled,
-    required: h.required, example: h.example || "",
-  }))
-}
-
-function fromBodyFieldModels(arr?: EndpointBodyField[] | null): BodyFieldRow[] {
-  return (arr || []).map(f => {
-    const fieldType: "text" | "file" = f.fieldType === "file" ? "file" : "text"
-    const row: BodyFieldRow = { id: crypto.randomUUID(), name: f.name, value: f.value, fieldType, enabled: f.enabled }
-    if (fieldType === "file") {
-      try {
-        const parsed = JSON.parse(f.value)
-        row.fileName = parsed.fileName || ""
-        row.fileContent = parsed.content || ""
-        row.value = ""
-      } catch {
-        // 兼容旧数据：value 直接是文件名
-        row.fileName = f.value
-        row.fileContent = ""
-      }
-    }
-    return row
-  })
-}
-
-function fromAuthModel(a?: EndpointAuth | null): AuthState {
-  if (!a || !a.type || a.type === "none") return emptyAuth()
-  let d: {
-    username?: string; password?: string; token?: string
-    key?: string; value?: string; in?: string
-    grantType?: string; tokenUrl?: string; clientId?: string
-    clientSecret?: string; scope?: string; clientAuth?: string
-  } = {}
-  try { d = a.data ? JSON.parse(a.data) : {} } catch { d = {} }
-  const validTypes = ["basic", "bearer", "apikey", "digest", "oauth2", "inherit"]
-  return {
-    ...emptyAuth(),
-    type: (validTypes.includes(a.type) ? a.type : "none") as AuthState["type"],
-    username: d.username || "", password: d.password || "", token: d.token || "",
-    apiKeyKey: d.key || "", apiKeyValue: d.value || "", apiKeyIn: d.in || "header",
-    oauthGrantType: d.grantType || "client_credentials",
-    oauthTokenUrl: d.tokenUrl || "",
-    oauthClientId: d.clientId || "",
-    oauthClientSecret: d.clientSecret || "",
-    oauthScope: d.scope || "",
-    oauthClientAuth: d.clientAuth || "body",
-  }
-}
-
-/** 导入预览里的一个统计格子 */
-function Stat(props: { label: string; value: number }) {
-  return (
-    <div class="rounded-md border border-border px-2 py-1.5 text-center">
-      <div class="text-base font-medium tabular-nums">{props.value}</div>
-      <div class="text-[11px] text-muted-foreground">{props.label}</div>
-    </div>
-  )
+  examples: ResponseExample[]
+  schemas: ResponseSchema[]
 }
 
 export interface ApiManagementProps {
   projectId: string
-  modules: any[]
 }
 
 /**
@@ -370,34 +175,19 @@ export function ApiManagement(props: ApiManagementProps) {
   const [treeDeleteOpen, setTreeDeleteOpen] = createSignal(false)
   const [treeDeleteNode, setTreeDeleteNode] = createSignal<TreeNode | null>(null)
   const [treeDeleting, setTreeDeleting] = createSignal(false)
-  // OpenAPI 导入对话框
+  // 导入向导：主组件只持有「哪个框开着、输入是什么」，其余状态由各自的对话框组件自理
   const [openApiOpen, setOpenApiOpen] = createSignal(false)
-  const [openApiModuleId, setOpenApiModuleId] = createSignal<string>("")
-  const [openApiJson, setOpenApiJson] = createSignal<string>("")
-  const [openApiPreview, setOpenApiPreview] = createSignal<OpenAPIPreview | null>(null)
-  const [openApiOverwrite, setOpenApiOverwrite] = createSignal(false)
-  // 覆盖模块名称（默认开启，仅当文档提供标题且与当前不同时展示）
-  const [openApiOverwriteModuleName, setOpenApiOverwriteModuleName] = createSignal(true)
-  // 导入环境与前置 URL（默认开启，仅当文档提供 servers 时展示）
-  const [openApiImportServers, setOpenApiImportServers] = createSignal(true)
-  const [openApiImporting, setOpenApiImporting] = createSignal(false)
-  const [openApiError, setOpenApiError] = createSignal("")
-  // 勾选导入的接口序号（默认全选，用户可取消勾选以忽略某些接口）
-  const [openApiSelectedIndexes, setOpenApiSelectedIndexes] = createSignal<Set<number>>(new Set())
-  // 当前端点所属模块的所有环境前置 URL 列表（供环境切换下拉使用）
-  const [environmentBaseUrls, setEnvironmentBaseUrls] = createSignal<EnvironmentBaseURLOption[]>([])
-  // 当前端点所属模块的"全局" query 参数（模块自动参数中 type=query 且启用的），供参数 tab 展示
-  const [globalQueryParams, setGlobalQueryParams] = createSignal<{ name: string; value: string }[]>([])
-  // 当前端点从模块/文件夹链继承的、已启用的前置/后置操作数量（供操作/参数 tab 计数包含"全局"部分）
-  const [inheritedOpCounts, setInheritedOpCounts] = createSignal<{ pre: number; post: number }>({ pre: 0, post: 0 })
-  // Apifox 导入对话框
+  const [openApiModuleId, setOpenApiModuleId] = createSignal("")
+  const [openApiJson, setOpenApiJson] = createSignal("")
   const [apifoxOpen, setApifoxOpen] = createSignal(false)
   const [apifoxJson, setApifoxJson] = createSignal("")
-  const [apifoxPreview, setApifoxPreview] = createSignal<ApifoxPreview | null>(null)
-  const [apifoxImporting, setApifoxImporting] = createSignal(false)
-  const [apifoxError, setApifoxError] = createSignal("")
-  // Apifox 逐项选择导入的下标集合（默认全选）
-  const [apifoxSelectedIndexes, setApifoxSelectedIndexes] = createSignal<Set<number>>(new Set())
+  const [curlOpen, setCurlOpen] = createSignal(false)
+  const [postmanOpen, setPostmanOpen] = createSignal(false)
+  const [postmanJson, setPostmanJson] = createSignal("")
+  // 当前端点相关的派生数据
+  const [environmentBaseUrls, setEnvironmentBaseUrls] = createSignal<EnvironmentBaseURLOption[]>([])
+  const [globalQueryParams, setGlobalQueryParams] = createSignal<{ name: string; value: string }[]>([])
+  const [inheritedOpCounts, setInheritedOpCounts] = createSignal<{ pre: number; post: number }>({ pre: 0, post: 0 })
   // 模块/文件夹设置对话框
   const [scopeSettingsOpen, setScopeSettingsOpen] = createSignal(false)
   const [scopeSettingsNode, setScopeSettingsNode] = createSignal<TreeNode | null>(null)
@@ -438,7 +228,7 @@ export function ApiManagement(props: ApiManagementProps) {
         const envs = getProjectEnvironments(props.projectId)
         const options: EnvironmentBaseURLOption[] = urls.map(u => ({
           environmentId: u.environmentId,
-          environmentName: envs.find((e: any) => e.id === u.environmentId)?.name || u.environmentId,
+          environmentName: envs.find((e) => e.id === u.environmentId)?.name || u.environmentId,
           baseUrl: u.baseUrl,
         }))
         setEnvironmentBaseUrls(options)
@@ -577,7 +367,7 @@ export function ApiManagement(props: ApiManagementProps) {
     ],
   })
 
-  const mapEndpoint = (e: any): TreeNode => ({
+  const mapEndpoint = (e: Endpoint): TreeNode => ({
     id: e.id, type: "endpoint", name: e.name, method: e.method as HTTPMethod,
     endpointType: (e.type as EndpointType) || "http", path: e.path,
   })
@@ -715,99 +505,71 @@ export function ApiManagement(props: ApiManagementProps) {
   }
 
 
-  // ---- cURL 导入 ----
-  const [curlOpen, setCurlOpen] = createSignal(false)
-  const [curlText, setCurlText] = createSignal("")
-  const [curlImporting, setCurlImporting] = createSignal(false)
-
-  const handleImportCurl = () => {
-    setCurlText("")
-    setCurlOpen(true)
-  }
-
-  /** 把解析结果落成一个未保存的请求标签页 */
-  const confirmImportCurl = async () => {
-    const command = curlText().trim()
-    if (!command) return
-    setCurlImporting(true)
-    try {
-      const parsed = await CurlService.ParseCurl(command)
-      if (!parsed) return
-      createUnsavedTab(undefined, {
-        name: parsed.url || t("endpoint.newRequest"),
-        method: (parsed.method || "GET") as HTTPMethod,
-        // cURL 里是完整地址，直接作为路径（后端识别到协议头会忽略前置 URL）
-        path: parsed.url,
-        bodyType: (parsed.bodyType || "none") as BodyType,
-        bodyContent: parsed.bodyContent || "",
-        contentType: parsed.contentType || "",
-        followRedirects: parsed.followRedirects,
-        timeout: parsed.timeoutMs > 0 ? parsed.timeoutMs : 30000,
-        params: (parsed.params || []).map(p => ({
-          id: crypto.randomUUID(), type: (p.type || "query") as ParamLocation,
-          name: p.name, value: p.value, description: "", enabled: p.enabled,
-          dataType: "string", required: false, example: "",
-        })),
-        headers: (parsed.headers || []).map(h => ({
-          id: crypto.randomUUID(), name: h.name, value: h.value,
-          description: "", enabled: h.enabled, required: false, example: "",
-        })),
-        bodyFields: (parsed.bodyFields || []).map(f => ({
-          id: crypto.randomUUID(), name: f.name, value: f.value,
-          fieldType: (f.fieldType === "file" ? "file" : "text") as "text" | "file", enabled: f.enabled,
-        })),
-        auth: fromAuthModel(parsed.auth),
-        // curl -k 对应接口级「跳过证书校验」
-        tlsConfig: parsed.insecure ? JSON.stringify({ mode: "insecure" }) : "",
-      })
-      setCurlOpen(false)
-      toastSuccess(t("curl.imported"))
-    } catch (e) {
-      toastError(e, "error.op.importFailed")
-    } finally {
-      setCurlImporting(false)
-    }
-  }
-
-  // ---- Postman Collection 导入 ----
-  const [postmanOpen, setPostmanOpen] = createSignal(false)
-  const [postmanJson, setPostmanJson] = createSignal("")
-  const [postmanPreview, setPostmanPreview] = createSignal<PostmanPreview | null>(null)
-  const [postmanImporting, setPostmanImporting] = createSignal(false)
-
-  const handleImportPostman = () => {
+  /** 弹出文件选择器读取一个 JSON 文件；三个导入入口共用 */
+  const pickJSONFile = (onPicked: (text: string) => void | Promise<void>) => {
     const input = document.createElement("input")
     input.type = "file"
-    input.accept = ".json,application/json"
+    input.accept = "application/json,.json"
     input.onchange = async () => {
       const file = input.files?.[0]
       if (!file) return
       try {
-        const text = await file.text()
-        const preview = await PostmanService.PreviewPostman(text)
-        setPostmanJson(text)
-        setPostmanPreview(preview)
-        setPostmanOpen(true)
+        await onPicked(await file.text())
       } catch (e) {
-        toastError(e, "error.op.previewFailed")
+        toastError(e, "error.op.loadFailed")
       }
     }
     input.click()
   }
 
-  const confirmImportPostman = async () => {
-    if (!postmanJson()) return
-    setPostmanImporting(true)
+  // ---- cURL 导入 ----
+  const handleImportCurl = () => setCurlOpen(true)
+
+  /** cURL 解析结果 → 一个未保存的请求标签页 */
+  const createTabFromCurl = (parsed: CurlRequest) => {
+    createUnsavedTab(undefined, {
+      name: parsed.url || t("endpoint.newRequest"),
+      method: (parsed.method || "GET") as HTTPMethod,
+      // cURL 里是完整地址，直接作为路径（后端识别到协议头会忽略前置 URL）
+      path: parsed.url,
+      bodyType: (parsed.bodyType || "none") as BodyType,
+      bodyContent: parsed.bodyContent || "",
+      contentType: parsed.contentType || "",
+      followRedirects: parsed.followRedirects,
+      timeout: parsed.timeoutMs > 0 ? parsed.timeoutMs : 30000,
+      params: (parsed.params || []).map(p => ({
+        id: crypto.randomUUID(), type: (p.type || "query") as ParamLocation,
+        name: p.name, value: p.value, description: "", enabled: p.enabled,
+        dataType: "string", required: false, example: "",
+      })),
+      headers: (parsed.headers || []).map(h => ({
+        id: crypto.randomUUID(), name: h.name, value: h.value,
+        description: "", enabled: h.enabled, required: false, example: "",
+      })),
+      bodyFields: (parsed.bodyFields || []).map(f => ({
+        id: crypto.randomUUID(), name: f.name, value: f.value,
+        fieldType: (f.fieldType === "file" ? "file" : "text") as "text" | "file", enabled: f.enabled,
+      })),
+      auth: fromAuthModel(parsed.auth),
+      // curl -k 对应接口级「跳过证书校验」
+      tlsConfig: parsed.insecure ? JSON.stringify({ mode: "insecure" }) : "",
+    })
+  }
+
+  // ---- Postman Collection 导入 ----
+  const handleImportPostman = () => pickJSONFile(async (text) => {
+    setPostmanJson(text)
+    setPostmanOpen(true)
+  })
+
+  /** 导入完成后的统一收尾：模块名/环境/前置 URL 都可能变化 */
+  const refreshAfterImport = async () => {
+    await loadTree()
     try {
-      await PostmanService.ImportPostman(props.projectId, postmanJson())
-      setPostmanOpen(false)
-      await loadTree()
-      toastSuccess(t("importexport.imported"))
-    } catch (e) {
-      toastError(e, "error.op.importFailed")
-    } finally {
-      setPostmanImporting(false)
-    }
+      const envs = await EnvironmentService.ListEnvironments(props.projectId)
+      setProjectEnvironmentsList(props.projectId, envs || [])
+    } catch { /* 刷新环境列表失败时忽略，树已刷新 */ }
+    notifyBaseUrlsChanged()
   }
 
   // ---- 集合运行器 ----
@@ -879,18 +641,18 @@ export function ApiManagement(props: ApiManagementProps) {
           proxyConfig: detail.proxyConfig || "",
           tlsConfig: detail.tlsConfig || "",
           operations: fromOperationModels(detail.operations),
-          examples: (detail.examples as any[]) || [], schemas: (detail.schemas as any[]) || [],
+          examples: detail.examples || [], schemas: detail.schemas || [],
         } as EndpointData)
         if (detail.response) {
           // 持久化响应的 headers/cookies/actualRequest/timing 均为 JSON 字符串，需解析后再用
           setResponseData({
             statusCode: detail.response.statusCode,
-            timing: toTimingData(safeParseJSON<any>(detail.response.timing, {})),
+            timing: toTimingData(safeParseJSON<Partial<TimingData>>(detail.response.timing, {})),
             size: detail.response.size, body: detail.response.body,
             headers: safeParseJSON<Record<string, string[]>>(detail.response.headers, {}),
-            cookies: safeParseJSON<any[]>(detail.response.cookies, []),
+            cookies: safeParseJSON<CookieInfo[]>(detail.response.cookies, []),
             contentType: detail.response.contentType,
-            actualRequest: safeParseJSON<any>(detail.response.actualRequest, null),
+            actualRequest: safeParseJSON<ActualRequestInfo | null>(detail.response.actualRequest, null),
           })
         } else setResponseData(null)
       }
@@ -987,19 +749,19 @@ export function ApiManagement(props: ApiManagementProps) {
           setResponseData({
             statusCode: resp.statusCode,
             timing: toTimingData(resp.timing),
-            size: 0, body: "", headers: resp.headers as any,
+            size: 0, body: "", headers: resp.headers,
             cookies: [], contentType: resp.contentType, actualRequest: resp.actualRequest,
             streaming: true, streamId: resp.streamId,
-            scripts: (resp.scripts as any) || undefined,
+            scripts: resp.scripts || undefined,
           })
         } else {
           setResponseData({
             statusCode: resp.statusCode,
             timing: toTimingData(resp.timing),
-            size: resp.size, body: resp.body, rawBody: resp.rawBody, headers: resp.headers as any,
-            cookies: resp.cookies as any || [], contentType: resp.contentType,
+            size: resp.size, body: resp.body, rawBody: resp.rawBody, headers: resp.headers,
+            cookies: resp.cookies || [], contentType: resp.contentType,
             actualRequest: resp.actualRequest,
-            scripts: (resp.scripts as any) || undefined,
+            scripts: resp.scripts || undefined,
             truncated: resp.truncated, truncatedLimit: resp.truncatedLimit,
             rawBodyOmitted: resp.rawBodyOmitted, skipped: resp.skipped,
           })
@@ -1287,115 +1049,20 @@ export function ApiManagement(props: ApiManagementProps) {
     return n ? collectSubtreeIds(n) : new Set<string>()
   }
 
-  // ---- OpenAPI 导入：选择文件 → 预览 → 确认导入 ----
+  // ---- OpenAPI / Apifox 导入：选文件，其余交给各自的对话框 ----
   const handleImportOpenAPI = (node: TreeNode) => {
     if (node.type !== "module") return
-    const input = document.createElement("input")
-    input.type = "file"
-    input.accept = "application/json,.json"
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return
+    pickJSONFile(async (text) => {
       setOpenApiModuleId(node.id)
-      setOpenApiOverwrite(false)
-      setOpenApiOverwriteModuleName(true)
-      setOpenApiImportServers(true)
-      setOpenApiError("")
-      setOpenApiPreview(null)
-      setOpenApiJson("")
-      setOpenApiSelectedIndexes(new Set<number>())
+      setOpenApiJson(text)
       setOpenApiOpen(true)
-      try {
-        const text = await file.text()
-        setOpenApiJson(text)
-        const preview = await ImportExportService.PreviewOpenAPIImport(node.id, text)
-        setOpenApiPreview(preview)
-        // 默认全选所有接口
-        setOpenApiSelectedIndexes(new Set((preview?.items ?? []).map(item => item.index)))
-      } catch (e) {
-        toastError(e, "error.op.previewFailed")
-        setOpenApiError(t("openapi.parseFailed"))
-      }
-    }
-    input.click()
+    })
   }
 
-  const confirmImportOpenAPI = async () => {
-    const moduleId = openApiModuleId()
-    if (!moduleId || !openApiJson()) return
-    setOpenApiImporting(true)
-    try {
-      await ImportExportService.ImportOpenAPIToModule(moduleId, openApiJson(), {
-        overwrite: openApiOverwrite(),
-        overwriteModuleName: openApiOverwriteModuleName(),
-        importServers: openApiImportServers(),
-        selectedIndexes: Array.from(openApiSelectedIndexes()),
-      })
-      setOpenApiOpen(false)
-      toastSuccess(t("importexport.imported"))
-      // 模块名/环境/前置 URL 可能变化：刷新树、项目环境列表，并通知 baseUrl 变更
-      await loadTree()
-      try {
-        const envs = await EnvironmentService.ListEnvironments(props.projectId)
-        setProjectEnvironmentsList(props.projectId, envs || [])
-      } catch { /* 刷新环境列表失败时忽略 */ }
-      notifyBaseUrlsChanged()
-    } catch (e) {
-      toastError(e, "error.op.importFailed")
-      setOpenApiError(t("openapi.importFailed"))
-    } finally { setOpenApiImporting(false) }
-  }
-
-  // ---- Apifox 导入：选择文件 → 预览 → 确认导入到项目 ----
-  const handleImportApifox = () => {
-    const input = document.createElement("input")
-    input.type = "file"
-    input.accept = "application/json,.json"
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return
-      setApifoxError("")
-      setApifoxPreview(null)
-      setApifoxJson("")
-      setApifoxSelectedIndexes(new Set<number>())
-      setApifoxOpen(true)
-      try {
-        const text = await file.text()
-        setApifoxJson(text)
-        const preview = await ApifoxService.PreviewApifox(text)
-        if (!preview?.isApifox) {
-          setApifoxError(t("apifox.notApifox"))
-          return
-        }
-        setApifoxPreview(preview)
-        // 默认全选所有可导入项
-        setApifoxSelectedIndexes(new Set((preview?.items ?? []).map(item => item.index)))
-      } catch (e) {
-        toastError(e, "error.op.previewFailed")
-        setApifoxError(t("apifox.parseFailed"))
-      }
-    }
-    input.click()
-  }
-
-  const confirmImportApifox = async () => {
-    if (!apifoxJson()) return
-    setApifoxImporting(true)
-    try {
-      await ApifoxService.ImportApifox(props.projectId, apifoxJson(), Array.from(apifoxSelectedIndexes()))
-      setApifoxOpen(false)
-      toastSuccess(t("importexport.imported"))
-      await loadTree()
-      try {
-        const envs = await EnvironmentService.ListEnvironments(props.projectId)
-        setProjectEnvironmentsList(props.projectId, envs || [])
-      } catch { /* 刷新环境列表失败时忽略 */ }
-      notifyBaseUrlsChanged()
-    } catch (e) {
-      toastError(e, "error.op.importFailed")
-      setApifoxError(t("apifox.importFailed"))
-    } finally { setApifoxImporting(false) }
-  }
+  const handleImportApifox = () => pickJSONFile(async (text) => {
+    setApifoxJson(text)
+    setApifoxOpen(true)
+  })
 
   // ---- 新建文档（doc 类型端点，作为叶子与接口同级） ----
   const handleCreateDocument = async (parentNodeId: string | undefined, _type?: "module" | "folder") => {
@@ -1676,120 +1343,27 @@ export function ApiManagement(props: ApiManagementProps) {
         </div>
       </Dialog>
 
-      {/* OpenAPI 导入对话框 */}
-      <Dialog open={openApiOpen()} onClose={() => setOpenApiOpen(false)} title={t("openapi.importTitle")} closeOnEsc closeOnOverlayClick width="560px">
-        <div class="px-6 py-4 flex flex-col h-[70vh] gap-3">
-          <Show when={openApiError()}>
-            <div class="text-sm text-red-500 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded-md shrink-0">{openApiError()}</div>
-          </Show>
-          <Show when={!openApiError() && !openApiPreview()}>
-            <div class="flex-1 flex items-center justify-center text-muted-foreground">{t("common.loading")}</div>
-          </Show>
-          <Show when={openApiPreview()}>
-            {(preview) => (
-              <>
-                <div class="shrink-0 text-sm text-muted-foreground">
-                  {t("openapi.summary", { total: preview().total, dup: preview().duplicateCount })}
-                </div>
-                {/* 导入选项：模块名称、环境与前置 URL */}
-                <div class="shrink-0 flex flex-col gap-2 border border-border rounded-md p-3">
-                  {/* 覆盖模块名称（仅当文档提供标题且与当前不同时显示） */}
-                  <Show when={preview().moduleName && preview().moduleName !== preview().currentModuleName}>
-                    <label class="flex items-center gap-2 text-sm cursor-pointer">
-                      <Checkbox checked={openApiOverwriteModuleName()} onChange={(e) => setOpenApiOverwriteModuleName(e.currentTarget.checked)} />
-                      <span>{t("openapi.overwriteModuleName", { name: preview().moduleName })}</span>
-                    </label>
-                  </Show>
-                  {/* 导入环境与前置 URL（仅当文档提供 servers 时显示） */}
-                  <Show when={preview().servers.length > 0}>
-                    <label class="flex items-center gap-2 text-sm cursor-pointer">
-                      <Checkbox checked={openApiImportServers()} onChange={(e) => setOpenApiImportServers(e.currentTarget.checked)} />
-                      <span>{t("openapi.importServers")}</span>
-                    </label>
-                    {/* 服务器/环境列表 */}
-                    <div class="ml-6 flex flex-col gap-1">
-                      <For each={preview().servers}>
-                        {(srv) => (
-                          <div class="flex items-center gap-2 text-xs text-muted-foreground">
-                            <span class="shrink-0 font-medium text-foreground">{srv.name || t("openapi.allEnvironments")}</span>
-                            <span class="flex-1 min-w-0 truncate font-mono" title={srv.url}>{srv.url || "—"}</span>
-                            <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-muted">
-                              {srv.environmentSame ? t("openapi.envExists") : (srv.name ? t("openapi.envNew") : "")}
-                            </span>
-                          </div>
-                        )}
-                      </For>
-                    </div>
-                  </Show>
-                  {/* 冲突处理方式选择（仅当存在重复项时显示） */}
-                  <Show when={preview().duplicateCount > 0}>
-                    <div class="flex flex-col gap-2 pt-1 border-t border-border/50 mt-1">
-                      <label class="flex items-center gap-2 text-sm cursor-pointer">
-                        <Radio name="openapi-conflict" checked={!openApiOverwrite()} onChange={() => setOpenApiOverwrite(false)} />
-                        <span>{t("openapi.skipDuplicates")}</span>
-                      </label>
-                      <label class="flex items-center gap-2 text-sm cursor-pointer">
-                        <Radio name="openapi-conflict" checked={openApiOverwrite()} onChange={() => setOpenApiOverwrite(true)} />
-                        <span>{t("openapi.overwriteDuplicates")}</span>
-                      </label>
-                    </div>
-                  </Show>
-                </div>
-                {/* 接口预览列表：可勾选每个接口是否导入 */}
-                <div class="shrink-0 flex items-center gap-2 text-xs text-muted-foreground px-1">
-                  <label class="flex items-center gap-2 cursor-pointer select-none">
-                    <Checkbox
-                      checked={openApiSelectedIndexes().size === preview().items.length && preview().items.length > 0}
-                      ref={(el) => {
-                        createEffect(() => {
-                          el.indeterminate = openApiSelectedIndexes().size > 0 && openApiSelectedIndexes().size < preview().items.length
-                        })
-                      }}
-                      onChange={(e) => {
-                        setOpenApiSelectedIndexes(
-                          e.currentTarget.checked ? new Set<number>(preview().items.map(i => i.index)) : new Set<number>(),
-                        )
-                      }}
-                    />
-                    <span>{t("openapi.selectAll")}</span>
-                  </label>
-                  <span>{t("openapi.selectedCount", { count: openApiSelectedIndexes().size, total: preview().items.length })}</span>
-                </div>
-                <div class="flex-1 min-h-0 overflow-auto border border-border rounded-md bg-input">
-                  <For each={preview().items}>
-                    {(item) => (
-                      <label class="flex items-center gap-2 px-3 py-1.5 text-sm border-b border-border/50 last:border-b-0 cursor-pointer">
-                        <Checkbox
-                          checked={openApiSelectedIndexes().has(item.index)}
-                          onChange={(e) => {
-                            const next = new Set(openApiSelectedIndexes())
-                            if (e.currentTarget.checked) next.add(item.index)
-                            else next.delete(item.index)
-                            setOpenApiSelectedIndexes(next)
-                          }}
-                        />
-                        <span class="font-mono text-xs font-semibold w-14 shrink-0 text-accent">{item.method}</span>
-                        <span class="flex-1 min-w-0 truncate" title={item.path}>{item.name}</span>
-                        <Show when={item.duplicate}>
-                          <span class="shrink-0 text-[10px] px-1.5 py-0.5 rounded bg-amber-500/15 text-amber-600 dark:text-amber-400">{t("openapi.duplicate")}</span>
-                        </Show>
-                      </label>
-                    )}
-                  </For>
-                </div>
-              </>
-            )}
-          </Show>
-          <div class="flex justify-end gap-2 pt-2 shrink-0">
-            <Button variant="outline" onClick={() => setOpenApiOpen(false)}>{t("common.cancel")}</Button>
-            <Button onClick={confirmImportOpenAPI} disabled={!openApiPreview() || openApiSelectedIndexes().size === 0 || openApiImporting()}>
-              {openApiImporting() ? t("common.saving") : t("openapi.confirmImport")}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
+      {/* 导入向导（各自持有预览与勾选状态） */}
+      <OpenAPIImportDialog
+        open={openApiOpen()} onClose={() => setOpenApiOpen(false)}
+        moduleId={openApiModuleId()} json={openApiJson()}
+        onImported={refreshAfterImport}
+      />
+      <ApifoxImportDialog
+        open={apifoxOpen()} onClose={() => setApifoxOpen(false)}
+        projectId={props.projectId} json={apifoxJson()}
+        onImported={refreshAfterImport}
+      />
+      <CurlImportDialog
+        open={curlOpen()} onClose={() => setCurlOpen(false)}
+        onParsed={createTabFromCurl}
+      />
+      <PostmanImportDialog
+        open={postmanOpen()} onClose={() => setPostmanOpen(false)}
+        projectId={props.projectId} json={postmanJson()}
+        onImported={refreshAfterImport}
+      />
 
-      {/* Apifox 导入对话框 */}
       <CollectionRunner
         open={runnerOpen()}
         onClose={() => setRunnerOpen(false)}
@@ -1798,134 +1372,6 @@ export function ApiManagement(props: ApiManagementProps) {
         scopeName={runnerScope().name}
         environmentId={getCurrentEnvironmentId(props.projectId)}
       />
-
-      {/* 从 cURL 导入：粘贴命令即可新建一个未保存的请求 */}
-      <Dialog open={curlOpen()} onClose={() => setCurlOpen(false)} title={t("curl.importTitle")} closeOnEsc closeOnOverlayClick width="620px">
-        <div class="px-6 py-4 flex flex-col gap-3">
-          <p class="text-sm text-muted-foreground">{t("curl.importHint")}</p>
-          <Textarea
-            value={curlText()}
-            onInput={(e) => setCurlText(e.currentTarget.value)}
-            rows={10}
-            spellcheck={false}
-            placeholder={"curl 'https://api.example.com/users' \\\n  -H 'Accept: application/json'"}
-            class="font-mono text-xs"
-          />
-        </div>
-        <div class="flex justify-end gap-2 px-6 py-3 border-t border-border">
-          <Button variant="outline" onClick={() => setCurlOpen(false)}>{t("common.cancel")}</Button>
-          <Button onClick={confirmImportCurl} disabled={!curlText().trim() || curlImporting()}>
-            {curlImporting() ? t("common.loading") : t("common.confirm")}
-          </Button>
-        </div>
-      </Dialog>
-
-      {/* 导入 Postman Collection */}
-      <Dialog open={postmanOpen()} onClose={() => setPostmanOpen(false)} title={t("postman.importTitle")} closeOnEsc closeOnOverlayClick width="520px">
-        <div class="px-6 py-4 flex flex-col gap-3">
-          <Show when={postmanPreview()}>
-            {(preview) => (
-              <div class="space-y-2 text-sm">
-                <p class="font-medium">{preview().name}</p>
-                <Show when={preview().description}>
-                  <p class="text-muted-foreground">{preview().description}</p>
-                </Show>
-                <div class="grid grid-cols-3 gap-2 pt-2">
-                  <Stat label={t("postman.stat.folders")} value={preview().folders} />
-                  <Stat label={t("postman.stat.endpoints")} value={preview().endpoints} />
-                  <Stat label={t("postman.stat.variables")} value={preview().variables} />
-                </div>
-                <Show when={preview().hasScripts}>
-                  <p class="text-xs text-muted-foreground pt-1">{t("postman.scriptsHint")}</p>
-                </Show>
-                <p class="text-xs text-muted-foreground">{t("postman.moduleHint")}</p>
-              </div>
-            )}
-          </Show>
-        </div>
-        <div class="flex justify-end gap-2 px-6 py-3 border-t border-border">
-          <Button variant="outline" onClick={() => setPostmanOpen(false)}>{t("common.cancel")}</Button>
-          <Button onClick={confirmImportPostman} disabled={!postmanPreview() || postmanImporting()}>
-            {postmanImporting() ? t("common.loading") : t("common.confirm")}
-          </Button>
-        </div>
-      </Dialog>
-
-      <Dialog open={apifoxOpen()} onClose={() => setApifoxOpen(false)} title={t("apifox.importTitle")} closeOnEsc closeOnOverlayClick width="560px">
-        <div class="px-6 py-4 flex flex-col h-[70vh] gap-3">
-          <Show when={apifoxError()}>
-            <div class="text-sm text-red-500 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded-md shrink-0">{apifoxError()}</div>
-          </Show>
-          <Show when={!apifoxError() && !apifoxPreview()}>
-            <div class="flex-1 flex items-center justify-center text-muted-foreground">{t("common.loading")}</div>
-          </Show>
-          <Show when={apifoxPreview()}>
-            {(preview) => (
-              <>
-                <p class="text-sm text-muted-foreground shrink-0">{t("apifox.summaryHint", { name: preview().projectName })}</p>
-                <div class="grid grid-cols-4 gap-2 text-sm shrink-0">
-                  <ApifoxStat label={t("apifox.stat.modules")} value={preview().modules} />
-                  <ApifoxStat label={t("apifox.stat.endpoints")} value={preview().endpoints} />
-                  <ApifoxStat label={t("apifox.stat.folders")} value={preview().folders} />
-                  <ApifoxStat label={t("apifox.stat.documents")} value={preview().documents} />
-                  <ApifoxStat label={t("apifox.stat.webSockets")} value={preview().webSockets} />
-                  <ApifoxStat label={t("apifox.stat.environments")} value={preview().environments} />
-                  <ApifoxStat label={t("apifox.stat.globalVars")} value={preview().globalVars} />
-                  <ApifoxStat label={t("apifox.stat.scripts")} value={preview().scripts} />
-                </div>
-                {/* 逐项选择 */}
-                <div class="shrink-0 flex items-center gap-2 text-xs text-muted-foreground px-1">
-                  <label class="flex items-center gap-2 cursor-pointer select-none">
-                    <Checkbox
-                      checked={apifoxSelectedIndexes().size === preview().items.length && preview().items.length > 0}
-                      ref={(el) => {
-                        createEffect(() => {
-                          el.indeterminate = apifoxSelectedIndexes().size > 0 && apifoxSelectedIndexes().size < preview().items.length
-                        })
-                      }}
-                      onChange={(e) => setApifoxSelectedIndexes(e.currentTarget.checked ? new Set<number>(preview().items.map(i => i.index)) : new Set<number>())}
-                    />
-                    <span>{t("openapi.selectAll")}</span>
-                  </label>
-                  <span>{t("openapi.selectedCount", { count: apifoxSelectedIndexes().size, total: preview().items.length })}</span>
-                </div>
-                <div class="flex-1 min-h-0 overflow-auto border border-border rounded-md bg-input">
-                  <For each={preview().items}>
-                    {(item) => (
-                      <label class="flex items-center gap-2 px-3 py-1.5 text-sm border-b border-border/50 last:border-b-0 cursor-pointer">
-                        <Checkbox
-                          checked={apifoxSelectedIndexes().has(item.index)}
-                          onChange={(e) => {
-                            const next = new Set(apifoxSelectedIndexes())
-                            if (e.currentTarget.checked) next.add(item.index)
-                            else next.delete(item.index)
-                            setApifoxSelectedIndexes(next)
-                          }}
-                        />
-                        <span class="shrink-0 w-16 text-[10px] px-1.5 py-0.5 rounded bg-muted text-muted-foreground text-center">{apifoxKindLabel(item.kind)}</span>
-                        <Show when={item.kind === "http" || item.kind === "request"}>
-                          <span class="font-mono text-xs font-semibold w-12 shrink-0 text-accent">{item.method}</span>
-                        </Show>
-                        <span class="flex-1 min-w-0 truncate" title={item.path}>{item.name}</span>
-                        <Show when={item.folderPath}>
-                          <span class="shrink-0 text-[10px] text-muted-foreground truncate max-w-40" title={item.folderPath}>{item.folderPath}</span>
-                        </Show>
-                      </label>
-                    )}
-                  </For>
-                </div>
-                <p class="text-xs text-muted-foreground shrink-0">{t("apifox.dedupHint")}</p>
-              </>
-            )}
-          </Show>
-          <div class="flex justify-end gap-2 pt-2 shrink-0">
-            <Button variant="outline" onClick={() => setApifoxOpen(false)}>{t("common.cancel")}</Button>
-            <Button onClick={confirmImportApifox} disabled={!apifoxPreview() || apifoxSelectedIndexes().size === 0 || apifoxImporting()}>
-              {apifoxImporting() ? t("common.saving") : t("apifox.confirmImport")}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
 
       {/* 创建模块对话框 */}
       <Dialog open={createModuleOpen()} onClose={() => setCreateModuleOpen(false)} title={t("module.create")} closeOnEsc closeOnOverlayClick>
@@ -1989,23 +1435,3 @@ export function ApiManagement(props: ApiManagementProps) {
   )
 }
 
-/** Apifox 预览项类型标签 */
-function apifoxKindLabel(kind: string): string {
-  switch (kind) {
-    case "http": return t("apifox.kind.http")
-    case "websocket": return t("apifox.kind.websocket")
-    case "doc": return t("apifox.kind.doc")
-    case "request": return t("apifox.kind.request")
-    default: return kind
-  }
-}
-
-/** Apifox 导入预览的单项统计 */
-function ApifoxStat(props: { label: string; value: number }) {
-  return (
-    <div class="flex items-center justify-between px-2 py-1 rounded bg-muted/40">
-      <span class="text-muted-foreground">{props.label}</span>
-      <span class="font-medium tabular-nums">{props.value}</span>
-    </div>
-  )
-}

@@ -1,6 +1,6 @@
 // 主题管理 Hook
 // 管理深色/浅色模式、主题色和缩放比例
-import { createEffect, createSignal, onMount } from "solid-js"
+import { createSignal } from "solid-js"
 
 import { SettingsService } from "@/../bindings/PostPigeon/internal/services"
 import { ACCENT_COLORS, type ThemeAccent, type ThemeMode } from "@/lib/types"

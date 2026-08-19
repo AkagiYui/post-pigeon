@@ -276,7 +276,7 @@ export function ResponsePanel(props: ResponsePanelProps) {
               { header: t("cookie.path"), field: "path" },
               { header: t("cookie.expires"), field: "expires" },
             ]}
-            data={(props.response.cookies || []) as any[]}
+            data={props.response.cookies || []}
             compact
           />
         </div>
