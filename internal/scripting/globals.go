@@ -48,7 +48,8 @@ func stringify(vm *goja.Runtime, v goja.Value) string {
 
 // buildGlobals 安装常用全局：atob/btoa、self/global 别名。
 // （setTimeout/setInterval 由事件循环安装；Buffer/process/URL 由 goja_nodejs 安装；
-//  TextEncoder/TextDecoder、xml2Json 等在 prelude.js 中安装。）
+//
+//	TextEncoder/TextDecoder、xml2Json 等在 prelude.js 中安装。）
 func buildGlobals(vm *goja.Runtime) {
 	vm.Set("btoa", func(call goja.FunctionCall) goja.Value { return encodeBase64(vm, call) })
 	vm.Set("atob", func(call goja.FunctionCall) goja.Value { return decodeBase64(vm, call) })

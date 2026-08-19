@@ -1,41 +1,27 @@
-name: Build
+name: Release
 
 on:
-  workflow_dispatch:
   push:
-    branches:
-      - master
+    tags:
+      - 'v*'
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: '要发布的版本号（如 v1.2.0）'
+        required: true
+
+permissions:
+  contents: write
 
 jobs:
-  # 检查 commits，决定是否需要构建
-  check-commits:
-    name: 检查 commits
-    runs-on: ubuntu-latest
-    outputs:
-      should-build: ${{ steps.check.outputs.should-build }}
-
-    steps:
-      - name: 检出代码
-        uses: actions/checkout@v6
-
-      - name: 检查是否需要构建
-        id: check
-        env:
-          COMMITS_JSON: ${{ toJson(github.event.commits) }}
-        run: python3 scripts/check_build.py
-
-  # 打包前先跑完整校验（vet / test / typecheck / lint / 前端单测）
+  # 发版前必须通过完整校验
   checks:
     name: 校验
-    needs: check-commits
-    if: needs.check-commits.outputs.should-build == 'true'
     uses: ./.github/workflows/ci.yaml
 
   build:
-    needs: [check-commits, checks]
-    # 只要有任意一个功能性 commit 且校验通过就触发构建
-    if: needs.check-commits.outputs.should-build == 'true'
-    # 构建任务
+    name: 构建 ${{ matrix.os }} (${{ matrix.arch }})
+    needs: checks
     strategy:
       fail-fast: false
       matrix:
@@ -52,10 +38,7 @@ jobs:
           - os: ubuntu-latest
             arch: x64
             artifact: PostPigeon-linux-x64
-
-    name: 构建 ${{ matrix.os }} (${{ matrix.arch }})
     runs-on: ${{ matrix.os }}
-    # 使用 bash 作为默认 shell（Windows 会使用 Git Bash）
     defaults:
       run:
         shell: bash
@@ -63,6 +46,18 @@ jobs:
     steps:
       - name: 检出代码
         uses: actions/checkout@v6
+
+      - name: 解析版本号
+        id: version
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
+      # 版本号唯一真实来源是 git tag：构建前把它写入 build/config.yml，
+      # 由 Taskfile 的 APP_VERSION 读取并通过 ldflags 注入到 config.Version。
+      - name: 同步版本号到 build/config.yml
+        run: python3 scripts/set_version.py "${{ steps.version.outputs.version }}"
 
       - name: 安装 Go
         uses: actions/setup-go@v6
@@ -95,35 +90,50 @@ jobs:
           echo "C:\Program Files (x86)\NSIS" >> "${GITHUB_PATH}"
 
       - name: 安装 Wails CLI
-        run: |
-          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+        run: go install github.com/wailsapp/wails/v3/cmd/wails3@latest
 
       - name: 更新构建资源
         run: wails3 task common:update:build-assets
 
-      - name: 构建应用
+      - name: 打包应用
         run: wails3 package
 
-      - name: 上传构建产物
+      - name: 归档产物
+        run: |
+          cd bin
+          tar -czf "../${{ matrix.artifact }}.tar.gz" .
+
+      - name: 上传产物
         uses: actions/upload-artifact@v7
         with:
           name: ${{ matrix.artifact }}
-          path: bin/
+          path: ${{ matrix.artifact }}.tar.gz
 
-  # 生成构建摘要
-  summary:
-    needs: [check-commits, build]
-    # 无论构建是否成功都生成摘要
-    if: always() && needs.check-commits.outputs.should-build == 'true'
-    name: 生成构建摘要
+  release:
+    name: 发布 Release
+    needs: build
     runs-on: ubuntu-latest
-
     steps:
       - name: 检出代码
         uses: actions/checkout@v6
+        with:
+          fetch-depth: 0
 
-      - name: 生成 Action Summary
-        env:
-          COMMITS_JSON: ${{ toJson(github.event.commits) }}
-          GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
-        run: python3 scripts/generate_summary.py
+      - name: 下载全部产物
+        uses: actions/download-artifact@v7
+        with:
+          path: artifacts
+          merge-multiple: true
+
+      - name: 生成变更日志
+        id: changelog
+        run: python3 scripts/generate_changelog.py > RELEASE_NOTES.md
+
+      - name: 创建 Release
+        uses: softprops/action-gh-release@v2
+        with:
+          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          body_path: RELEASE_NOTES.md
+          files: artifacts/*
+          draft: false
+          prerelease: ${{ contains(github.event.inputs.tag || github.ref_name, '-') }}

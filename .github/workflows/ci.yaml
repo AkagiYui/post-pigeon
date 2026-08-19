@@ -1,0 +1,110 @@
+name: CI
+
+on:
+  pull_request:
+  push:
+    branches:
+      - master
+  # 供 build.yaml / release.yaml 在打包前复用同一套校验
+  workflow_call:
+
+# 同一分支的重复推送只保留最新一次校验
+concurrency:
+  group: ci-${{ github.workflow }}-${{ github.ref }}
+  cancel-in-progress: true
+
+jobs:
+  go:
+    name: Go 校验
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 安装 Go
+        uses: actions/setup-go@v6
+        with:
+          cache: true
+          go-version-file: 'go.mod'
+
+      - name: gofmt 检查
+        run: |
+          unformatted=$(gofmt -l . | grep -v '^frontend/' || true)
+          if [ -n "$unformatted" ]; then
+            echo "以下文件未通过 gofmt："
+            echo "$unformatted"
+            exit 1
+          fi
+
+      - name: go vet
+        run: go vet ./...
+
+      - name: go build
+        run: go build ./...
+
+      - name: 单元测试（含竞态检测与覆盖率）
+        run: go test -race -coverprofile=coverage.out -covermode=atomic ./internal/... ./testserver/...
+
+      - name: 覆盖率摘要
+        run: |
+          go tool cover -func=coverage.out | tail -1
+          {
+            echo '### Go 覆盖率'
+            echo '```'
+            go tool cover -func=coverage.out | tail -20
+            echo '```'
+          } >> "$GITHUB_STEP_SUMMARY"
+
+      - name: 上传覆盖率
+        uses: actions/upload-artifact@v7
+        with:
+          name: go-coverage
+          path: coverage.out
+          if-no-files-found: ignore
+
+  frontend:
+    name: 前端校验
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出代码
+        uses: actions/checkout@v6
+
+      - name: 安装 Go
+        uses: actions/setup-go@v6
+        with:
+          cache: true
+          go-version-file: 'go.mod'
+
+      - name: 安装 pnpm
+        uses: pnpm/action-setup@v6
+        with:
+          package_json_file: 'frontend/package.json'
+
+      - name: 安装 Node.js
+        uses: actions/setup-node@v6
+        with:
+          node-version-file: 'frontend/package.json'
+          cache: 'pnpm'
+          cache-dependency-path: 'frontend/pnpm-lock.yaml'
+
+      - name: 安装依赖
+        working-directory: frontend
+        run: pnpm install --frozen-lockfile
+
+      # tsconfig 覆盖 bindings/ 目录，类型检查前需要先生成绑定
+      - name: 生成 Wails 绑定
+        run: |
+          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          wails3 generate bindings -ts -clean=true
+
+      - name: 类型检查
+        working-directory: frontend
+        run: pnpm typecheck
+
+      - name: ESLint
+        working-directory: frontend
+        run: pnpm lint
+
+      - name: 单元测试
+        working-directory: frontend
+        run: pnpm test

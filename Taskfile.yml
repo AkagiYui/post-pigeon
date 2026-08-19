@@ -23,6 +23,44 @@ vars:
     sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
 
 tasks:
+  check:
+    summary: 本地跑一遍 CI 的全部校验（gofmt / vet / go test / typecheck / lint / 前端单测）
+    cmds:
+      - task: check:go
+      - task: check:frontend
+
+  check:go:
+    summary: Go 侧校验：gofmt + vet + build + race 测试
+    cmds:
+      - |
+        unformatted=$(gofmt -l . | grep -v '^frontend/' || true)
+        if [ -n "$unformatted" ]; then
+          echo "以下文件未通过 gofmt："; echo "$unformatted"; exit 1
+        fi
+      - go vet ./...
+      - go build ./...
+      - go test -race ./internal/... ./testserver/...
+
+  check:frontend:
+    summary: 前端校验：类型检查 + ESLint + 单元测试
+    dir: frontend
+    cmds:
+      - pnpm typecheck
+      - pnpm lint
+      - pnpm test
+
+  test:
+    summary: 跑全部单元测试（Go + 前端）
+    cmds:
+      - go test ./internal/... ./testserver/...
+      - task: test:frontend
+
+  test:frontend:
+    summary: 跑前端单元测试
+    dir: frontend
+    cmds:
+      - pnpm test
+
   build:
     summary: Builds the application
     cmds:

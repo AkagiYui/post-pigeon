@@ -66,10 +66,10 @@ type apifoxExport struct {
 	WebSocketCollection []apifoxCollectionRoot `json:"webSocketCollection"`
 	RequestCollection   []apifoxRequestRoot    `json:"requestCollection"`
 
-	Environments    []apifoxEnvironment `json:"environments"`
-	ModuleSettings  []apifoxModule      `json:"moduleSettings"`
-	CommonScripts   []apifoxCommonScript `json:"commonScripts"`
-	GlobalVariables []apifoxGlobalVarSet `json:"globalVariables"`
+	Environments     []apifoxEnvironment    `json:"environments"`
+	ModuleSettings   []apifoxModule         `json:"moduleSettings"`
+	CommonScripts    []apifoxCommonScript   `json:"commonScripts"`
+	GlobalVariables  []apifoxGlobalVarSet   `json:"globalVariables"`
 	CommonParameters apifoxCommonParameters `json:"commonParameters"`
 }
 
@@ -88,12 +88,12 @@ type apifoxModule struct {
 }
 
 type apifoxCollectionRoot struct {
-	Name           string             `json:"name"`
-	ModuleID       flexStr            `json:"moduleId"`
-	Auth           apifoxAuth         `json:"auth"`
-	PreProcessors  []apifoxProcessor  `json:"preProcessors"`
-	PostProcessors []apifoxProcessor  `json:"postProcessors"`
-	Items          []apifoxItem       `json:"items"`
+	Name           string            `json:"name"`
+	ModuleID       flexStr           `json:"moduleId"`
+	Auth           apifoxAuth        `json:"auth"`
+	PreProcessors  []apifoxProcessor `json:"preProcessors"`
+	PostProcessors []apifoxProcessor `json:"postProcessors"`
+	Items          []apifoxItem      `json:"items"`
 }
 
 // apifoxItem 既可能是文件夹（含 items），也可能是端点（含 api）。
@@ -111,21 +111,21 @@ type apifoxItem struct {
 func (it apifoxItem) isFolder() bool { return it.API == nil }
 
 type apifoxAPI struct {
-	ID               flexStr              `json:"id"`
-	Method           string               `json:"method"`
-	Path             string               `json:"path"`
-	Name             string               `json:"name"`
-	Description      string               `json:"description"`
-	Status           string               `json:"status"`
-	Tags             []string             `json:"tags"`
-	Ordering         int                  `json:"ordering"`
-	Parameters       apifoxParameters     `json:"parameters"`
-	RequestBody      apifoxRequestBody    `json:"requestBody"`
-	Auth             apifoxAuth           `json:"auth"`
-	Responses        []apifoxResponse     `json:"responses"`
-	ResponseExamples []apifoxRespExample  `json:"responseExamples"`
-	PreProcessors    []apifoxProcessor    `json:"preProcessors"`
-	PostProcessors   []apifoxProcessor    `json:"postProcessors"`
+	ID               flexStr             `json:"id"`
+	Method           string              `json:"method"`
+	Path             string              `json:"path"`
+	Name             string              `json:"name"`
+	Description      string              `json:"description"`
+	Status           string              `json:"status"`
+	Tags             []string            `json:"tags"`
+	Ordering         int                 `json:"ordering"`
+	Parameters       apifoxParameters    `json:"parameters"`
+	RequestBody      apifoxRequestBody   `json:"requestBody"`
+	Auth             apifoxAuth          `json:"auth"`
+	Responses        []apifoxResponse    `json:"responses"`
+	ResponseExamples []apifoxRespExample `json:"responseExamples"`
+	PreProcessors    []apifoxProcessor   `json:"preProcessors"`
+	PostProcessors   []apifoxProcessor   `json:"postProcessors"`
 }
 
 type apifoxParameters struct {
@@ -155,12 +155,12 @@ func (p apifoxParam) val() string {
 func (p apifoxParam) exampleStr() string { return p.Example.String() }
 
 type apifoxRequestBody struct {
-	Type       string             `json:"type"`
-	Parameters []apifoxParam      `json:"parameters"`
+	Type       string              `json:"type"`
+	Parameters []apifoxParam       `json:"parameters"`
 	Examples   []apifoxBodyExample `json:"examples"`
-	Example    jstr               `json:"example"`
-	Data       jstr               `json:"data"`
-	JSONSchema json.RawMessage    `json:"jsonSchema"`
+	Example    jstr                `json:"example"`
+	Data       jstr                `json:"data"`
+	JSONSchema json.RawMessage     `json:"jsonSchema"`
 }
 
 type apifoxBodyExample struct {
@@ -206,9 +206,9 @@ type apifoxProcessor struct {
 }
 
 type apifoxEnvironment struct {
-	ID        flexStr            `json:"id"`
-	Name      string             `json:"name"`
-	BaseURLs  map[string]string  `json:"baseUrls"`
+	ID        flexStr             `json:"id"`
+	Name      string              `json:"name"`
+	BaseURLs  map[string]string   `json:"baseUrls"`
 	Variables []apifoxEnvVariable `json:"variables"`
 }
 
@@ -267,16 +267,16 @@ type apifoxRequestItem struct {
 
 // ApifoxPreview Apifox 导入前的内容概览
 type ApifoxPreview struct {
-	IsApifox     bool               `json:"isApifox"`
-	ProjectName  string             `json:"projectName"`
-	Modules      int                `json:"modules"`
-	Folders      int                `json:"folders"`
-	Endpoints    int                `json:"endpoints"`
-	Documents    int                `json:"documents"`
-	WebSockets   int                `json:"webSockets"`
-	Environments int                `json:"environments"`
-	GlobalVars   int                `json:"globalVars"`
-	Scripts      int                `json:"scripts"`
+	IsApifox     bool   `json:"isApifox"`
+	ProjectName  string `json:"projectName"`
+	Modules      int    `json:"modules"`
+	Folders      int    `json:"folders"`
+	Endpoints    int    `json:"endpoints"`
+	Documents    int    `json:"documents"`
+	WebSockets   int    `json:"webSockets"`
+	Environments int    `json:"environments"`
+	GlobalVars   int    `json:"globalVars"`
+	Scripts      int    `json:"scripts"`
 	// Items 可逐项选择导入的叶子列表（接口 / 文档 / WebSocket / 通用请求）
 	Items []ApifoxPreviewItem `json:"items"`
 }

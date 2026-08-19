@@ -9,7 +9,12 @@
     "build:dev": "vite build --minify false --mode development",
     "build": "vite build --mode production",
     "preview": "vite preview",
-    "lint": "eslint --fix --ext ."
+    "lint": "eslint .",
+    "typecheck": "tsc --noEmit",
+    "lint:fix": "eslint . --fix",
+    "test": "vitest run",
+    "test:watch": "vitest",
+    "test:coverage": "vitest run --coverage"
   },
   "dependencies": {
     "@ark-ui/solid": "^5.37.1",
@@ -46,18 +51,23 @@
   "devDependencies": {
     "@iconify-json/lucide": "^1.2.116",
     "@solid-devtools/overlay": "^0.33.5",
+    "@solidjs/testing-library": "^0.8.10",
     "@stylistic/eslint-plugin": "^5.10.0",
     "@tanstack/solid-router-devtools": "^1.166.13",
+    "@testing-library/jest-dom": "^7.0.1",
     "@types/node": "^25.6.0",
+    "@vitest/coverage-v8": "^4.1.11",
     "eslint": "^10.2.1",
     "eslint-plugin-simple-import-sort": "^13.0.0",
     "globals": "^17.5.0",
+    "jsdom": "^30.0.1",
     "solid-devtools": "^0.34.5",
     "typescript": "^6",
     "typescript-eslint": "^8.59.0",
     "vite": "^8.0.10",
     "vite-plugin-iconify-offline": "^0.4.3",
-    "vite-plugin-solid": "^2.11.12"
+    "vite-plugin-solid": "^2.11.12",
+    "vitest": "^4.1.11"
   },
   "engines": {
     "node": ">=24.0.0"

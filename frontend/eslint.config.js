@@ -75,8 +75,10 @@ export default [
     languageOptions: {
       parser: tseslint.parser,
       parserOptions: {
+        // *.config.ts 已被 tsconfig 的 include（**/*.ts）覆盖，走 project service；
+        // 只有不在 tsconfig 内的 js/mjs 才需要 allowDefaultProject。
         projectService: {
-          allowDefaultProject: ["*.config.js", "*.config.ts", "*.mjs"],
+          allowDefaultProject: ["*.config.js", "*.mjs"],
         },
         sourceType: "module",
         ecmaVersion: "latest",

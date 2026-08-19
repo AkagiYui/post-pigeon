@@ -76,7 +76,9 @@ var sampleUsers = []user{
 
 func registerHTTPMethods(r *gin.Engine) {
 	g := r.Group("/api")
-	g.GET("/ping", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"message": "pong", "time": time.Now().Format(time.RFC3339)}) })
+	g.GET("/ping", func(c *gin.Context) {
+		c.JSON(http.StatusOK, gin.H{"message": "pong", "time": time.Now().Format(time.RFC3339)})
+	})
 	g.GET("/users", func(c *gin.Context) { c.JSON(http.StatusOK, gin.H{"total": len(sampleUsers), "items": sampleUsers}) })
 	g.GET("/users/:id", func(c *gin.Context) {
 		id, _ := strconv.Atoi(c.Param("id"))
