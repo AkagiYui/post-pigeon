@@ -5,6 +5,7 @@ import { createFileRoute, useParams } from "@tanstack/solid-router"
 import { createSignal, onMount } from "solid-js"
 
 import { ProjectService } from "@/../bindings/PostPigeon/internal/services"
+import { CookieSettings } from "@/components/settings/CookieSettings"
 import { GlobalVariablesSettings } from "@/components/settings/GlobalVariablesSettings"
 import { ProjectEnvironmentSettings } from "@/components/settings/ProjectEnvironmentSettings"
 import { ProxySettingsPanel } from "@/components/settings/ProxySettingsPanel"
@@ -27,6 +28,7 @@ const projectSettingsTabs = [
   { key: "scriptLibrary", label: "", icon: <Icon icon="lucide:file-code" class="h-4 w-4" /> },
   { key: "proxy", label: "", icon: <Icon icon="lucide:network" class="h-4 w-4" /> },
   { key: "tls", label: "", icon: <Icon icon="lucide:shield-check" class="h-4 w-4" /> },
+  { key: "cookies", label: "", icon: <Icon icon="lucide:cookie" class="h-4 w-4" /> },
 ]
 
 export const Route = createFileRoute("/project/$id/settings")({
@@ -220,6 +222,12 @@ function ProjectSettingsPage() {
                 return (
                   <div class="h-full p-6">
                     <TLSSettingsPanel scope="project" projectId={projectId()} />
+                  </div>
+                )
+              case "cookies":
+                return (
+                  <div class="h-full p-6">
+                    <CookieSettings projectId={projectId()} />
                   </div>
                 )
               default:

@@ -63,12 +63,16 @@ func main() {
 	tlsService := services.NewTLSService(db)
 	curlService := services.NewCurlService(db)
 	postmanService := services.NewPostmanService(db)
+	cookieService := services.NewCookieService(db)
+	runnerService := services.NewRunnerService(db, httpService)
 
 	// 注册数据变更事件
 	application.RegisterEvent[string]("data:changed")
 	// 注册流式事件：WebSocket 消息流、HTTP 流式响应（text/event-stream）
 	application.RegisterEvent[services.StreamEvent](services.WSEventName)
 	application.RegisterEvent[services.StreamEvent](services.HTTPStreamEventName)
+	// 注册集合运行进度事件
+	application.RegisterEvent[services.RunProgress](services.RunnerEventName)
 
 	// 窗口状态持久化服务
 	windowStateService := services.NewWindowStateService(db)
@@ -96,6 +100,8 @@ func main() {
 			application.NewService(tlsService),
 			application.NewService(curlService),
 			application.NewService(postmanService),
+			application.NewService(cookieService),
+			application.NewService(runnerService),
 			application.NewService(webSocketService),
 		},
 		Assets: application.AssetOptions{

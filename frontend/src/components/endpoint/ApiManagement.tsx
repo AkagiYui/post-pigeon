@@ -25,6 +25,7 @@ import {
   ProjectService,
 } from "@/../bindings/PostPigeon/internal/services"
 import { SendRequestData } from "@/../bindings/PostPigeon/internal/services"
+import { CollectionRunner } from "@/components/endpoint/CollectionRunner"
 import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type HeaderRow, type OperationRow, type ParamRow, type ResponseData, type TimingData } from "@/components/endpoint/EndpointDetail"
 import { EndpointTree, type TreeNode } from "@/components/endpoint/EndpointTree"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
@@ -783,6 +784,17 @@ export function ApiManagement(props: ApiManagementProps) {
     }
   }
 
+  // ---- 集合运行器 ----
+  const [runnerOpen, setRunnerOpen] = createSignal(false)
+  const [runnerScope, setRunnerScope] = createSignal<{ moduleId?: string; folderId?: string; name: string }>({ name: "" })
+
+  const handleRunCollection = (node: TreeNode) => {
+    setRunnerScope(node.type === "module"
+      ? { moduleId: node.id, name: node.name }
+      : { folderId: node.id, name: node.name })
+    setRunnerOpen(true)
+  }
+
   // ---- 导出模块为 OpenAPI ----
   const handleExportOpenAPI = async (node: TreeNode) => {
     try {
@@ -1449,6 +1461,7 @@ export function ApiManagement(props: ApiManagementProps) {
             onImportCurl={handleImportCurl}
             onImportPostman={handleImportPostman}
             onExportOpenAPI={handleExportOpenAPI}
+            onRunCollection={handleRunCollection}
             onCreateDocument={handleCreateDocument}
             onOpenSettings={openScopeSettings}
             onSetEndpointDisplay={handleSetEndpointDisplay}
@@ -1751,6 +1764,15 @@ export function ApiManagement(props: ApiManagementProps) {
       </Dialog>
 
       {/* Apifox 导入对话框 */}
+      <CollectionRunner
+        open={runnerOpen()}
+        onClose={() => setRunnerOpen(false)}
+        moduleId={runnerScope().moduleId}
+        folderId={runnerScope().folderId}
+        scopeName={runnerScope().name}
+        environmentId={getCurrentEnvironmentId(props.projectId)}
+      />
+
       {/* 从 cURL 导入：粘贴命令即可新建一个未保存的请求 */}
       <Dialog open={curlOpen()} onClose={() => setCurlOpen(false)} title={t("curl.importTitle")} closeOnEsc closeOnOverlayClick width="620px">
         <div class="px-6 py-4 flex flex-col gap-3">

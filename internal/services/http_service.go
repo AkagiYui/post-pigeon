@@ -12,7 +12,6 @@ import (
 	"log/slog"
 	"mime/multipart"
 	"net/http"
-	"net/http/cookiejar"
 	"net/http/httptrace"
 	"net/http/httputil"
 	"net/url"
@@ -63,8 +62,9 @@ type inflight struct {
 
 // HTTPService HTTP 请求服务
 type HTTPService struct {
-	db     *gorm.DB
-	engine *scripting.Engine
+	db      *gorm.DB
+	engine  *scripting.Engine
+	cookies *CookieService
 
 	mu sync.Mutex
 	// streams 记录活跃的流式响应连接（streamID -> cancel），供前端主动停止。
@@ -84,6 +84,7 @@ func NewHTTPService(db *gorm.DB) *HTTPService {
 	return &HTTPService{
 		db:        db,
 		engine:    scripting.New(),
+		cookies:   NewCookieService(db),
 		streams:   map[string]context.CancelFunc{},
 		requests:  map[string]*inflight{},
 		persistCh: make(chan persistJob, persistQueueSize),
@@ -479,10 +480,11 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		return nil, err
 	}
 
-	// 创建 HTTP 客户端
-	jar, _ := cookiejar.New(nil)
+	// 创建 HTTP 客户端。
+	// cookie jar 按项目持久化：登录接口拿到的会话 cookie 会自动带到后续请求上，
+	// 不再需要手工把 Set-Cookie 抄进请求头。
 	client := &http.Client{
-		Jar:       jar,
+		Jar:       s.cookies.JarFor(projectIDFromModule(s.db, data.ModuleID)),
 		Transport: transport,
 	}
 

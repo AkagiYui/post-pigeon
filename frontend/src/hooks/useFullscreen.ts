@@ -29,9 +29,15 @@ export function useFullscreen() {
     if (initialized) return
     initialized = true
 
-    // 初始化时检查当前全屏状态
-    const fullscreen = await Window.IsFullscreen()
-    setIsFullscreen(fullscreen)
+    // 初始化时检查当前全屏状态。
+    // 全屏状态只影响标题栏留白，拿不到就按「非全屏」渲染即可，
+    // 但绝不能让它变成一条未捕获的 Promise 拒绝（那会在控制台里裸奔且无人处理）。
+    try {
+      setIsFullscreen(await Window.IsFullscreen())
+    } catch (e) {
+      console.warn("读取全屏状态失败，按非全屏处理", e)
+      setIsFullscreen(false)
+    }
 
     if (System.IsMac()) {
       // macOS: 监听专用全屏事件
@@ -52,8 +58,11 @@ export function useFullscreen() {
     } else {
       // Windows/Linux: 使用轮询检测（Wails v3 可能也支持事件）
       const interval = setInterval(async () => {
-        const fullscreen = await Window.IsFullscreen()
-        setIsFullscreen(fullscreen)
+        try {
+          setIsFullscreen(await Window.IsFullscreen())
+        } catch {
+          // 轮询期间的偶发失败忽略即可，下一次心跳会自行恢复
+        }
       }, 500)
 
       onCleanup(() => {

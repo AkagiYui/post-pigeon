@@ -65,6 +65,8 @@ export interface EndpointTreeProps {
   onImportPostman?: () => void
   /** 把模块导出为 OpenAPI 文档 */
   onExportOpenAPI?: (node: TreeNode) => void
+  /** 批量运行该模块/文件夹下的接口 */
+  onRunCollection?: (node: TreeNode) => void
   /** 新建文档回调（模块/文件夹节点提供） */
   onCreateDocument?: (parentId: string | undefined, type: "module" | "folder") => void
   /** 打开模块/文件夹设置（认证/自动参数/前置后置操作） */
@@ -316,7 +318,7 @@ export function EndpointTree(props: EndpointTreeProps) {
 /** 创建节点的完整菜单项（右键菜单和弹出菜单共享） */
 function createAllMenuItems(
   node: TreeNode,
-  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onExportOpenAPI" | "onOpenSettings" | "onSetEndpointDisplay" | "onConvertToModule">,
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onExportOpenAPI" | "onRunCollection" | "onOpenSettings" | "onSetEndpointDisplay" | "onConvertToModule">,
   isProtected: boolean,
 ): MenuItem[] {
   const items: MenuItem[] = []
@@ -348,6 +350,16 @@ function createAllMenuItems(
         label: t("doc.create"),
         icon: <Icon icon="lucide:file-text" class="h-4 w-4 text-violet-500 shrink-0" />,
         onClick: () => handlers.onCreateDocument?.(node.id, scope),
+      },
+    )
+    // 模块与文件夹都可以整体运行：批量跑断言是集合最主要的用途之一
+    items.push(
+      { key: "sep-run", label: "", separator: true },
+      {
+        key: "run-collection",
+        label: t("runner.run"),
+        icon: <Icon icon="lucide:play" class="h-4 w-4 text-emerald-500 shrink-0" />,
+        onClick: () => handlers.onRunCollection?.(node),
       },
     )
     // 模块节点：导入 OpenAPI + 接口显示方式切换
@@ -448,7 +460,7 @@ function TreeNodeItem(props: {
   expandedIds: Set<string>
   onSelect?: (node: TreeNode) => void
   onToggle: (id: string) => void
-  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onExportOpenAPI" | "onOpenSettings" | "onSetEndpointDisplay" | "onConvertToModule">
+  handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onExportOpenAPI" | "onRunCollection" | "onOpenSettings" | "onSetEndpointDisplay" | "onConvertToModule">
   defaultModuleId?: string
   /** 由祖先模块向下继承的接口显示方式 */
   displayMode?: "name" | "url"

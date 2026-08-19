@@ -390,10 +390,14 @@ func (s *EndpointService) CreateFullEndpoint(moduleID string, folderID *string, 
 	}
 	query.Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
 
+	// 字段需与 SaveEndpointData 的更新集合保持一致：
+	// 少复制一个字段就意味着「新建时填了、保存后才生效」这类难查的丢数据问题
+	// （脚本、类型、状态、标签、描述此前都在创建路径上被丢弃）。
 	endpoint := &models.Endpoint{
 		ModuleID:             moduleID,
 		FolderID:             folderID,
 		Name:                 data.Name,
+		Type:                 defaultStr(data.Type, string(models.EndpointTypeHTTP)),
 		Method:               data.Method,
 		Path:                 data.Path,
 		BodyType:             data.BodyType,
@@ -401,6 +405,13 @@ func (s *EndpointService) CreateFullEndpoint(moduleID string, folderID *string, 
 		ContentType:          data.ContentType,
 		Timeout:              data.Timeout,
 		FollowRedirects:      data.FollowRedirects,
+		DocContent:           data.DocContent,
+		Status:               data.Status,
+		Tags:                 data.Tags,
+		Description:          data.Description,
+		InheritOperations:    data.InheritOperations,
+		PreRequestScript:     data.PreRequestScript,
+		PostResponseScript:   data.PostResponseScript,
 		DisabledGlobalParams: data.DisabledGlobalParams,
 		ProxyConfig:          data.ProxyConfig,
 		TLSConfig:            data.TLSConfig,

@@ -23,28 +23,33 @@ async function restoreAppState() {
   const ids = openProjectIds()
   if (ids.length === 0) return
 
-  // 逐个验证项目是否存在，同时刷新名称缓存
-  const validIds: string[] = []
+  // 并行验证项目是否存在，同时刷新名称缓存。
+  // 这些查询彼此独立，串行只会把启动时间乘以已打开项目的数量。
   const nameMap: Record<string, string> = { ...projectNames() }
   let hasChanges = false
 
-  for (const id of ids) {
+  const checked = await Promise.all(ids.map(async (id) => {
     try {
       const project = await ProjectService.GetProject(id)
-      if (project) {
-        validIds.push(id)
-        // 更新名称缓存（可能被外部重命名）
-        if (project.name && project.name !== nameMap[id]) {
-          nameMap[id] = project.name
-          hasChanges = true
-        }
-      } else {
-        // 项目已被删除，跳过
-        hasChanges = true
-      }
+      // 项目已被删除时返回 null，从打开列表中剔除
+      return { id, project, keep: Boolean(project) }
     } catch {
       // 查询失败时保留该项目（可能是暂时性错误）
-      validIds.push(id)
+      return { id, project: null, keep: true }
+    }
+  }))
+
+  const validIds: string[] = []
+  for (const entry of checked) {
+    if (!entry.keep) {
+      hasChanges = true
+      continue
+    }
+    validIds.push(entry.id)
+    const name = entry.project?.name
+    if (name && name !== nameMap[entry.id]) {
+      nameMap[entry.id] = name
+      hasChanges = true
     }
   }
 
@@ -65,7 +70,9 @@ async function restoreAppState() {
   }
 }
 
-// 初始化主题、语言，并恢复应用状态
+// 初始化主题、语言，并恢复应用状态。
+// 整条链路必须带 catch：任何一步失败都不应变成未捕获的 Promise 拒绝，
+// 否则用户看到的是一个永远停在加载态的空白窗口且控制台里毫无线索。
 Promise.all([initTheme(), initI18n()]).then(async () => {
   // 初始化缩放快捷键
   initScaleShortcuts()
@@ -91,5 +98,11 @@ Promise.all([initTheme(), initI18n()]).then(async () => {
         // 导航失败时忽略（如项目页面已被删除）
       })
     })
+  }
+}).catch((error) => {
+  console.error("应用初始化失败", error)
+  const rootElement = document.getElementById("app")
+  if (rootElement) {
+    rootElement.textContent = String(error instanceof Error ? error.message : error)
   }
 })

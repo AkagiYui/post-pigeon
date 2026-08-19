@@ -388,6 +388,7 @@ func autoMigrate(db *gorm.DB) error {
 		&models.ScriptLibrary{},
 		&models.Response{},
 		&models.RequestHistory{},
+		&models.StoredCookie{},
 		&models.Settings{},
 	)
 }
