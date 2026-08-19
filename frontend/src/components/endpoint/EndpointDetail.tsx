@@ -119,6 +119,8 @@ export interface EndpointData {
   disabledGlobalParams: string[]
   /** 接口级代理选择（EndpointProxy 的 JSON，空表示 inherit 跟随项目） */
   proxyConfig: string
+  /** 接口级 TLS 选择（EndpointTLS 的 JSON，空表示 inherit 跟随项目） */
+  tlsConfig: string
   /** 前置/后置操作列表 */
   operations: OperationRow[]
   /** 响应示例（不在此编辑，仅透传保存以免丢失） */
@@ -580,7 +582,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
   const wsConnect = async () => {
     markConnecting(ep().id)
     // 传入接口级代理选择：WebSocket 与普通请求一样按「接口→项目→全局」解析生效代理
-    try { await WebSocketService.Connect(ep().id, wsUrl(ep().baseUrl, ep().path), wsHeaders(), ep().proxyConfig || "") } catch (e) { console.error("WebSocket 连接失败", e) }
+    try { await WebSocketService.Connect(ep().id, wsUrl(ep().baseUrl, ep().path), wsHeaders(), ep().proxyConfig || "", ep().tlsConfig || "") } catch (e) { console.error("WebSocket 连接失败", e) }
   }
   const wsDisconnect = async () => { try { await WebSocketService.Close(ep().id) } catch (e) { console.error(e) } }
   // 停止流式响应（响应体为 text/event-stream 的流式 HTTP 响应）

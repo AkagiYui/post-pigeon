@@ -1,10 +1,6 @@
 package services
 
 import (
-	"net"
-	"net/http"
-	"net/url"
-	"strconv"
 	"strings"
 
 	"PostPigeon/internal/models"
@@ -171,45 +167,6 @@ func projectIDFromModule(db *gorm.DB, moduleID string) string {
 		return ""
 	}
 	return module.ProjectID
-}
-
-// buildProxyFunc 依据生效的代理条目构建 http.Transport.Proxy 函数。
-// vars 用于解析自定义代理主机/端口/账号中的 {{变量}}。返回 nil 表示直连（不使用代理）。
-func buildProxyFunc(cfg models.ProxyConfig, vars map[string]string) func(*http.Request) (*url.URL, error) {
-	switch cfg.Mode {
-	case string(models.ProxyModeNone):
-		return func(*http.Request) (*url.URL, error) { return nil, nil }
-	case string(models.ProxyModeSystem):
-		// 系统/环境代理：读取 HTTP(S)_PROXY / NO_PROXY 环境变量
-		return http.ProxyFromEnvironment
-	case string(models.ProxyModeCustom):
-		host := strings.TrimSpace(resolveVars(cfg.Host, vars))
-		if host == "" {
-			return func(*http.Request) (*url.URL, error) { return nil, nil }
-		}
-		scheme := "http"
-		if cfg.Protocol == string(models.ProxyProtocolSOCKS5) {
-			scheme = "socks5"
-		}
-		portStr := strings.TrimSpace(resolveVars(strconv.Itoa(cfg.Port), vars))
-		hostport := host
-		if portStr != "" && portStr != "0" {
-			hostport = net.JoinHostPort(host, portStr)
-		}
-		proxyURL := &url.URL{Scheme: scheme, Host: hostport}
-		if cfg.Auth && cfg.Username != "" {
-			proxyURL.User = url.UserPassword(resolveVars(cfg.Username, vars), resolveVars(cfg.Password, vars))
-		}
-		bypass := parseBypassList(cfg.Bypass)
-		return func(req *http.Request) (*url.URL, error) {
-			if hostMatchesBypass(req.URL.Hostname(), bypass) {
-				return nil, nil
-			}
-			return proxyURL, nil
-		}
-	}
-	// 未知模式：直连
-	return nil
 }
 
 // parseBypassList 将 bypass 文本（逗号/换行/空格分隔）拆分为规整后的模式列表。

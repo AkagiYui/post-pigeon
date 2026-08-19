@@ -13,6 +13,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"strings"
+	"sync"
 	"time"
 
 	"github.com/dop251/goja"
@@ -220,13 +221,20 @@ func (e *Engine) Run(script string, opts Options) *Result {
 
 	loop := eventloop.NewEventLoop(eventloop.WithRegistry(e.registry), eventloop.EnableConsole(false))
 
-	var vmRef *goja.Runtime
+	// vmRef 在事件循环 goroutine 内写入、在超时分支中读取，必须加锁：
+	// 否则超时路径上的 vmRef.Interrupt 与赋值构成数据竞争。
+	var (
+		vmMu  sync.Mutex
+		vmRef *goja.Runtime
+	)
 	start := time.Now()
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
 		loop.Run(func(vm *goja.Runtime) {
+			vmMu.Lock()
 			vmRef = vm
+			vmMu.Unlock()
 			defer func() {
 				if r := recover(); r != nil && res.Error == "" {
 					res.Error = fmt.Sprintf("脚本执行崩溃: %v", r)
@@ -243,8 +251,11 @@ func (e *Engine) Run(script string, opts Options) *Result {
 	select {
 	case <-done:
 	case <-time.After(timeout):
-		if vmRef != nil {
-			vmRef.Interrupt("脚本执行超时")
+		vmMu.Lock()
+		vm := vmRef
+		vmMu.Unlock()
+		if vm != nil {
+			vm.Interrupt("脚本执行超时")
 		}
 		loop.StopNoWait()
 		<-done

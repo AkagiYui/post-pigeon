@@ -12,7 +12,6 @@ import (
 func TestSendRequestWithScripts(t *testing.T) {
 	db := newTestDB(t)
 	server := echoServer(t)
-	defer server.Close()
 
 	project := mustCreateProject(t, db, "scripts")
 	envSvc := NewEnvironmentService(db)
@@ -26,7 +25,7 @@ func TestSendRequestWithScripts(t *testing.T) {
 		t.Fatalf("保存环境变量失败: %v", err)
 	}
 
-	httpSvc := NewHTTPService(db)
+	httpSvc := newTestHTTPService(t, db)
 	resp, err := httpSvc.SendRequest(SendRequestData{
 		EnvironmentID: env.ID,
 		Method:        "POST",
@@ -93,9 +92,8 @@ func TestSendRequestWithScripts(t *testing.T) {
 func TestSendRequestPostScriptMutatesBody(t *testing.T) {
 	db := newTestDB(t)
 	server := echoServer(t)
-	defer server.Close()
 
-	httpSvc := NewHTTPService(db)
+	httpSvc := newTestHTTPService(t, db)
 	resp, err := httpSvc.SendRequest(SendRequestData{
 		Method:  "GET",
 		BaseURL: server.URL,

@@ -78,6 +78,7 @@ interface UnsavedRequestData {
   inheritOperations: boolean
   disabledGlobalParams: string[]
   proxyConfig: string
+  tlsConfig: string
   operations: OperationRow[]
   examples: any[]
   schemas: any[]
@@ -90,6 +91,7 @@ const endpointDefaults = {
   inheritOperations: true, operations: [] as OperationRow[],
   disabledGlobalParams: [] as string[],
   proxyConfig: "",
+  tlsConfig: "",
   examples: [] as any[], schemas: [] as any[],
 }
 
@@ -718,6 +720,7 @@ export function ApiManagement(props: ApiManagementProps) {
           inheritOperations: detail.inheritOperations ?? true,
           disabledGlobalParams: parseStringArray(detail.disabledGlobalParams),
           proxyConfig: detail.proxyConfig || "",
+          tlsConfig: detail.tlsConfig || "",
           operations: fromOperationModels(detail.operations),
           examples: (detail.examples as any[]) || [], schemas: (detail.schemas as any[]) || [],
         } as EndpointData)
@@ -756,6 +759,7 @@ export function ApiManagement(props: ApiManagementProps) {
         description: unsaved.description ?? "", inheritOperations: unsaved.inheritOperations ?? true,
         disabledGlobalParams: unsaved.disabledGlobalParams ?? [],
         proxyConfig: unsaved.proxyConfig ?? "",
+        tlsConfig: unsaved.tlsConfig ?? "",
         operations: unsaved.operations ?? [], examples: unsaved.examples ?? [], schemas: unsaved.schemas ?? [],
       } as EndpointData)
     }
@@ -797,6 +801,7 @@ export function ApiManagement(props: ApiManagementProps) {
       sendData.bodyFields = toBodyFieldModels(ep.bodyFields); sendData.auth = toAuthModel(ep.auth)
       sendData.timeout = ep.timeout; sendData.followRedirects = ep.followRedirects
       sendData.proxyConfig = ep.proxyConfig
+      sendData.tlsConfig = ep.tlsConfig
       // 已保存端点由后端根据操作组合脚本；未保存请求在此把 script 类型操作拼接为前置/后置脚本
       sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript)
       sendData.postResponseScript = deriveScriptFromOps(ep.operations, "post", ep.postResponseScript)
@@ -870,6 +875,7 @@ export function ApiManagement(props: ApiManagementProps) {
         description: ep.description, inheritOperations: ep.inheritOperations,
         disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
         proxyConfig: ep.proxyConfig,
+        tlsConfig: ep.tlsConfig,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations),
@@ -898,6 +904,7 @@ export function ApiManagement(props: ApiManagementProps) {
         description: ep.description, inheritOperations: ep.inheritOperations,
         disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
         proxyConfig: ep.proxyConfig,
+        tlsConfig: ep.tlsConfig,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
@@ -913,6 +920,7 @@ export function ApiManagement(props: ApiManagementProps) {
           description: ep.description, inheritOperations: ep.inheritOperations,
           disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
           proxyConfig: ep.proxyConfig,
+          tlsConfig: ep.tlsConfig,
           params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
           headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
           operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],

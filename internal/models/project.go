@@ -15,9 +15,11 @@ type Project struct {
 	Description string `json:"description"`
 	SortOrder   int64  `gorm:"default:0" json:"sortOrder"`
 	// ProxySettings 项目级代理设置（ScopeProxySettings 的 JSON）。空字符串表示跟随全局。
-	ProxySettings string    `gorm:"type:text" json:"proxySettings"`
-	CreatedAt     time.Time `json:"createdAt"`
-	UpdatedAt     time.Time `json:"updatedAt"`
+	ProxySettings string `gorm:"type:text" json:"proxySettings"`
+	// TLSSettings 项目级 TLS 设置（ScopeTLSSettings 的 JSON）。空字符串表示跟随全局。
+	TLSSettings string    `gorm:"type:text" json:"tlsSettings"`
+	CreatedAt   time.Time `json:"createdAt"`
+	UpdatedAt   time.Time `json:"updatedAt"`
 
 	// 关联（constraint:OnDelete:CASCADE 使删除项目时，数据库自动级联删除其下所有内容）
 	Modules         []Module         `gorm:"constraint:OnDelete:CASCADE" json:"-"`

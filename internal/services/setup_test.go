@@ -3,6 +3,8 @@ package services
 import (
 	"io"
 	"log/slog"
+	"net/http"
+	"net/http/httptest"
 	"os"
 	"path/filepath"
 	"testing"
@@ -18,6 +20,33 @@ import (
 func TestMain(m *testing.M) {
 	slog.SetDefault(slog.New(slog.NewTextHandler(io.Discard, nil)))
 	os.Exit(m.Run())
+}
+
+// newTestServer 启动一个测试 HTTP 服务。
+//
+// 必须先释放共享 Transport 的空闲连接再关闭服务：生产代码按「代理 + TLS」缓存
+// Transport 并保持 keep-alive 连接（这正是连接复用的前提），而
+// httptest.Server.Close 会一直阻塞到所有客户端连接关闭为止。
+func newTestServer(t *testing.T, handler http.Handler) *httptest.Server {
+	t.Helper()
+	srv := httptest.NewServer(handler)
+	t.Cleanup(func() {
+		closeAllTransports()
+		srv.Close()
+	})
+	return srv
+}
+
+// newTestHTTPService 创建 HTTPService，并在用例结束时走真实的关停流程
+// （取消进行中的请求与流、落盘队列、释放连接池）。
+//
+// 注册顺序很重要：t.Cleanup 按 LIFO 执行，用例应先建测试服务再建本服务，
+// 这样关停先发生、httptest.Server.Close 才不会等在还开着的流式连接上。
+func newTestHTTPService(t *testing.T, db *gorm.DB) *HTTPService {
+	t.Helper()
+	hs := NewHTTPService(db)
+	t.Cleanup(func() { _ = hs.ServiceShutdown() })
+	return hs
 }
 
 // newTestDB 创建一个隔离的临时 SQLite 测试数据库（走真实的 Initialize 路径）

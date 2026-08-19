@@ -1,8 +1,6 @@
 package services
 
 import (
-	"PostPigeon/internal/models"
-	"PostPigeon/internal/scripting"
 	"bufio"
 	"bytes"
 	"context"
@@ -20,8 +18,16 @@ import (
 	"net/url"
 	"strings"
 	"sync"
+	"sync/atomic"
 	"time"
+	"unicode/utf8"
 
+	"PostPigeon/internal/apperr"
+	"PostPigeon/internal/models"
+	"PostPigeon/internal/scripting"
+
+	"github.com/google/uuid"
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"gorm.io/gorm"
 )
 
@@ -30,18 +36,141 @@ import (
 // 因此所有流式响应（含 SSE 帧解析）都经由统一的、带代理的 HTTP 客户端处理并通过此事件推送。
 const HTTPStreamEventName = "http:stream"
 
+// 异步落库的队列容量与 worker 数。
+// 用有界队列而不是「每次请求 go 一个 goroutine」：请求风暴时前者会丢弃最旧的记录并
+// 留下日志，后者会无上限地堆 goroutine 并把 SQLite 的写锁挤爆。
+const (
+	persistQueueSize = 256
+	persistWorkers   = 2
+)
+
+// maxRawBodyBytes 是随响应回传给前端的 base64 原始字节上限。
+// RawBody 只服务于「按 GBK 等字符集重新解码」这一个场景，而 base64 会把体积放大 4/3，
+// 超过该阈值就不再回传，前端回退使用已按 UTF-8 解码的 Body。
+const maxRawBodyBytes = 4 << 20
+
+// persistJob 是一条待写入数据库的响应快照 / 请求历史。
+type persistJob struct {
+	data SendRequestData
+	resp *HTTPResponseData
+}
+
+// inflight 记录一个进行中的请求，供前端主动取消。
+type inflight struct {
+	cancel   context.CancelFunc
+	canceled atomic.Bool
+}
+
 // HTTPService HTTP 请求服务
 type HTTPService struct {
 	db     *gorm.DB
 	engine *scripting.Engine
-	// streams 记录活跃的流式响应连接（connID -> cancel），供前端主动停止。
-	mu      sync.Mutex
+
+	mu sync.Mutex
+	// streams 记录活跃的流式响应连接（streamID -> cancel），供前端主动停止。
 	streams map[string]context.CancelFunc
+	// requests 记录进行中的普通请求（requestID -> inflight），供前端主动取消。
+	requests map[string]*inflight
+	// shuttingDown 为 true 后不再接受新的落库任务，且 persistCh 已关闭。
+	shuttingDown bool
+
+	persistCh   chan persistJob
+	persistOnce sync.Once
+	persistWG   sync.WaitGroup
 }
 
 // NewHTTPService 创建 HTTP 服务实例
 func NewHTTPService(db *gorm.DB) *HTTPService {
-	return &HTTPService{db: db, engine: scripting.New(), streams: map[string]context.CancelFunc{}}
+	return &HTTPService{
+		db:        db,
+		engine:    scripting.New(),
+		streams:   map[string]context.CancelFunc{},
+		requests:  map[string]*inflight{},
+		persistCh: make(chan persistJob, persistQueueSize),
+	}
+}
+
+// ServiceStartup 在应用启动时按保留策略清理历史，避免旧数据无限堆积。
+func (s *HTTPService) ServiceStartup(_ context.Context, _ application.ServiceOptions) error {
+	go func() {
+		defer func() {
+			if r := recover(); r != nil {
+				slog.Error("启动时清理请求历史发生 panic", "panic", r)
+			}
+		}()
+		if err := NewRequestHistoryService(s.db).ApplyRetentionPolicy(); err != nil {
+			slog.Warn("启动时清理请求历史失败", "error", err)
+		}
+	}()
+	return nil
+}
+
+// ServiceShutdown 在应用退出时取消所有进行中的请求与流、落盘剩余历史并释放连接池。
+func (s *HTTPService) ServiceShutdown() error {
+	s.mu.Lock()
+	if s.shuttingDown {
+		s.mu.Unlock()
+		return nil
+	}
+	s.shuttingDown = true
+	cancels := make([]context.CancelFunc, 0, len(s.streams)+len(s.requests))
+	for id, cancel := range s.streams {
+		cancels = append(cancels, cancel)
+		delete(s.streams, id)
+	}
+	for id, req := range s.requests {
+		cancels = append(cancels, req.cancel)
+		delete(s.requests, id)
+	}
+	close(s.persistCh)
+	s.mu.Unlock()
+
+	for _, cancel := range cancels {
+		cancel()
+	}
+	// 等待队列里的历史写完，避免退出时丢记录
+	s.persistWG.Wait()
+	closeAllTransports()
+	return nil
+}
+
+// startPersistWorkers 启动固定数量的落库 worker（首次入队时懒启动）。
+func (s *HTTPService) startPersistWorkers() {
+	for i := 0; i < persistWorkers; i++ {
+		s.persistWG.Add(1)
+		go func() {
+			defer s.persistWG.Done()
+			for job := range s.persistCh {
+				s.runPersist(job)
+			}
+		}()
+	}
+}
+
+// enqueuePersist 把落库任务放入有界队列；队列满时丢弃并告警，绝不阻塞请求返回。
+func (s *HTTPService) enqueuePersist(job persistJob) {
+	s.persistOnce.Do(s.startPersistWorkers)
+
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	if s.shuttingDown {
+		return
+	}
+	select {
+	case s.persistCh <- job:
+	default:
+		slog.Warn("请求历史写入队列已满，本次记录被丢弃", "queueSize", persistQueueSize)
+	}
+}
+
+// runPersist 执行一条落库任务，并兜住 panic 以免打挂 worker。
+func (s *HTTPService) runPersist(job persistJob) {
+	defer func() {
+		if r := recover(); r != nil {
+			slog.Error("写入响应快照/请求历史时发生 panic", "panic", r)
+		}
+	}()
+	s.saveResponseAndHistory(job.data, job.resp)
 }
 
 // SendRequestData 发送请求的参数
@@ -63,6 +192,10 @@ type SendRequestData struct {
 	FollowRedirects bool                       `json:"followRedirects"`
 	// ProxyConfig 接口级代理选择（EndpointProxy 的 JSON）。空表示 inherit（跟随项目/全局）。
 	ProxyConfig string `json:"proxyConfig"`
+	// TLSConfig 接口级 TLS 选择（EndpointTLS 的 JSON）。空表示 inherit（跟随项目/全局）。
+	TLSConfig string `json:"tlsConfig"`
+	// RequestID 由前端生成的本次请求标识，用于中途取消（CancelRequest）。空则不可取消。
+	RequestID string `json:"requestId"`
 	// PreRequestScript 前置脚本，请求发送前执行
 	PreRequestScript string `json:"preRequestScript"`
 	// PostResponseScript 后置脚本，响应返回后执行
@@ -80,15 +213,24 @@ type HTTPResponseData struct {
 	StatusCode int                 `json:"statusCode"`
 	Headers    map[string][]string `json:"headers"`
 	Body       string              `json:"body"`
-	// RawBody 原始响应字节的 base64 编码，供前端按任意字符集解码（GBK 等）
-	RawBody       string                   `json:"rawBody"`
-	ContentType   string                   `json:"contentType"`
-	Cookies       []models.CookieInfo      `json:"cookies"`
-	Timing        models.TimingInfo        `json:"timing"`
-	Size          int64                    `json:"size"`
-	ActualRequest models.ActualRequestInfo `json:"actualRequest"`
+	// RawBody 原始响应字节的 base64 编码，供前端按任意字符集解码（GBK 等）。
+	// 超过 maxRawBodyBytes 时为空（见 RawBodyOmitted），前端回退使用 Body。
+	RawBody string `json:"rawBody"`
+	// RawBodyOmitted 为 true 表示响应过大、未回传原始字节，前端应禁用字符集切换。
+	RawBodyOmitted bool `json:"rawBodyOmitted"`
+	// Truncated 为 true 表示响应体超过限额、只读取了前 Size 字节。
+	Truncated bool `json:"truncated"`
+	// TruncatedLimit 触发截断时的字节上限，供前端提示「已截断，上限 xx MB」。
+	TruncatedLimit int64                    `json:"truncatedLimit"`
+	ContentType    string                   `json:"contentType"`
+	Cookies        []models.CookieInfo      `json:"cookies"`
+	Timing         models.TimingInfo        `json:"timing"`
+	Size           int64                    `json:"size"`
+	ActualRequest  models.ActualRequestInfo `json:"actualRequest"`
 	// Scripts 前置/后置脚本执行结果（无脚本时为 nil）
 	Scripts *ScriptResults `json:"scripts,omitempty"`
+	// Skipped 为 true 表示请求被前置脚本 pm.execution.skipRequest() 跳过，未真正发出
+	Skipped bool `json:"skipped"`
 	// Streaming 为 true 表示响应是 SSE 流，正通过 sse:event 事件持续推送（Body 为空）
 	Streaming bool `json:"streaming"`
 	// StreamID 流的连接标识，前端据此订阅并展示实时事件、可发起停止
@@ -192,10 +334,11 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 				up, rm := stores.Environment.Changes()
 				_ = envService.ApplyVariableChanges(data.EnvironmentID, up, rm)
 			}
+			// 文案交给前端 i18n 渲染，后端只给出「被跳过」这一事实
 			return &HTTPResponseData{
 				StatusCode: 0,
 				Headers:    map[string][]string{},
-				Body:       "（请求已被前置脚本 pm.execution.skipRequest() 跳过）",
+				Skipped:    true,
 				Scripts:    scriptResults,
 			}, nil
 		}
@@ -212,7 +355,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	// 解析 URL 中的查询参数
 	parsedURL, err := url.Parse(fullURL)
 	if err != nil {
-		return nil, fmt.Errorf("无效的URL: %w", err)
+		return nil, apperr.Wrap(err, apperr.CodeInvalidURL, apperr.P("url", fullURL))
 	}
 
 	// 添加查询参数
@@ -236,10 +379,18 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		timeout = 30 * time.Second
 	}
 	ctx, cancel := context.WithCancel(context.Background())
-	timeoutTimer := time.AfterFunc(timeout, cancel)
+	// timedOut 用于把「超时取消」与「用户取消」区分开，好让前端拿到不同的错误码
+	var timedOut atomic.Bool
+	timeoutTimer := time.AfterFunc(timeout, func() {
+		timedOut.Store(true)
+		cancel()
+	})
+	// 登记为进行中的请求，前端可据 RequestID 主动取消
+	tracked := s.registerRequest(data.RequestID, cancel)
 	streaming := false
 	defer func() {
 		timeoutTimer.Stop()
+		s.unregisterRequest(data.RequestID)
 		// 流式响应交由后台 goroutine 持有 ctx，此处不取消；其余路径正常释放。
 		if !streaming {
 			cancel()
@@ -248,7 +399,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 
 	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(data.Method), parsedURL.String(), nil)
 	if err != nil {
-		return nil, fmt.Errorf("创建请求失败: %w", err)
+		return nil, apperr.Wrap(err, apperr.CodeBuildRequest)
 	}
 
 	// 设置请求头
@@ -308,19 +459,31 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	if strings.TrimSpace(epProxyJSON) != "" {
 		_ = models.FromJSON(epProxyJSON, &epProxy)
 	}
-	effectiveProxy := resolveEffectiveProxy(s.db, data.ModuleID, epProxy)
-	proxyFunc := buildProxyFunc(effectiveProxy, vars)
+	effectiveProxy := resolveProxy(resolveEffectiveProxy(s.db, data.ModuleID, epProxy), vars)
+
+	// 解析接口级 TLS 选择（inherit / strict / insecure），同样沿「接口 → 项目 → 全局」链。
+	epTLSJSON := data.TLSConfig
+	if strings.TrimSpace(epTLSJSON) == "" && loadedEndpoint != nil {
+		epTLSJSON = loadedEndpoint.TLSConfig
+	}
+	var epTLS models.EndpointTLS
+	if strings.TrimSpace(epTLSJSON) != "" {
+		_ = models.FromJSON(epTLSJSON, &epTLS)
+	}
+	effectiveTLS := resolveEffectiveTLS(s.db, data.ModuleID, epTLS)
+
+	// 取「代理 + TLS」对应的共享 Transport：相同配置的请求复用同一个连接池，
+	// 连接得以复用（timing.Reused 才有意义），且开启了 HTTP/2 协商。
+	transport, err := sharedTransport(effectiveProxy, effectiveTLS)
+	if err != nil {
+		return nil, err
+	}
 
 	// 创建 HTTP 客户端
 	jar, _ := cookiejar.New(nil)
 	client := &http.Client{
-		Jar: jar,
-		Transport: &http.Transport{
-			Proxy: proxyFunc,
-			TLSClientConfig: &tls.Config{
-				InsecureSkipVerify: false,
-			},
-		},
+		Jar:       jar,
+		Transport: transport,
 	}
 
 	// 处理重定向
@@ -352,7 +515,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	start = time.Now()
 	resp, err := client.Do(req.WithContext(trace.attach(ctx)))
 	if err != nil {
-		return nil, fmt.Errorf("发送请求失败: %w", err)
+		return nil, s.classifyRequestError(err, tracked, &timedOut)
 	}
 
 	// 流式响应：响应体为 text/event-stream 时，不缓冲整体响应，而是保持连接、持续读取并
@@ -361,10 +524,9 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	if isEventStream(resp.Header.Get("Content-Type")) {
 		streaming = true // 通知外层 defer：ctx 交由后台 goroutine 持有，勿在此处取消
 		timeoutTimer.Stop()
-		streamID := data.EndpointID
-		if streamID == "" {
-			streamID = fmt.Sprintf("stream-%d", nowMillis())
-		}
+		// 流 ID 必须全局唯一：同一个端点可以同时开多个标签页，若沿用端点 ID
+		// 后开的流会覆盖先开的 cancel，导致第一条流再也停不掉、连接与 goroutine 泄漏。
+		streamID := "stream-" + uuid.NewString()
 		s.registerStream(streamID, cancel)
 		// 持久化前置脚本对环境变量的改动
 		if data.EnvironmentID != "" {
@@ -390,10 +552,13 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	}
 	defer resp.Body.Close()
 
-	// 读取响应体
-	bodyBytes, err := io.ReadAll(resp.Body)
+	// 读取响应体：受限额约束。
+	// 不设上限时，一个下载类接口就能把整个文件读进内存，再连同 base64 副本一起塞进
+	// IPC 和 SQLite（约 3 倍体积）。这里最多多读 1 字节以判定是否发生截断。
+	limits := getRequestSettings(s.db)
+	bodyBytes, truncated, err := readBodyWithLimit(resp.Body, limits.MaxResponseBytes)
 	if err != nil {
-		return nil, fmt.Errorf("读取响应失败: %w", err)
+		return nil, s.classifyRequestError(err, tracked, &timedOut)
 	}
 	end := time.Now()
 
@@ -453,13 +618,17 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		StatusCode:    resp.StatusCode,
 		Headers:       resp.Header,
 		Body:          string(bodyBytes),
-		RawBody:       base64.StdEncoding.EncodeToString(bodyBytes),
 		ContentType:   resp.Header.Get("Content-Type"),
 		Cookies:       cookies,
 		Timing:        timing,
 		Size:          int64(len(bodyBytes)),
 		ActualRequest: actualReq,
 	}
+	if truncated {
+		responseData.Truncated = true
+		responseData.TruncatedLimit = limits.MaxResponseBytes
+	}
+	setRawBody(responseData, bodyBytes)
 
 	// 执行后置脚本（可读取响应、修改响应体/响应头、运行断言、读写变量）
 	if strings.TrimSpace(data.PostResponseScript) != "" {
@@ -480,8 +649,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		// 应用后置脚本对响应的修改（setBody / headers）
 		if respCtx.Body != string(bodyBytes) {
 			responseData.Body = respCtx.Body
-			responseData.RawBody = base64.StdEncoding.EncodeToString([]byte(respCtx.Body))
 			responseData.Size = int64(len(respCtx.Body))
+			setRawBody(responseData, []byte(respCtx.Body))
 		}
 		mutatedHeaders := headersToHTTPHeader(respCtx.Headers)
 		responseData.Headers = mutatedHeaders
@@ -503,10 +672,99 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		responseData.Scripts = scriptResults
 	}
 
-	// 异步保存响应和请求历史
-	go s.saveResponseAndHistory(data, responseData)
+	// 异步保存响应和请求历史（有界队列，队列满时丢弃而非堆积 goroutine）
+	s.enqueuePersist(persistJob{data: data, resp: responseData})
 
 	return responseData, nil
+}
+
+// readBodyWithLimit 读取响应体，最多 limit 字节；limit<=0 表示不限制。
+// 第二个返回值表示是否发生了截断（响应实际长度超过 limit）。
+func readBodyWithLimit(r io.Reader, limit int64) ([]byte, bool, error) {
+	if limit <= 0 {
+		body, err := io.ReadAll(r)
+		return body, false, err
+	}
+	// 多读 1 字节用于判定截断
+	body, err := io.ReadAll(io.LimitReader(r, limit+1))
+	if err != nil {
+		return nil, false, err
+	}
+	if int64(len(body)) > limit {
+		return body[:limit], true, nil
+	}
+	return body, false, nil
+}
+
+// setRawBody 按体积决定是否回传 base64 原始字节。
+// RawBody 只用于前端按 GBK 等字符集重新解码，base64 会放大 4/3 体积，
+// 大响应下不值得为这一个功能把内存与 IPC 翻倍。
+func setRawBody(resp *HTTPResponseData, body []byte) {
+	if int64(len(body)) > maxRawBodyBytes {
+		resp.RawBody = ""
+		resp.RawBodyOmitted = true
+		return
+	}
+	resp.RawBody = base64.StdEncoding.EncodeToString(body)
+	resp.RawBodyOmitted = false
+}
+
+// classifyRequestError 把传输层错误映射为带错误码的应用错误，
+// 以便前端区分「超时」「用户取消」「网络失败」并给出不同提示。
+func (s *HTTPService) classifyRequestError(err error, tracked *inflight, timedOut *atomic.Bool) error {
+	switch {
+	case timedOut != nil && timedOut.Load():
+		return apperr.Wrap(err, apperr.CodeRequestTimeout)
+	case tracked != nil && tracked.canceled.Load():
+		return apperr.Wrap(err, apperr.CodeRequestCanceled)
+	default:
+		return apperr.Wrap(err, apperr.CodeSendRequest)
+	}
+}
+
+// registerRequest 登记一个进行中的请求，返回其记录（requestID 为空时返回 nil）。
+func (s *HTTPService) registerRequest(requestID string, cancel context.CancelFunc) *inflight {
+	if requestID == "" {
+		return nil
+	}
+	rec := &inflight{cancel: cancel}
+	s.mu.Lock()
+	s.requests[requestID] = rec
+	s.mu.Unlock()
+	return rec
+}
+
+// unregisterRequest 移除进行中请求的登记。
+func (s *HTTPService) unregisterRequest(requestID string) {
+	if requestID == "" {
+		return
+	}
+	s.mu.Lock()
+	delete(s.requests, requestID)
+	s.mu.Unlock()
+}
+
+// CancelRequest 取消一个进行中的请求（前端「取消」按钮调用）。
+// 返回是否找到了对应的请求。
+func (s *HTTPService) CancelRequest(requestID string) bool {
+	s.mu.Lock()
+	rec := s.requests[requestID]
+	delete(s.requests, requestID)
+	s.mu.Unlock()
+	if rec == nil {
+		return false
+	}
+	rec.canceled.Store(true)
+	rec.cancel()
+	return true
+}
+
+// IsRequestInFlight 返回指定请求是否仍在进行中。
+func (s *HTTPService) IsRequestInFlight(requestID string) bool {
+	s.mu.Lock()
+	defer s.mu.Unlock()
+	_, ok := s.requests[requestID]
+	return ok
 }
 
 // registerStream 登记一个活跃的流式连接。
@@ -645,19 +903,19 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 				}
 				part, err := writer.CreateFormFile(field.Name, fileName)
 				if err != nil {
-					return fmt.Errorf("创建文件表单项失败: %w", err)
+					return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
 				}
 				if _, err := part.Write(content); err != nil {
-					return fmt.Errorf("写入文件内容失败: %w", err)
+					return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
 				}
 			} else {
 				if err := writer.WriteField(field.Name, resolveVars(field.Value, vars)); err != nil {
-					return fmt.Errorf("写入表单字段失败: %w", err)
+					return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
 				}
 			}
 		}
 		if err := writer.Close(); err != nil {
-			return fmt.Errorf("关闭 multipart writer 失败: %w", err)
+			return apperr.Wrap(err, apperr.CodeBuildBody)
 		}
 		body := buf.Bytes()
 		req.Body = io.NopCloser(bytes.NewReader(body))
@@ -694,21 +952,21 @@ func (s *HTTPService) setAuthHeader(req *http.Request, auth *models.EndpointAuth
 	case string(models.AuthTypeBasic):
 		var data models.BasicAuthData
 		if err := models.FromJSON(auth.Data, &data); err != nil {
-			return fmt.Errorf("解析 Basic Auth 数据失败: %w", err)
+			return apperr.Wrap(err, apperr.CodeAuthConfigInvalid, apperr.P("type", "basic"))
 		}
 		req.SetBasicAuth(resolveVars(data.Username, vars), resolveVars(data.Password, vars))
 
 	case string(models.AuthTypeBearer):
 		var data models.BearerAuthData
 		if err := models.FromJSON(auth.Data, &data); err != nil {
-			return fmt.Errorf("解析 Bearer Token 数据失败: %w", err)
+			return apperr.Wrap(err, apperr.CodeAuthConfigInvalid, apperr.P("type", "bearer"))
 		}
 		req.Header.Set("Authorization", "Bearer "+resolveVars(data.Token, vars))
 
 	case string(models.AuthTypeAPIKey):
 		var data models.APIKeyAuthData
 		if err := models.FromJSON(auth.Data, &data); err != nil {
-			return fmt.Errorf("解析 API Key 数据失败: %w", err)
+			return apperr.Wrap(err, apperr.CodeAuthConfigInvalid, apperr.P("type", "apikey"))
 		}
 		applyAPIKeyAuth(req, data, vars)
 	}
@@ -763,15 +1021,21 @@ func applyPathParams(u string, params []models.EndpointParam, vars map[string]st
 	return u
 }
 
-// saveResponseAndHistory 保存响应和请求历史
+// saveResponseAndHistory 保存响应和请求历史。
+// 入库的响应体受 MaxStoredBodyBytes 约束：数据库里存的是「便于回看的快照」，
+// 不需要、也不应该原样保留几十兆的响应。
 func (s *HTTPService) saveResponseAndHistory(data SendRequestData, resp *HTTPResponseData) {
+	limits := getRequestSettings(s.db)
+	storedBody := truncateForStorage(resp.Body, limits.MaxStoredBodyBytes)
+	storedReqBody := truncateForStorage(data.BodyContent, limits.MaxStoredBodyBytes)
+
 	// 保存响应
 	if data.EndpointID != "" {
 		response := &models.Response{
 			EndpointID:    data.EndpointID,
 			StatusCode:    resp.StatusCode,
 			Headers:       models.ToJSON(resp.Headers),
-			Body:          resp.Body,
+			Body:          storedBody,
 			ContentType:   resp.ContentType,
 			Cookies:       models.ToJSON(resp.Cookies),
 			Timing:        models.ToJSON(resp.Timing),
@@ -803,15 +1067,34 @@ func (s *HTTPService) saveResponseAndHistory(data SendRequestData, resp *HTTPRes
 			Timing:          models.ToJSON(resp.Timing),
 			Size:            resp.Size,
 			RequestHeaders:  models.ToJSON(reqHeaders),
-			RequestBody:     data.BodyContent,
+			RequestBody:     storedReqBody,
 			ResponseHeaders: models.ToJSON(resp.Headers),
-			ResponseBody:    resp.Body,
+			ResponseBody:    storedBody,
 			ContentType:     resp.ContentType,
 		}
 		if err := s.db.Create(history).Error; err != nil {
 			slog.Error("保存请求历史失败", "error", err)
+			return
+		}
+		// 写入后立即按条数上限淘汰最旧记录，历史表才不会无限增长
+		if err := NewRequestHistoryService(s.db).enforceRowLimit(data.ModuleID); err != nil {
+			slog.Warn("裁剪请求历史失败", "moduleId", data.ModuleID, "error", err)
 		}
 	}
+}
+
+// truncateForStorage 按字节上限截断入库文本；limit<=0 表示不限制。
+// 截断处附加标记，避免回看时把「被截断」误认为「服务端只返回了这些」。
+func truncateForStorage(body string, limit int64) string {
+	if limit <= 0 || int64(len(body)) <= limit {
+		return body
+	}
+	// 回退到最近的 UTF-8 字符边界，避免把一个多字节字符劈成半个
+	cut := int(limit)
+	for cut > 0 && !utf8.RuneStart(body[cut]) {
+		cut--
+	}
+	return body[:cut] + "\n…（响应体过大，已截断存储）"
 }
 
 // parseFileField 解析文件字段的 value（前端约定为 {"fileName":..,"content":<base64>} JSON）

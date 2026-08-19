@@ -117,3 +117,72 @@ func (s *SettingsService) GetUIScale() string {
 func (s *SettingsService) SetUIScale(scale string) error {
 	return s.SetSetting(models.SettingsKeyUIScale, scale)
 }
+
+// ---- 资源限额与历史保留策略 ----
+
+// GetRequestSettings 读取请求限额设置；未配置或字段为负时回落到默认值。
+func (s *SettingsService) GetRequestSettings() (models.RequestSettings, error) {
+	return getRequestSettings(s.db), nil
+}
+
+// SaveRequestSettings 保存请求限额设置。
+func (s *SettingsService) SaveRequestSettings(settings models.RequestSettings) error {
+	normalizeRequestSettings(&settings)
+	return s.SetSetting(models.SettingsKeyRequest, models.ToJSON(settings))
+}
+
+// GetHistorySettings 读取请求历史保留策略。
+func (s *SettingsService) GetHistorySettings() (models.HistorySettings, error) {
+	return getHistorySettings(s.db), nil
+}
+
+// SaveHistorySettings 保存请求历史保留策略。
+func (s *SettingsService) SaveHistorySettings(settings models.HistorySettings) error {
+	if settings.RetentionDays < 0 {
+		settings.RetentionDays = 0
+	}
+	if settings.MaxRowsPerModule < 0 {
+		settings.MaxRowsPerModule = 0
+	}
+	return s.SetSetting(models.SettingsKeyHistory, models.ToJSON(settings))
+}
+
+// getRequestSettings 读取请求限额；无记录时返回默认值。
+func getRequestSettings(db *gorm.DB) models.RequestSettings {
+	settings := models.DefaultRequestSettings
+	raw := NewSettingsService(db).GetSetting(models.SettingsKeyRequest)
+	if raw != "" {
+		_ = models.FromJSON(raw, &settings)
+	}
+	normalizeRequestSettings(&settings)
+	return settings
+}
+
+// getHistorySettings 读取历史保留策略；无记录时返回默认值。
+func getHistorySettings(db *gorm.DB) models.HistorySettings {
+	settings := models.DefaultHistorySettings
+	raw := NewSettingsService(db).GetSetting(models.SettingsKeyHistory)
+	if raw != "" {
+		_ = models.FromJSON(raw, &settings)
+	}
+	if settings.RetentionDays < 0 {
+		settings.RetentionDays = 0
+	}
+	if settings.MaxRowsPerModule < 0 {
+		settings.MaxRowsPerModule = 0
+	}
+	return settings
+}
+
+// normalizeRequestSettings 把负值统一按「不限制」处理。
+func normalizeRequestSettings(s *models.RequestSettings) {
+	if s.MaxResponseBytes < 0 {
+		s.MaxResponseBytes = 0
+	}
+	if s.MaxStoredBodyBytes < 0 {
+		s.MaxStoredBodyBytes = 0
+	}
+	if s.MaxWebSocketMessageBytes < 0 {
+		s.MaxWebSocketMessageBytes = 0
+	}
+}
