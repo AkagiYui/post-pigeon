@@ -422,32 +422,12 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		return nil, err
 	}
 
-	// 设置认证信息：解析端点认证的继承（inherit / 空 -> 文件夹链 -> 模块）
+	// 解析端点认证的继承（inherit / 空 -> 文件夹链 -> 模块）。
+	// 这里只解析不应用：OAuth2 需要用同一个（带代理与 TLS 的）客户端去换 token，
+	// 而客户端要等代理/TLS 解析完才建得出来。
 	effectiveAuth := data.Auth
 	if loadedEndpoint != nil {
 		effectiveAuth = resolveEffectiveAuth(s.db, loadedEndpoint, data.Auth)
-	}
-	if effectiveAuth != nil && effectiveAuth.Type != string(models.AuthTypeNone) &&
-		effectiveAuth.Type != string(models.AuthTypeInherit) {
-		if err := s.setAuthHeader(req, effectiveAuth, vars); err != nil {
-			return nil, err
-		}
-	}
-
-	// 记录实际请求信息
-	actualReq := models.ActualRequestInfo{
-		Method:  req.Method,
-		URL:     req.URL.String(),
-		Headers: flattenHeaders(req.Header),
-	}
-
-	// 记录请求体
-	if req.GetBody != nil {
-		bodyReader, _ := req.GetBody()
-		if bodyReader != nil {
-			bodyBytes, _ := io.ReadAll(bodyReader)
-			actualReq.Body = string(bodyBytes)
-		}
 	}
 
 	// 解析接口级代理选择：优先取本次请求携带的选择，其次取已保存端点上的选择。
@@ -495,6 +475,31 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		}
 	}
 
+	// 应用认证。digest 需要先收到 401 挑战，故此处跳过，等首个响应回来再补一次。
+	needsDigest := false
+	if effectiveAuth != nil && effectiveAuth.Type != string(models.AuthTypeNone) &&
+		effectiveAuth.Type != string(models.AuthTypeInherit) {
+		if effectiveAuth.Type == string(models.AuthTypeDigest) {
+			needsDigest = true
+		} else if err := s.applyAuth(ctx, client, req, effectiveAuth, vars); err != nil {
+			return nil, err
+		}
+	}
+
+	// 记录实际请求信息
+	actualReq := models.ActualRequestInfo{
+		Method:  req.Method,
+		URL:     req.URL.String(),
+		Headers: flattenHeaders(req.Header),
+	}
+	if req.GetBody != nil {
+		bodyReader, _ := req.GetBody()
+		if bodyReader != nil {
+			bodyBytes, _ := io.ReadAll(bodyReader)
+			actualReq.Body = string(bodyBytes)
+		}
+	}
+
 	// 计时
 	var dnsStart, dnsEnd, tlsStart, tlsEnd, connectStart, connectEnd, gotConn, wroteRequest, gotFirstByte time.Time
 	var reused bool
@@ -518,6 +523,22 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	resp, err := client.Do(req.WithContext(trace.attach(ctx)))
 	if err != nil {
 		return nil, s.classifyRequestError(err, tracked, &timedOut)
+	}
+
+	// Digest 认证：第一次请求必然拿到 401 挑战，据此算出响应值后重发一次。
+	// 这是协议本身要求的往返，不是重试。
+	if needsDigest && resp.StatusCode == http.StatusUnauthorized {
+		retried, retryErr := s.retryWithDigest(ctx, client, req, resp, effectiveAuth, vars, actualReq.Body)
+		if retryErr != nil {
+			resp.Body.Close()
+			return nil, retryErr
+		}
+		if retried != nil {
+			resp.Body.Close()
+			resp = retried
+			start = time.Now()
+			actualReq.Headers = flattenHeaders(retried.Request.Header)
+		}
 	}
 
 	// 流式响应：响应体为 text/event-stream 时，不缓冲整体响应，而是保持连接、持续读取并
@@ -948,6 +969,66 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 	return nil
 }
 
+// applyAuth 把认证信息写入请求。
+// oauth2 需要先向 token 端点换取令牌，因此要拿到已建好的客户端（含代理与 TLS 设置）。
+func (s *HTTPService) applyAuth(ctx context.Context, client *http.Client, req *http.Request, auth *models.EndpointAuth, vars map[string]string) error {
+	if auth.Type == string(models.AuthTypeOAuth2) {
+		var data models.OAuth2AuthData
+		if err := models.FromJSON(auth.Data, &data); err != nil {
+			return apperr.Wrap(err, apperr.CodeAuthConfigInvalid, apperr.P("type", "oauth2"))
+		}
+		value, err := fetchOAuth2Token(ctx, client, data, vars)
+		if err != nil {
+			return err
+		}
+		req.Header.Set("Authorization", value)
+		return nil
+	}
+	return s.setAuthHeader(req, auth, vars)
+}
+
+// retryWithDigest 依据 401 响应里的 Digest 挑战重发请求。
+// 返回 nil 表示挑战无法处理（如不是 Digest 方案），调用方应保留原响应。
+func (s *HTTPService) retryWithDigest(
+	ctx context.Context, client *http.Client, req *http.Request, resp *http.Response,
+	auth *models.EndpointAuth, vars map[string]string, body string,
+) (*http.Response, error) {
+	challenge, ok := parseDigestChallenge(resp.Header.Get("WWW-Authenticate"))
+	if !ok {
+		return nil, nil
+	}
+
+	var data models.DigestAuthData
+	if err := models.FromJSON(auth.Data, &data); err != nil {
+		return nil, apperr.Wrap(err, apperr.CodeAuthConfigInvalid, apperr.P("type", "digest"))
+	}
+
+	uri := req.URL.RequestURI()
+	value, err := buildDigestAuthorization(challenge,
+		resolveVars(data.Username, vars), resolveVars(data.Password, vars),
+		req.Method, uri, body)
+	if err != nil {
+		return nil, err
+	}
+
+	retry := req.Clone(ctx)
+	retry.Header.Set("Authorization", value)
+	// Clone 不会复制请求体，需从 GetBody 重新取一份
+	if req.GetBody != nil {
+		reader, getErr := req.GetBody()
+		if getErr != nil {
+			return nil, apperr.Wrap(getErr, apperr.CodeBuildRequest)
+		}
+		retry.Body = reader
+	}
+
+	retried, err := client.Do(retry)
+	if err != nil {
+		return nil, apperr.Wrap(err, apperr.CodeSendRequest)
+	}
+	return retried, nil
+}
+
 // setAuthHeader 设置认证请求头
 func (s *HTTPService) setAuthHeader(req *http.Request, auth *models.EndpointAuth, vars map[string]string) error {
 	switch auth.Type {
@@ -1031,18 +1112,32 @@ func (s *HTTPService) saveResponseAndHistory(data SendRequestData, resp *HTTPRes
 	storedBody := truncateForStorage(resp.Body, limits.MaxStoredBodyBytes)
 	storedReqBody := truncateForStorage(data.BodyContent, limits.MaxStoredBodyBytes)
 
+	// 脱敏：历史里存的 Authorization / Cookie 往往是长期有效的凭据
+	policy := getHistorySettings(s.db)
+	storedRespHeaders := resp.Headers
+	storedActualRequest := resp.ActualRequest
+	if policy.MaskSensitive {
+		secrets := collectSecretValues(s.db, data.EnvironmentID)
+		storedBody = maskSecretValues(storedBody, secrets)
+		storedReqBody = maskSecretValues(storedReqBody, secrets)
+		storedRespHeaders = maskMultiHeaders(resp.Headers)
+		storedActualRequest.Headers = maskHeaders(resp.ActualRequest.Headers)
+		storedActualRequest.Body = maskSecretValues(
+			truncateForStorage(resp.ActualRequest.Body, limits.MaxStoredBodyBytes), secrets)
+	}
+
 	// 保存响应
 	if data.EndpointID != "" {
 		response := &models.Response{
 			EndpointID:    data.EndpointID,
 			StatusCode:    resp.StatusCode,
-			Headers:       models.ToJSON(resp.Headers),
+			Headers:       models.ToJSON(storedRespHeaders),
 			Body:          storedBody,
 			ContentType:   resp.ContentType,
 			Cookies:       models.ToJSON(resp.Cookies),
 			Timing:        models.ToJSON(resp.Timing),
 			Size:          resp.Size,
-			ActualRequest: models.ToJSON(resp.ActualRequest),
+			ActualRequest: models.ToJSON(storedActualRequest),
 		}
 		endpointService := NewEndpointService(s.db)
 		if err := endpointService.SaveResponse(data.EndpointID, response); err != nil {
@@ -1059,6 +1154,9 @@ func (s *HTTPService) saveResponseAndHistory(data SendRequestData, resp *HTTPRes
 				reqHeaders[h.Name] = h.Value
 			}
 		}
+		if policy.MaskSensitive {
+			reqHeaders = maskHeaders(reqHeaders)
+		}
 
 		history := &models.RequestHistory{
 			ModuleID:        data.ModuleID,
@@ -1070,7 +1168,7 @@ func (s *HTTPService) saveResponseAndHistory(data SendRequestData, resp *HTTPRes
 			Size:            resp.Size,
 			RequestHeaders:  models.ToJSON(reqHeaders),
 			RequestBody:     storedReqBody,
-			ResponseHeaders: models.ToJSON(resp.Headers),
+			ResponseHeaders: models.ToJSON(storedRespHeaders),
 			ResponseBody:    storedBody,
 			ContentType:     resp.ContentType,
 		}

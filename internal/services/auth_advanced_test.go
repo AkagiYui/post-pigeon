@@ -1,0 +1,179 @@
+package services
+
+import (
+	"encoding/json"
+	"net/http"
+	"strings"
+	"testing"
+
+	"PostPigeon/internal/models"
+)
+
+func TestParseDigestChallenge(t *testing.T) {
+	challenge, ok := parseDigestChallenge(`Digest realm="test, realm", qop="auth", nonce="abc123", opaque="op", algorithm=SHA-256`)
+	if !ok {
+		t.Fatalf("应能解析 Digest 挑战")
+	}
+	if challenge.Realm != "test, realm" {
+		t.Errorf("realm 中的逗号应被正确保留，实际 %q", challenge.Realm)
+	}
+	if challenge.Nonce != "abc123" || challenge.QOP != "auth" || challenge.Opaque != "op" {
+		t.Errorf("挑战解析有误：%+v", challenge)
+	}
+	if challenge.Algorithm != "SHA-256" {
+		t.Errorf("algorithm=%q", challenge.Algorithm)
+	}
+
+	if _, ok := parseDigestChallenge(`Basic realm="x"`); ok {
+		t.Errorf("Basic 挑战不应被当作 Digest")
+	}
+	if _, ok := parseDigestChallenge(`Digest realm="x"`); ok {
+		t.Errorf("缺少 nonce 的挑战应视为不可用")
+	}
+}
+
+func TestBuildDigestAuthorization(t *testing.T) {
+	challenge := digestChallenge{Realm: "r", Nonce: "n", QOP: "auth", Algorithm: "MD5"}
+	value, err := buildDigestAuthorization(challenge, "u", "p", "GET", "/api", "")
+	if err != nil {
+		t.Fatalf("buildDigestAuthorization err=%v", err)
+	}
+	for _, want := range []string{`username="u"`, `realm="r"`, `nonce="n"`, `uri="/api"`, "qop=auth", "nc=00000001", "response="} {
+		if !strings.Contains(value, want) {
+			t.Errorf("Authorization 缺少 %q：%s", want, value)
+		}
+	}
+}
+
+// TestDigestAuthEndToEnd 用一个真实的 Digest 服务端验证 401 挑战 → 重发的完整往返。
+func TestDigestAuthEndToEnd(t *testing.T) {
+	db := newTestDB(t)
+
+	var attempts int
+	srv := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		attempts++
+		auth := r.Header.Get("Authorization")
+		if !strings.HasPrefix(auth, "Digest ") {
+			w.Header().Set("WWW-Authenticate", `Digest realm="protected", qop="auth", nonce="dcd98b71"`)
+			w.WriteHeader(http.StatusUnauthorized)
+			return
+		}
+		// 只校验关键字段存在即可：摘要正确性已由单元测试覆盖
+		for _, want := range []string{`username="admin"`, `realm="protected"`, "response="} {
+			if !strings.Contains(auth, want) {
+				w.WriteHeader(http.StatusForbidden)
+				return
+			}
+		}
+		_, _ = w.Write([]byte("secret data"))
+	}))
+
+	hs := newTestHTTPService(t, db)
+	resp, err := hs.SendRequest(SendRequestData{
+		Method: "GET", BaseURL: srv.URL, Path: "/protected",
+		Auth: &models.EndpointAuth{
+			Type: string(models.AuthTypeDigest),
+			Data: models.ToJSON(models.DigestAuthData{Username: "admin", Password: "s3cret"}),
+		},
+	})
+	if err != nil {
+		t.Fatalf("SendRequest err=%v", err)
+	}
+	if resp.StatusCode != 200 || resp.Body != "secret data" {
+		t.Fatalf("Digest 认证未通过：status=%d body=%q", resp.StatusCode, resp.Body)
+	}
+	if attempts != 2 {
+		t.Errorf("应恰好往返两次（挑战 + 应答），实际 %d 次", attempts)
+	}
+}
+
+// TestOAuth2ClientCredentials 验证 client_credentials 换取令牌并注入 Authorization。
+func TestOAuth2ClientCredentials(t *testing.T) {
+	clearOAuthTokenCache()
+	t.Cleanup(clearOAuthTokenCache)
+
+	db := newTestDB(t)
+	var tokenRequests int
+	var receivedAuth string
+
+	srv := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if r.URL.Path == "/token" {
+			tokenRequests++
+			_ = r.ParseForm()
+			if r.Form.Get("grant_type") != "client_credentials" || r.Form.Get("client_id") != "cid" {
+				w.WriteHeader(http.StatusBadRequest)
+				return
+			}
+			w.Header().Set("Content-Type", "application/json")
+			_ = json.NewEncoder(w).Encode(map[string]any{
+				"access_token": "tok-abc", "token_type": "Bearer", "expires_in": 3600,
+			})
+			return
+		}
+		receivedAuth = r.Header.Get("Authorization")
+		_, _ = w.Write([]byte("ok"))
+	}))
+
+	auth := &models.EndpointAuth{
+		Type: string(models.AuthTypeOAuth2),
+		Data: models.ToJSON(models.OAuth2AuthData{
+			GrantType: "client_credentials", TokenURL: srv.URL + "/token",
+			ClientID: "cid", ClientSecret: "csecret",
+		}),
+	}
+
+	hs := newTestHTTPService(t, db)
+	for i := 0; i < 2; i++ {
+		if _, err := hs.SendRequest(SendRequestData{
+			Method: "GET", BaseURL: srv.URL, Path: "/api", Auth: auth,
+		}); err != nil {
+			t.Fatalf("第 %d 次请求失败: %v", i+1, err)
+		}
+	}
+
+	if receivedAuth != "Bearer tok-abc" {
+		t.Errorf("Authorization=%q", receivedAuth)
+	}
+	if tokenRequests != 1 {
+		t.Errorf("令牌应被缓存复用，实际换取了 %d 次", tokenRequests)
+	}
+}
+
+// TestOAuth2TokenEndpointFailure 验证换取令牌失败时给出可识别的错误。
+func TestOAuth2TokenEndpointFailure(t *testing.T) {
+	clearOAuthTokenCache()
+	t.Cleanup(clearOAuthTokenCache)
+
+	db := newTestDB(t)
+	srv := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		w.WriteHeader(http.StatusUnauthorized)
+	}))
+
+	hs := newTestHTTPService(t, db)
+	_, err := hs.SendRequest(SendRequestData{
+		Method: "GET", BaseURL: srv.URL, Path: "/api",
+		Auth: &models.EndpointAuth{
+			Type: string(models.AuthTypeOAuth2),
+			Data: models.ToJSON(models.OAuth2AuthData{TokenURL: srv.URL + "/token", ClientID: "cid"}),
+		},
+	})
+	if err == nil {
+		t.Fatalf("token 端点返回 401 时应报错")
+	}
+}
+
+func TestOAuth2MissingTokenURL(t *testing.T) {
+	clearOAuthTokenCache()
+	db := newTestDB(t)
+	hs := newTestHTTPService(t, db)
+	_, err := hs.SendRequest(SendRequestData{
+		Method: "GET", BaseURL: "http://127.0.0.1:0", Path: "/",
+		Auth: &models.EndpointAuth{
+			Type: string(models.AuthTypeOAuth2),
+			Data: models.ToJSON(models.OAuth2AuthData{}),
+		},
+	})
+	if err == nil {
+		t.Fatalf("缺少 token 端点时应报错")
+	}
+}

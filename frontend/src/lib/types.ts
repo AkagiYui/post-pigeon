@@ -7,7 +7,7 @@ export type HTTPMethod = string
 export type BodyType = "none" | "form-data" | "x-www-form-urlencoded" | "json" | "text" | "xml" | "binary"
 
 /** 认证类型 */
-export type AuthType = "none" | "basic" | "bearer" | "apikey" | "inherit"
+export type AuthType = "none" | "basic" | "bearer" | "apikey" | "digest" | "oauth2" | "inherit"
 
 /** 参数位置 */
 export type ParamLocation = "query" | "path" | "cookie"

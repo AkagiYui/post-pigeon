@@ -17,7 +17,7 @@ import { t } from "@/hooks/useI18n"
 import { formatFromContentType } from "@/lib/format"
 import { getStatusInfo, statusClass } from "@/lib/http-status"
 import { type AuthType, type BodyType, CONTENT_TYPES, type EndpointType, formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
-import { byteLength, cn, extractPathParams, hasURLScheme } from "@/lib/utils"
+import { byteLength, cn, downloadTextFile, extensionForContentType, extractPathParams, hasURLScheme } from "@/lib/utils"
 import { responseLayout, setResponseLayout } from "@/stores/app"
 import { markConnecting, streamStatus } from "@/stores/stream"
 import { toastError } from "@/stores/toast"
@@ -209,6 +209,7 @@ export interface BodyFieldRow {
 /** 认证编辑态 */
 export interface AuthState {
   type: AuthType
+  /** basic 与 digest 共用用户名/密码 */
   username: string
   password: string
   token: string
@@ -216,11 +217,23 @@ export interface AuthState {
   apiKeyKey: string
   apiKeyValue: string
   apiKeyIn: string // header / query / cookie
+  /** OAuth 2.0（只支持无需浏览器跳转的两种授权） */
+  oauthGrantType: string // client_credentials / password
+  oauthTokenUrl: string
+  oauthClientId: string
+  oauthClientSecret: string
+  oauthScope: string
+  oauthClientAuth: string // body / basic
 }
 
 /** 默认空认证 */
 export function emptyAuth(): AuthState {
-  return { type: "none", username: "", password: "", token: "", apiKeyKey: "", apiKeyValue: "", apiKeyIn: "header" }
+  return {
+    type: "none", username: "", password: "", token: "",
+    apiKeyKey: "", apiKeyValue: "", apiKeyIn: "header",
+    oauthGrantType: "client_credentials", oauthTokenUrl: "",
+    oauthClientId: "", oauthClientSecret: "", oauthScope: "", oauthClientAuth: "body",
+  }
 }
 
 /** 脚本控制台输出 */
@@ -584,6 +597,32 @@ export function EndpointDetail(props: EndpointDetailProps) {
   // 发送请求时若响应区处于收起状态，自动展开
   createEffect(on(() => props.sending, (s) => { if (s) setResponseCollapsed(false) }, { defer: true }))
 
+  /**
+   * 保存响应体到文件。
+   * 有原始字节时按原始字节写出（图片 / PDF / 压缩包等二进制响应才不会被破坏），
+   * 否则退回已解码的文本。
+   */
+  const downloadResponseBody = () => {
+    const response = props.response
+    if (!response) return
+    const contentType = (response.contentType || "").split(";")[0].trim() || "application/octet-stream"
+    const fileName = `response${extensionForContentType(contentType)}`
+
+    if (response.rawBody) {
+      const binary = atob(response.rawBody)
+      const bytes = Uint8Array.from(binary, (c) => c.charCodeAt(0))
+      const url = URL.createObjectURL(new Blob([bytes], { type: contentType }))
+      const anchor = document.createElement("a")
+      anchor.href = url
+      anchor.download = fileName
+      anchor.click()
+      URL.revokeObjectURL(url)
+      return
+    }
+    downloadTextFile(fileName, response.body || "", contentType)
+  }
+
+
   // ---- WebSocket：连接/断开由顶部请求行的按钮驱动，连接存活于 Go 侧 ----
   const isWs = () => ep().type === "websocket"
   const wsStatus = () => streamStatus(ep().id)
@@ -850,6 +889,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                                 encoding={encoding()}
                                 onEncodingChange={setEncoding}
                                 encodingDisabled={props.response?.rawBodyOmitted}
+                                onDownload={downloadResponseBody}
                               />
                             </Show>
                             {/* 状态码：hover 展示该状态码的名称与释义 */}
@@ -886,6 +926,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                             onRenderModeChange={setRenderMode}
                             onFormatChange={setFormat}
                             onEncodingChange={setEncoding}
+                            onDownload={downloadResponseBody}
                           />
                         )}
                       </Tabs>

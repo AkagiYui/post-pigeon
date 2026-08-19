@@ -523,5 +523,18 @@
   "runner.duration": "Duration",
   "runner.empty": "Press Run to execute every endpoint in this collection",
   "runner.exportMarkdown": "Export Markdown",
-  "runner.exportJson": "Export JSON"
+  "runner.exportJson": "Export JSON",
+  "endpoint.auth.digest": "Digest",
+  "endpoint.auth.digestHint": "The server answers with a 401 challenge first; the digest is computed from it and the request is resent automatically.",
+  "endpoint.auth.oauth.grantType": "Grant type",
+  "endpoint.auth.oauth.clientCredentials": "Client credentials",
+  "endpoint.auth.oauth.password": "Password",
+  "endpoint.auth.oauth.tokenUrl": "Token URL",
+  "endpoint.auth.oauth.clientAuth": "Credentials in",
+  "endpoint.auth.oauth.inBody": "Request body",
+  "endpoint.auth.oauth.inHeader": "Basic auth header",
+  "endpoint.auth.oauth.hint": "Only grants that need no browser redirect are supported; for the authorization code flow obtain the token externally and use Bearer auth. Tokens are cached until they expire.",
+  "history.maskSensitive": "Mask credentials in history",
+  "history.maskSensitive.hint": "Masks Authorization, Cookie and API-key headers plus secret variable values. History stores long-lived credentials — a copied database file leaks them.",
+  "response.download": "Save"
 }

@@ -57,3 +57,31 @@ export function downloadTextFile(fileName: string, content: string, mimeType = "
   anchor.click()
   URL.revokeObjectURL(url)
 }
+
+/** Content-Type 到常见文件扩展名的映射，用于「保存响应体」时给出合理的文件名 */
+const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
+  "application/json": ".json",
+  "application/xml": ".xml",
+  "text/xml": ".xml",
+  "text/html": ".html",
+  "text/plain": ".txt",
+  "text/csv": ".csv",
+  "application/pdf": ".pdf",
+  "application/zip": ".zip",
+  "application/octet-stream": ".bin",
+  "image/png": ".png",
+  "image/jpeg": ".jpg",
+  "image/gif": ".gif",
+  "image/webp": ".webp",
+  "image/svg+xml": ".svg",
+}
+
+/** 由 Content-Type 推断文件扩展名；无法识别时按结构化后缀兜底，再不行返回空串。 */
+export function extensionForContentType(contentType: string): string {
+  const mime = (contentType || "").split(";")[0].trim().toLowerCase()
+  if (CONTENT_TYPE_EXTENSIONS[mime]) return CONTENT_TYPE_EXTENSIONS[mime]
+  if (mime.endsWith("+json")) return ".json"
+  if (mime.endsWith("+xml")) return ".xml"
+  const slash = mime.lastIndexOf("/")
+  return slash >= 0 && slash < mime.length - 1 ? `.${mime.slice(slash + 1)}` : ""
+}

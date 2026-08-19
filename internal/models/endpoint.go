@@ -175,6 +175,8 @@ const (
 	AuthTypeBasic   AuthType = "basic"
 	AuthTypeBearer  AuthType = "bearer"
 	AuthTypeAPIKey  AuthType = "apikey"
+	AuthTypeDigest  AuthType = "digest"  // HTTP Digest（RFC 7616），需一次 401 挑战往返
+	AuthTypeOAuth2  AuthType = "oauth2"  // OAuth 2.0，支持 client_credentials / password 授权
 	AuthTypeInherit AuthType = "inherit" // 继承上级（文件夹/模块）的认证
 )
 
@@ -210,4 +212,38 @@ type APIKeyAuthData struct {
 	Key   string `json:"key"`   // 参数名
 	Value string `json:"value"` // 参数值
 	In    string `json:"in"`    // header, query, cookie
+}
+
+// DigestAuthData HTTP Digest 认证数据。
+// 其余参数（realm/nonce/qop/algorithm）全部来自服务端的 401 挑战，无需用户填写。
+type DigestAuthData struct {
+	Username string `json:"username"`
+	Password string `json:"password"`
+}
+
+// OAuth2GrantType OAuth 2.0 授权类型。
+// 只支持无需浏览器重定向的两种：授权码流程需要跳转与回调服务，
+// 拿到 token 后用 bearer 认证即可，不必在客户端里重复实现。
+type OAuth2GrantType string
+
+const (
+	OAuth2GrantClientCredentials OAuth2GrantType = "client_credentials"
+	OAuth2GrantPassword          OAuth2GrantType = "password"
+)
+
+// OAuth2AuthData OAuth 2.0 认证数据。
+type OAuth2AuthData struct {
+	// GrantType: client_credentials | password
+	GrantType    string `json:"grantType"`
+	TokenURL     string `json:"tokenUrl"`
+	ClientID     string `json:"clientId"`
+	ClientSecret string `json:"clientSecret"`
+	Scope        string `json:"scope"`
+	// Username / Password 仅 password 授权需要
+	Username string `json:"username"`
+	Password string `json:"password"`
+	// ClientAuth: body（默认，凭据放请求体）| basic（凭据放 Authorization 头）
+	ClientAuth string `json:"clientAuth"`
+	// HeaderPrefix 注入到 Authorization 的前缀，默认 Bearer
+	HeaderPrefix string `json:"headerPrefix"`
 }

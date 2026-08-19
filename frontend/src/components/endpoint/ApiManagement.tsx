@@ -209,9 +209,23 @@ function toBodyFieldModels(rows: BodyFieldRow[]): EndpointBodyField[] {
 function toAuthModel(a: AuthState): EndpointAuth | null {
   if (!a || a.type === "none") return null
   let data = "{}"
-  if (a.type === "basic") data = JSON.stringify({ username: a.username, password: a.password })
+  // digest 与 basic 的凭据形态一致，共用同一组输入
+  if (a.type === "basic" || a.type === "digest") data = JSON.stringify({ username: a.username, password: a.password })
   else if (a.type === "bearer") data = JSON.stringify({ token: a.token })
   else if (a.type === "apikey") data = JSON.stringify({ key: a.apiKeyKey, value: a.apiKeyValue, in: a.apiKeyIn || "header" })
+  else if (a.type === "oauth2") {
+    data = JSON.stringify({
+      grantType: a.oauthGrantType || "client_credentials",
+      tokenUrl: a.oauthTokenUrl,
+      clientId: a.oauthClientId,
+      clientSecret: a.oauthClientSecret,
+      scope: a.oauthScope,
+      clientAuth: a.oauthClientAuth || "body",
+      // password 授权复用用户名/密码输入
+      username: a.username,
+      password: a.password,
+    })
+  }
   // inherit：无数据
   return new EndpointAuth({ type: a.type, data })
 }
@@ -252,13 +266,25 @@ function fromBodyFieldModels(arr?: EndpointBodyField[] | null): BodyFieldRow[] {
 
 function fromAuthModel(a?: EndpointAuth | null): AuthState {
   if (!a || !a.type || a.type === "none") return emptyAuth()
-  let d: { username?: string; password?: string; token?: string; key?: string; value?: string; in?: string } = {}
+  let d: {
+    username?: string; password?: string; token?: string
+    key?: string; value?: string; in?: string
+    grantType?: string; tokenUrl?: string; clientId?: string
+    clientSecret?: string; scope?: string; clientAuth?: string
+  } = {}
   try { d = a.data ? JSON.parse(a.data) : {} } catch { d = {} }
-  const validTypes = ["basic", "bearer", "apikey", "inherit"]
+  const validTypes = ["basic", "bearer", "apikey", "digest", "oauth2", "inherit"]
   return {
+    ...emptyAuth(),
     type: (validTypes.includes(a.type) ? a.type : "none") as AuthState["type"],
     username: d.username || "", password: d.password || "", token: d.token || "",
     apiKeyKey: d.key || "", apiKeyValue: d.value || "", apiKeyIn: d.in || "header",
+    oauthGrantType: d.grantType || "client_credentials",
+    oauthTokenUrl: d.tokenUrl || "",
+    oauthClientId: d.clientId || "",
+    oauthClientSecret: d.clientSecret || "",
+    oauthScope: d.scope || "",
+    oauthClientAuth: d.clientAuth || "body",
   }
 }
 

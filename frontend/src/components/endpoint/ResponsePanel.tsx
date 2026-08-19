@@ -46,6 +46,8 @@ export interface ResponseBodyToolbarProps {
   onEncodingChange: (v: string) => void
   /** 响应过大未回传原始字节时禁用字符集切换（没有原始字节就无法重新解码） */
   encodingDisabled?: boolean
+  /** 保存响应体到文件；不提供时不展示该按钮 */
+  onDownload?: () => void
   class?: string
 }
 
@@ -61,6 +63,17 @@ export function ResponseBodyToolbar(props: ResponseBodyToolbarProps) {
       {/* 格式选择（仅格式化模式可用） */}
       <Show when={props.renderMode === "pretty"}>
         <Select options={formatOptions} value={props.format} onChange={props.onFormatChange} size="sm" class="w-20" />
+      </Show>
+      {/* 保存响应体到文件：二进制响应此前只能看 base64，没有取出的办法 */}
+      <Show when={props.onDownload}>
+        <button
+          type="button"
+          class="rounded-md border border-border px-2 py-1 text-xs text-muted-foreground transition-colors hover:bg-muted hover:text-foreground"
+          onClick={() => props.onDownload?.()}
+          title={t("response.download")}
+        >
+          {t("response.download")}
+        </button>
       </Show>
       {/* 渲染模式按钮组 */}
       <div class="flex items-center rounded-md border border-border overflow-hidden">
@@ -98,6 +111,8 @@ export interface ResponsePanelProps {
   onRenderModeChange: (v: string) => void
   onFormatChange: (v: string) => void
   onEncodingChange: (v: string) => void
+  /** 保存响应体到文件 */
+  onDownload?: () => void
 }
 
 /** 直接交给 CodeMirror 渲染的响应体上限；超过则先折叠，由用户显式展开 */
@@ -143,6 +158,7 @@ export function ResponsePanel(props: ResponsePanelProps) {
               encoding={props.encoding}
               onEncodingChange={props.onEncodingChange}
               encodingDisabled={props.response.rawBodyOmitted}
+              onDownload={props.onDownload}
             />
           </div>
         </Show>

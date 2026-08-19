@@ -51,7 +51,8 @@ func resolveEffectiveAuth(db *gorm.DB, ep *models.Endpoint, epAuth *models.Endpo
 // isConcreteAuth 判断是否为具体的（会实际生效的）认证类型。
 func isConcreteAuth(t string) bool {
 	switch models.AuthType(t) {
-	case models.AuthTypeBasic, models.AuthTypeBearer, models.AuthTypeAPIKey:
+	case models.AuthTypeBasic, models.AuthTypeBearer, models.AuthTypeAPIKey,
+		models.AuthTypeDigest, models.AuthTypeOAuth2:
 		return true
 	default:
 		return false

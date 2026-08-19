@@ -51,6 +51,9 @@ type HistorySettings struct {
 	RetentionDays int `json:"retentionDays"`
 	// MaxRowsPerModule 单个模块保留的最大条数，超出则淘汰最旧的。0 表示不限制。
 	MaxRowsPerModule int `json:"maxRowsPerModule"`
+	// MaskSensitive 写入历史时对凭据类请求头与秘密变量值脱敏，默认开启。
+	// 历史库里存的是长期有效的 token，数据库文件被拷走就等于凭据泄漏。
+	MaskSensitive bool `json:"maskSensitive"`
 }
 
 // 默认限额：32MiB 响应上限、1MiB 入库上限、32MiB WebSocket 单帧上限，
@@ -64,6 +67,7 @@ var (
 	DefaultHistorySettings = HistorySettings{
 		RetentionDays:    30,
 		MaxRowsPerModule: 2000,
+		MaskSensitive:    true,
 	}
 )
 

@@ -523,5 +523,18 @@
   "runner.duration": "耗时",
   "runner.empty": "点击「开始运行」执行该集合下的全部接口",
   "runner.exportMarkdown": "导出 Markdown",
-  "runner.exportJson": "导出 JSON"
+  "runner.exportJson": "导出 JSON",
+  "endpoint.auth.digest": "Digest",
+  "endpoint.auth.digestHint": "服务端会先返回 401 挑战，客户端据此计算摘要后自动重发一次，无需额外配置。",
+  "endpoint.auth.oauth.grantType": "授权类型",
+  "endpoint.auth.oauth.clientCredentials": "客户端凭据（client_credentials）",
+  "endpoint.auth.oauth.password": "密码模式（password）",
+  "endpoint.auth.oauth.tokenUrl": "Token 地址",
+  "endpoint.auth.oauth.clientAuth": "凭据位置",
+  "endpoint.auth.oauth.inBody": "请求体",
+  "endpoint.auth.oauth.inHeader": "Basic 认证头",
+  "endpoint.auth.oauth.hint": "只支持无需浏览器跳转的授权类型；授权码流程请在外部拿到 token 后用 Bearer 认证。令牌会按有效期缓存复用。",
+  "history.maskSensitive": "写入历史时脱敏凭据",
+  "history.maskSensitive.hint": "对 Authorization、Cookie、API Key 等请求头以及秘密变量的值做脱敏。历史里存的是长期有效的凭据，数据库文件被拷走就等于凭据泄漏。",
+  "response.download": "保存"
 }

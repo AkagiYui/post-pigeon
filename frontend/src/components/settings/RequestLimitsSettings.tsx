@@ -7,6 +7,7 @@ import { createSignal, onMount } from "solid-js"
 import { HistorySettings, RequestSettings } from "@/../bindings/PostPigeon/internal/models"
 import { RequestHistoryService, SettingsService } from "@/../bindings/PostPigeon/internal/services"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"
 import { toastError, toastSuccess } from "@/stores/toast"
@@ -50,6 +51,7 @@ export function RequestLimitsSettings() {
   const [maxWSMiB, setMaxWSMiB] = createSignal(32)
   const [retentionDays, setRetentionDays] = createSignal(30)
   const [maxRows, setMaxRows] = createSignal(2000)
+  const [maskSensitive, setMaskSensitive] = createSignal(true)
   const [saving, setSaving] = createSignal(false)
   const [pruning, setPruning] = createSignal(false)
   const [clearing, setClearing] = createSignal(false)
@@ -68,6 +70,7 @@ export function RequestLimitsSettings() {
       if (history) {
         setRetentionDays(history.retentionDays)
         setMaxRows(history.maxRowsPerModule)
+        setMaskSensitive(history.maskSensitive)
       }
     } catch (e) {
       toastError(e, "error.op.loadFailed")
@@ -87,6 +90,7 @@ export function RequestLimitsSettings() {
       await SettingsService.SaveHistorySettings(new HistorySettings({
         retentionDays: Math.max(0, Math.round(retentionDays())),
         maxRowsPerModule: Math.max(0, Math.round(maxRows())),
+        maskSensitive: maskSensitive(),
       }))
       toastSuccess(t("common.saved"))
       await load()
@@ -170,6 +174,14 @@ export function RequestLimitsSettings() {
           value={maxRows()}
           onChange={setMaxRows}
         />
+
+        <div class="space-y-1.5">
+          <label class="flex cursor-pointer select-none items-center gap-2 text-sm">
+            <Checkbox checked={maskSensitive()} onChange={(e) => setMaskSensitive(e.currentTarget.checked)} />
+            <span class="font-medium">{t("history.maskSensitive")}</span>
+          </label>
+          <p class="pl-6 text-xs text-muted-foreground">{t("history.maskSensitive.hint")}</p>
+        </div>
 
         <div class="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={pruneNow} disabled={pruning()}>
