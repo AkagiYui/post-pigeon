@@ -3,7 +3,9 @@
 package platform
 
 /*
-#import <Carbon/Carbon.h>
+// 必须显式声明框架：主程序恰好由 Wails 带上了这些框架，但本包单独构建
+// （例如 go test ./internal/platform/）时会因缺少 LDFLAGS 而链接失败。
+#cgo LDFLAGS: -framework ApplicationServices
 #import <ApplicationServices/ApplicationServices.h>
 */
 import "C"

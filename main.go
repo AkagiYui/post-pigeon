@@ -123,16 +123,17 @@ func main() {
 	// Windows/Linux 端使用无边框窗口，由前端自定义标题栏
 	frameless := runtime.GOOS != "darwin"
 
-	// 尝试加载保存的窗口状态
-	// 如果启动时按住 Shift 键，则跳过加载，使用默认大小和位置
-	skipRestore := platform.IsShiftKeyPressed()
+	// 尝试加载保存的窗口状态。
+	// 按住 Shift 启动、设置 POSTPIGEON_RESET_WINDOW=1 或带上 --reset-window
+	// 都会跳过恢复，回到默认大小与位置（后两者是 Linux/Wayland 下唯一可靠的入口）。
+	skipRestore := platform.ShouldResetWindowState()
 	var savedState *models.WindowState
 	if !skipRestore {
 		savedState, _ = windowStateService.LoadWindowState()
 	}
 
 	if skipRestore {
-		slog.Info("Shift 键被按住，跳过窗口状态恢复，使用默认大小和位置")
+		slog.Info("已请求重置窗口状态，使用默认大小和位置")
 	}
 
 	// 窗口最小有效尺寸阈值，低于此值则恢复默认大小和位置
