@@ -891,6 +891,21 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 			req.Header.Set("Content-Type", "text/plain")
 		}
 
+	case string(models.BodyTypeGraphQL):
+		// GraphQL over HTTP：把「查询 + 变量」组装成标准的 JSON 请求体。
+		// 变量在界面上是一段 JSON 文本，这里解析后作为对象嵌入；
+		// 解析失败时按「无变量」发送，避免整条请求因为一处笔误发不出去。
+		payload, err := buildGraphQLBody(resolveVars(data.BodyContent, vars))
+		if err != nil {
+			return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", "graphql"))
+		}
+		req.Body = io.NopCloser(bytes.NewReader(payload))
+		req.GetBody = func() (io.ReadCloser, error) {
+			return io.NopCloser(bytes.NewReader(payload)), nil
+		}
+		req.ContentLength = int64(len(payload))
+		req.Header.Set("Content-Type", defaultStr(data.ContentType, "application/json"))
+
 	case string(models.BodyTypeBinary):
 		// 原始二进制：BodyContent 约定为 {"fileName":..,"content":<base64>}
 		_, content, ok := parseFileField(data.BodyContent)
@@ -1195,6 +1210,30 @@ func truncateForStorage(body string, limit int64) string {
 		cut--
 	}
 	return body[:cut] + "\n…（响应体过大，已截断存储）"
+}
+
+// buildGraphQLBody 把存储形态的 GraphQL 请求体转成实际发送的 JSON。
+func buildGraphQLBody(stored string) ([]byte, error) {
+	var body models.GraphQLBody
+	if strings.TrimSpace(stored) != "" {
+		if err := models.FromJSON(stored, &body); err != nil {
+			return nil, err
+		}
+	}
+
+	payload := map[string]any{"query": body.Query}
+	if body.OperationName != "" {
+		payload["operationName"] = body.OperationName
+	}
+	if trimmed := strings.TrimSpace(body.Variables); trimmed != "" {
+		var variables any
+		if err := json.Unmarshal([]byte(trimmed), &variables); err == nil {
+			payload["variables"] = variables
+		}
+		// 变量不是合法 JSON 时按「无变量」发送：查询本身通常仍然有效，
+		// 报错拦下整条请求反而让人摸不着头脑
+	}
+	return json.Marshal(payload)
 }
 
 // parseFileField 解析文件字段的 value（前端约定为 {"fileName":..,"content":<base64>} JSON）

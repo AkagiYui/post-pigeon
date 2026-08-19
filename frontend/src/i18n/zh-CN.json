@@ -536,5 +536,8 @@
   "endpoint.auth.oauth.hint": "只支持无需浏览器跳转的授权类型；授权码流程请在外部拿到 token 后用 Bearer 认证。令牌会按有效期缓存复用。",
   "history.maskSensitive": "写入历史时脱敏凭据",
   "history.maskSensitive.hint": "对 Authorization、Cookie、API Key 等请求头以及秘密变量的值做脱敏。历史里存的是长期有效的凭据，数据库文件被拷走就等于凭据泄漏。",
-  "response.download": "保存"
+  "response.download": "保存",
+  "endpoint.body.graphql.query": "查询",
+  "endpoint.body.graphql.variables": "变量（JSON）",
+  "endpoint.body.graphql.hint": "发送时会组装成标准的 GraphQL over HTTP JSON 请求体；变量写错会被忽略，查询照常发出。"
 }

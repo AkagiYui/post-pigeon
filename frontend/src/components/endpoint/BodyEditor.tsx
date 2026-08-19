@@ -22,7 +22,29 @@ const bodyTypeOptions = [
   { value: "xml", label: "XML" },
   { value: "text", label: "Text" },
   { value: "binary", label: "Binary" },
+  { value: "graphql", label: "GraphQL" },
 ]
+
+/** GraphQL 请求体在 bodyContent 中的存储形态（与后端 models.GraphQLBody 一致） */
+interface GraphQLBody {
+  query: string
+  variables: string
+  operationName?: string
+}
+
+/** 解析存储形态；非法或空时返回空查询 */
+function parseGraphQLBody(raw: string): GraphQLBody {
+  try {
+    const parsed = JSON.parse(raw || "{}") as Partial<GraphQLBody>
+    return {
+      query: parsed.query || "",
+      variables: parsed.variables || "",
+      operationName: parsed.operationName || "",
+    }
+  } catch {
+    return { query: "", variables: "", operationName: "" }
+  }
+}
 
 /** BodyEditor 变更补丁：只携带本次变化的字段 */
 export interface BodyEditorPatch {
@@ -72,6 +94,12 @@ export function BodyEditor(props: BodyEditorProps) {
     reader.readAsDataURL(file)
   }
 
+  // GraphQL 请求体：查询与变量分开编辑，合并存进 bodyContent
+  const graphql = createMemo(() => parseGraphQLBody(props.bodyContent))
+  const patchGraphQL = (patch: Partial<GraphQLBody>) => {
+    props.onChange({ bodyContent: JSON.stringify({ ...graphql(), ...patch }) })
+  }
+
   // Binary 请求体的当前文件名（从 bodyContent 的 JSON 解析）
   const binaryFileName = createMemo(() => {
     try { return JSON.parse(props.bodyContent || "{}").fileName || "" } catch { return "" }
@@ -113,7 +141,7 @@ export function BodyEditor(props: BodyEditorProps) {
         </div>
 
         {/* JSON/Text/XML 的内容类型选择 */}
-        <Show when={props.bodyType === "json" || props.bodyType === "text" || props.bodyType === "xml"}>
+        <Show when={props.bodyType === "json" || props.bodyType === "text" || props.bodyType === "xml" || props.bodyType === "graphql"}>
           <div class="ml-auto">
             <Input
               size="sm"
@@ -131,6 +159,33 @@ export function BodyEditor(props: BodyEditorProps) {
         <Show when={props.bodyType === "none"}>
           <div class="text-sm text-muted-foreground text-center py-8">
             {t("endpoint.body.none")}
+          </div>
+        </Show>
+
+        {/* GraphQL：查询与变量分栏，实际发送时组装成标准的 JSON 请求体 */}
+        <Show when={props.bodyType === "graphql"}>
+          <div class="flex h-full flex-col gap-3">
+            <div class="flex min-h-0 flex-1 flex-col gap-1">
+              <label class="text-xs font-medium text-muted-foreground">{t("endpoint.body.graphql.query")}</label>
+              <Textarea
+                value={graphql().query}
+                onInput={(e) => patchGraphQL({ query: e.currentTarget.value })}
+                placeholder={"query {\n  user(id: 1) {\n    name\n  }\n}"}
+                spellcheck={false}
+                class="min-h-0 flex-1 resize-none font-mono text-xs"
+              />
+            </div>
+            <div class="flex h-32 shrink-0 flex-col gap-1">
+              <label class="text-xs font-medium text-muted-foreground">{t("endpoint.body.graphql.variables")}</label>
+              <Textarea
+                value={graphql().variables}
+                onInput={(e) => patchGraphQL({ variables: e.currentTarget.value })}
+                placeholder={"{\n  \"id\": 1\n}"}
+                spellcheck={false}
+                class="min-h-0 flex-1 resize-none font-mono text-xs"
+              />
+            </div>
+            <p class="shrink-0 text-xs text-muted-foreground">{t("endpoint.body.graphql.hint")}</p>
           </div>
         </Show>
 

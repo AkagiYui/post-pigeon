@@ -243,6 +243,20 @@ func exportParameters(detail *EndpointDetail) []openAPIExportParam {
 // exportRequestBody 依据请求体类型导出 requestBody。
 func exportRequestBody(endpoint models.Endpoint, detail *EndpointDetail) *openAPIExportBody {
 	switch endpoint.BodyType {
+	case string(models.BodyTypeGraphQL):
+		// GraphQL 在 HTTP 层就是一个 JSON 请求体，按 JSON 描述即可
+		return &openAPIExportBody{Content: map[string]openAPIExportMediaTyp{
+			"application/json": {
+				Schema: map[string]any{
+					"type": "object",
+					"properties": map[string]any{
+						"query":     map[string]any{"type": "string"},
+						"variables": map[string]any{"type": "object"},
+					},
+					"required": []string{"query"},
+				},
+			},
+		}}
 	case string(models.BodyTypeJSON):
 		return &openAPIExportBody{Content: map[string]openAPIExportMediaTyp{
 			defaultStr(endpoint.ContentType, "application/json"): {

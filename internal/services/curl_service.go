@@ -168,6 +168,17 @@ func (s *CurlService) requestVars(data SendRequestData) map[string]string {
 // curlBodyArgs 把请求体转成对应的 curl 参数。
 func curlBodyArgs(data SendRequestData, vars map[string]string) []string {
 	switch data.BodyType {
+	case string(models.BodyTypeGraphQL):
+		payload, err := buildGraphQLBody(resolveVars(data.BodyContent, vars))
+		if err != nil {
+			return nil
+		}
+		args := []string{fmt.Sprintf("--data-raw %s", shellQuote(string(payload)))}
+		if !hasHeader(data.Headers, "Content-Type") {
+			args = append(args, fmt.Sprintf("-H %s", shellQuote("Content-Type: "+defaultStr(data.ContentType, "application/json"))))
+		}
+		return args
+
 	case string(models.BodyTypeJSON), string(models.BodyTypeText), string(models.BodyTypeXML):
 		body := resolveVars(data.BodyContent, vars)
 		if body == "" {

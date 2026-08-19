@@ -453,14 +453,13 @@ func applyPostmanBody(endpoint *models.Endpoint, body *postmanBody) {
 	case "formdata":
 		endpoint.BodyType = string(models.BodyTypeFormData)
 	case "graphql":
-		// GraphQL 以 JSON 请求体表达，与实际发送形态一致
-		endpoint.BodyType = string(models.BodyTypeJSON)
+		endpoint.BodyType = string(models.BodyTypeGraphQL)
 		endpoint.ContentType = "application/json"
-		payload, _ := json.Marshal(map[string]string{
-			"query":     body.GraphQL["query"],
-			"variables": body.GraphQL["variables"],
+		endpoint.BodyContent = models.ToJSON(models.GraphQLBody{
+			Query:         body.GraphQL["query"],
+			Variables:     body.GraphQL["variables"],
+			OperationName: body.GraphQL["operationName"],
 		})
-		endpoint.BodyContent = string(payload)
 	default:
 		endpoint.BodyType = string(models.BodyTypeNone)
 	}

@@ -4,7 +4,7 @@
 export type HTTPMethod = string
 
 /** 请求体类型 */
-export type BodyType = "none" | "form-data" | "x-www-form-urlencoded" | "json" | "text" | "xml" | "binary"
+export type BodyType = "none" | "form-data" | "x-www-form-urlencoded" | "json" | "text" | "xml" | "binary" | "graphql"
 
 /** 认证类型 */
 export type AuthType = "none" | "basic" | "bearer" | "apikey" | "digest" | "oauth2" | "inherit"

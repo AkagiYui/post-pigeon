@@ -18,7 +18,19 @@ const (
 	BodyTypeText       BodyType = "text"
 	BodyTypeXML        BodyType = "xml"    // application/xml
 	BodyTypeBinary     BodyType = "binary" // 原始二进制（单文件），BodyContent 存 {"fileName":..,"content":<base64>}
+	// BodyTypeGraphQL GraphQL 查询。BodyContent 存 {"query":..,"variables":..}，
+	// 实际发送时序列化为标准的 GraphQL over HTTP JSON 请求体。
+	BodyTypeGraphQL BodyType = "graphql"
 )
+
+// GraphQLBody 是 graphql 请求体在 BodyContent 中的存储形态。
+type GraphQLBody struct {
+	Query string `json:"query"`
+	// Variables 为变量的 JSON 文本；空串表示不带变量
+	Variables string `json:"variables"`
+	// OperationName 多操作文档时指定入口，可空
+	OperationName string `json:"operationName,omitempty"`
+}
 
 // EndpointType 端点类型：普通 HTTP 接口、Markdown 文档、WebSocket、SSE
 type EndpointType string

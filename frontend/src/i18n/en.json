@@ -536,5 +536,8 @@
   "endpoint.auth.oauth.hint": "Only grants that need no browser redirect are supported; for the authorization code flow obtain the token externally and use Bearer auth. Tokens are cached until they expire.",
   "history.maskSensitive": "Mask credentials in history",
   "history.maskSensitive.hint": "Masks Authorization, Cookie and API-key headers plus secret variable values. History stores long-lived credentials — a copied database file leaks them.",
-  "response.download": "Save"
+  "response.download": "Save",
+  "endpoint.body.graphql.query": "Query",
+  "endpoint.body.graphql.variables": "Variables (JSON)",
+  "endpoint.body.graphql.hint": "Sent as a standard GraphQL-over-HTTP JSON body. Malformed variables are ignored and the query is still sent."
 }
