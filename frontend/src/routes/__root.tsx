@@ -8,7 +8,6 @@ import "@/styles.css"
 import { createRootRoute, Outlet } from "@tanstack/solid-router"
 
 import { AppErrorBoundary } from "@/components/AppErrorBoundary"
-import { Devtools } from "@/components/Devtools"
 import { AppLayout } from "@/components/layout/AppLayout"
 import { Toaster } from "@/components/ui/toaster"
 
@@ -23,7 +22,6 @@ function RootComponent() {
         <Outlet />
       </AppErrorBoundary>
       <Toaster />
-      <Devtools />
     </AppLayout>
   )
 }

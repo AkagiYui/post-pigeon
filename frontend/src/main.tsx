@@ -1,4 +1,9 @@
 /* @refresh reload */
+// solid-devtools 的 vite 插件会把这行替换成 debugger 的 setup。
+// 必须在应用渲染之前执行，否则 solid 的 DEV 钩子装不上，devtools 面板拿不到 owner 树。
+// 生产构建下该包解析到 noop 实现。
+import "solid-devtools"
+
 import { RouterProvider } from "@tanstack/solid-router"
 import { render } from "solid-js/web"
 
@@ -81,6 +86,17 @@ Promise.all([initTheme(), initI18n()]).then(async () => {
   await restoreAppState()
 
   const router = getRouter()
+
+  // 供 Vite DevTools 的 dock 面板消费：面板是独立模块，只能通过固定全局名拿到页面实例。
+  // import.meta.env.DEV 在生产构建里是常量 false，整块连同动态 import 一起被摇掉。
+  if (import.meta.env.DEV) {
+    window.__DEVTOOLS_ROUTER__ = router
+    // 注入本项目版本的 devtools 组件，面板与项目的 tanstack 版本完全一致
+    void import("@tanstack/solid-router-devtools").then((mod) => {
+      window.__DEVTOOLS_COMPONENTS__ = { SolidRouterDevtoolsPanel: mod.TanStackRouterDevtoolsPanel }
+    })
+  }
+
   const rootElement = document.getElementById("app")
 
   if (!rootElement) {

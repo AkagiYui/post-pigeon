@@ -1,8 +1,11 @@
 import tailwindcss from "@tailwindcss/vite"
 import { tanstackRouter } from "@tanstack/router-plugin/vite"
+import { DevTools } from "@vitejs/devtools"
 import wails from "@wailsio/runtime/plugins/vite"
 import devtools from "solid-devtools/vite"
 import { defineConfig } from "vite"
+import { devtoolsPack } from "vite-plugin-devtools-pack"
+import { solidDevtoolsPanel, tanstackRouterPanel } from "vite-plugin-devtools-pack/solid"
 import iconifyOffline from "vite-plugin-iconify-offline"
 import solid from "vite-plugin-solid"
 
@@ -28,5 +31,9 @@ export default defineConfig({
     // WebSocket/SSE 事件标识 ws/sse、以及 Wails 拖拽区 CSS 变量 --wails-draggable。
     iconifyOffline({ exclude: ["max-sm", "ws", "sse", "--wails-draggable"] }),
     wails("./bindings"),
+    // 把 TanStack Router 与 Solid 的调试面板收进 Vite DevTools 的 dock，
+    // 页面上不再有各自的悬浮入口
+    devtoolsPack([tanstackRouterPanel(), solidDevtoolsPanel()]),
+    DevTools({ visibility: "passive" }),
   ],
 })

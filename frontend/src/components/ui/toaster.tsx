@@ -64,9 +64,7 @@ function ToastItem(props: { toast: Toast }) {
 export function Toaster() {
   return (
     <div
-      // 底部留出 56px：开发模式下 Solid Devtools 的悬浮条正好占着右下角，
-      // 贴到 bottom-4 会被它盖住，开发时根本看不到提示
-      class="pointer-events-none fixed bottom-14 right-4 z-[100] flex flex-col-reverse gap-2"
+      class="pointer-events-none fixed bottom-4 right-4 z-[100] flex flex-col-reverse gap-2"
       // 容器本身作为状态区域，内部每条再各自 role=alert
       role="region"
       aria-label={t("error.notifications")}
