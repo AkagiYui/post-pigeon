@@ -163,8 +163,8 @@ importers:
         specifier: ^8.0.10
         version: 8.0.10(@types/node@25.6.0)(@vitejs/devtools@0.6.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)
       vite-plugin-devtools-pack:
-        specifier: ^0.1.0
-        version: 0.1.0(@solid-devtools/debugger@0.28.1(solid-js@1.9.12))(@tanstack/solid-router-devtools@1.166.13(@tanstack/router-core@1.168.15)(@tanstack/solid-router@1.168.20(solid-js@1.9.12))(csstype@3.2.3)(solid-js@1.9.12))(@vitejs/devtools@0.6.1)(solid-js@1.9.12)(vite@8.0.10)
+        specifier: ^0.1.1
+        version: 0.1.1(@solid-devtools/debugger@0.28.1(solid-js@1.9.12))(@tanstack/solid-router-devtools@1.166.13(@tanstack/router-core@1.168.15)(@tanstack/solid-router@1.168.20(solid-js@1.9.12))(csstype@3.2.3)(solid-js@1.9.12))(@vitejs/devtools@0.6.1)(solid-js@1.9.12)(vite@8.0.10)
       vite-plugin-iconify-offline:
         specifier: ^0.4.3
         version: 0.4.3(vite@8.0.10)
@@ -2780,14 +2780,14 @@ packages:
   uri-js@4.4.1:
     resolution: {integrity: sha512-7rKUyy33Q1yc98pQ1DAmLtwX109F7TIfWlW1Ydo8Wl1ii1SeHieeh0HHfPeL2fMXK6z0s8ecKs9frCuLJvndBg==}
 
-  vite-plugin-devtools-pack@0.1.0:
-    resolution: {integrity: sha512-suqG8cQ4fAelAoWQpzkmm+EjvjoOUqIcOmyrcXhztuqh23Du3Seu5ai6cAonlF8+0md9QsZ5gYQj+IE7P4wxDw==}
+  vite-plugin-devtools-pack@0.1.1:
+    resolution: {integrity: sha512-N8TRhw1ZUEi4d5ic+GACFC3FfOwRwlzkr4Uzv5XSZfr5bRN4PNBbPSujPTKxJOGgBOItdGMFI8e+a6I1Ly9Vxw==}
     peerDependencies:
       '@solid-devtools/debugger': '>=0.28'
       '@tanstack/react-query-devtools': '>=5'
       '@tanstack/react-router-devtools': '>=1'
       '@tanstack/solid-router-devtools': '>=1'
-      '@vitejs/devtools': '>=0.4.9 <0.5'
+      '@vitejs/devtools': '>=0.4.9 <0.7'
       jotai: '>=2'
       jotai-devtools: '>=0.14'
       react: '>=18'
@@ -6028,7 +6028,7 @@ snapshots:
     dependencies:
       punycode: 2.3.1
 
-  vite-plugin-devtools-pack@0.1.0(@solid-devtools/debugger@0.28.1(solid-js@1.9.12))(@tanstack/solid-router-devtools@1.166.13(@tanstack/router-core@1.168.15)(@tanstack/solid-router@1.168.20(solid-js@1.9.12))(csstype@3.2.3)(solid-js@1.9.12))(@vitejs/devtools@0.6.1)(solid-js@1.9.12)(vite@8.0.10):
+  vite-plugin-devtools-pack@0.1.1(@solid-devtools/debugger@0.28.1(solid-js@1.9.12))(@tanstack/solid-router-devtools@1.166.13(@tanstack/router-core@1.168.15)(@tanstack/solid-router@1.168.20(solid-js@1.9.12))(csstype@3.2.3)(solid-js@1.9.12))(@vitejs/devtools@0.6.1)(solid-js@1.9.12)(vite@8.0.10):
     dependencies:
       '@vitejs/devtools': 0.6.1(@devframes/json-render@0.9.5(@devframes/hub@0.9.5(crossws@0.4.12(srvx@0.12.7))(devframe@0.9.5(cac@7.0.0)(srvx@0.12.7)))(devframe@0.9.5(cac@7.0.0)(srvx@0.12.7)))(@vitejs/devtools-oxc@0.6.1)(@vitejs/devtools-rolldown@0.6.1)(@vitejs/devtools-vite@0.6.1)(@vitejs/devtools-vitest@0.6.1)(crossws@0.4.12(srvx@0.12.7))(srvx@0.12.7)(vite@8.0.10)
       vite: 8.0.10(@types/node@25.6.0)(@vitejs/devtools@0.6.1)(esbuild@0.27.7)(jiti@2.7.0)(tsx@4.21.0)
