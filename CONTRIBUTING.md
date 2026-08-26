@@ -51,8 +51,8 @@ wails3 task check
 - 面向用户的错误一律用 `internal/apperr` 的错误码，不要在后端拼中文文案：
   文案的唯一来源是前端 i18n 词条
 - 新增错误码时同步补 `frontend/src/i18n/{zh-CN,en}.json` 的 `error.<code>`
-- 数据库 schema 只通过 `internal/database/migrations/` 下的 goose 迁移变更；
-  同时把新模型加进 `autoMigrate`，历史库的一次性收敛路径依赖它
+- 数据库 schema 只通过 `internal/database/migrations/` 下的 goose 迁移变更，
+  且必须满足降级兼容（见下面的[数据库迁移](#数据库迁移)）
 
 **前端**
 
@@ -61,6 +61,45 @@ wails3 task check
   不要只 `console.error`
 - 界面文案一律走 i18n；两种语言的键集合与占位符必须一致（有单测把关）
 - 组件文件只放渲染，纯逻辑抽到同目录的 `.ts` 模块，便于单测
+
+## 数据库迁移
+
+schema 的唯一事实源是 `internal/database/migrations/` 下的 goose 迁移。新增模型时
+同时加进 `autoMigrate`：历史库的一次性收敛路径（`adoptLegacyDB`）依赖它。
+
+除此之外还有一条硬约束：**用户会在版本之间来回跳**。装了新版本用着不顺手退回旧
+版本是很常见的用法，而数据库只有一个文件、所有版本共用：
+
+- 向前跨版本升级是安全的。goose 按序补跑所有未登记的迁移，0.0.1 直接跳到 0.0.9
+  与逐个版本升上去完全等价。
+- 向后降级时 goose **不会**执行 Down。旧二进制根本不认识库里更高的版本号，
+  `goose.Up` 直接空转。也就是说降级等于「旧代码跑在新 schema 上」，能不能跑通
+  完全取决于迁移是怎么写的。
+
+所以每条迁移都要按「旧版本也得能读能写」来写：
+
+| 想做的事 | 怎么做 |
+| --- | --- |
+| 加字段 | `ALTER TABLE ... ADD COLUMN`，**必须带默认值**。`NOT NULL` 且无默认值会让旧版本插入失败——它不会带上这一列 |
+| 加表 | 直接建。旧版本看不见也用不到，忽略即可 |
+| 删字段 / 改名 | 不要直接删。先加新列并双写，等旧版本淘汰（至少隔一个发版）再删。直接删会让旧版本的 `INSERT`/`UPDATE` 报 `no such column` |
+| 改字段语义（二态改三态、放宽取值、原地换单位……） | 最危险的一类：不报错，静默改行为。能加新列就加新列；确实要改，就在 CHANGELOG 里写清楚降级回去会看到什么 |
+
+`Down` 脚本照写不误（本地回滚和排错要用），但不要指望它在用户机器上跑过。
+
+写完跑一遍：
+
+```bash
+go test ./internal/database/
+```
+
+`TestMigrationsAreAdditive` 会逐版本对比 schema，删表删列、或给已有表加了没默认值
+的 `NOT NULL` 列都会当场失败。确实要破坏兼容时，改用例的同时必须在 CHANGELOG 里
+交代降级后果。
+
+兜底的是备份：确有待应用迁移时，`backupBeforeMigrate` 会先 `VACUUM INTO` 出一份
+`postpigeon.db.bak-<时间>-<版本>`（保留最近 3 份），备份做不出来就不迁移。数据库
+初始化失败会弹原生对话框，并告诉用户备份在哪、怎么用。
 
 ## 测试
 
