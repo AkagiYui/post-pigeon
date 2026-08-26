@@ -65,7 +65,7 @@ Go 负责网络与数据，SolidJS 负责界面，全部数据存在本地 SQLit
 | pnpm | 见 [frontend/package.json](frontend/package.json) 的 `packageManager` | 前端包管理 |
 | Wails CLI | v3 | `go install github.com/wailsapp/wails/v3/cmd/wails3@latest` |
 
-Linux 还需要 `libgtk-3-dev` 与 `libwebkit2gtk-4.1-dev`。
+Linux 还需要 `libgtk-4-dev` 与 `libwebkitgtk-6.0-dev`（Ubuntu 24.04+ / Debian 13+）。
 
 ```bash
 git clone https://github.com/AkagiYui/post-pigeon.git
