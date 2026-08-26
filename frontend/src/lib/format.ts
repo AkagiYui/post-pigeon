@@ -74,3 +74,35 @@ export function formatSize(bytes: number): string {
 export function formatAbsoluteTime(date: Date | string): string {
   return new Date(date).toLocaleString()
 }
+
+/**
+ * 把 ISO 8601 时间戳格式化为「2026/08/26 15:52:59 GMT+8」；无法解析时返回 null。
+ *
+ * 时区必须显式标出来：构建时间由 CI 以 UTC 记录，展示时会转成本地时区，
+ * 不标时区就没法判断这个时间到底是哪儿的——排查「我装的是哪个包」时这一点
+ * 很要命。
+ *
+ * 时区名不能直接写进 toLocaleString 的选项里：zh-CN 的排版会把它塞到日期和
+ * 时间中间（`2026/08/26 GMT+8 15:52:59`），只能分开格式化再拼。时区那部分固定
+ * 用 en 取，好拿到 `GMT+8` 这种稳定写法，而不是「新加坡标准时间」。
+ */
+export function formatBuildTime(timeStr: string): string | null {
+  const date = new Date(timeStr)
+  if (Number.isNaN(date.getTime())) return null
+
+  const datetime = date.toLocaleString("zh-CN", {
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+    hour: "2-digit",
+    minute: "2-digit",
+    second: "2-digit",
+    hour12: false,
+  })
+
+  const zone = new Intl.DateTimeFormat("en", { timeZoneName: "shortOffset" })
+    .formatToParts(date)
+    .find((part) => part.type === "timeZoneName")?.value
+
+  return zone ? `${datetime} ${zone}` : datetime
+}

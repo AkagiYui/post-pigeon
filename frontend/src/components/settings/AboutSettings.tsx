@@ -4,6 +4,7 @@ import { createSignal, onMount } from "solid-js"
 import { AppInfo, AppService } from "@/bindings/PostPigeon/internal/services"
 import { ExternalLink } from "@/components/ui/external-link"
 import { t } from "@/hooks/useI18n"
+import { formatBuildTime } from "@/lib/format"
 import { toastError } from "@/stores/toast"
 
 /**
@@ -21,23 +22,11 @@ export function AboutSettings() {
     }
   })
 
-  // 格式化构建时间为本地时间字符串
-  const formatBuildTime = (timeStr: string) => {
-    if (!timeStr) return t("common.dev")
-    try {
-      const date = new Date(timeStr)
-      return date.toLocaleString("zh-CN", {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: "2-digit",
-        minute: "2-digit",
-        second: "2-digit",
-        hour12: false,
-      })
-    } catch {
-      return timeStr
-    }
+  // 构建时间转本地时区展示，带上时区标识；解析不了就原样显示
+  const buildTime = () => {
+    const raw = appInfo()?.buildTime
+    if (!raw) return t("common.unknown")
+    return formatBuildTime(raw) ?? raw
   }
 
   return (
@@ -59,10 +48,7 @@ export function AboutSettings() {
         <span class="text-sm text-muted-foreground">{t("settings.about.buildHash")}</span>
         <BuildHashValue hash={appInfo()?.buildHash ?? t("common.unknown")} />
       </div>
-      <InfoRow
-        label={t("settings.about.buildTime")}
-        value={formatBuildTime(appInfo()?.buildTime ?? t("common.unknown"))}
-      />
+      <InfoRow label={t("settings.about.buildTime")} value={buildTime()} />
 
       <div class="border-t border-border my-4" />
 
