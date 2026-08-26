@@ -53,6 +53,10 @@ wails3 task check
 - 新增错误码时同步补 `frontend/src/i18n/{zh-CN,en}.json` 的 `error.<code>`
 - 数据库 schema 只通过 `internal/database/migrations/` 下的 goose 迁移变更，
   且必须满足降级兼容（见下面的[数据库迁移](#数据库迁移)）
+- 新增导出 / 分享 / 上报类功能时，先问一句「这会不会把凭据带出去」：数据库、
+  自动备份、项目导出 JSON 里都是明文的 token、密码与秘密变量值（详见
+  [README 的「数据与隐私」](README.md#数据与隐私)）。诊断信息压缩包因此刻意
+  不含数据库，只带摘要与日志
 
 **前端**
 

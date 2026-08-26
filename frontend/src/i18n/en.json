@@ -602,7 +602,7 @@
   "data.export": "Export all data",
   "data.exporting": "Exporting…",
   "data.exported": "Exported to {path}",
-  "data.export.hint": "The export is a complete database file. Take it with you to a new machine and load it back with “Restore from file” below.",
+  "data.export.hint": "The export is a complete database file. Take it with you to a new machine and load it back with “Restore from file” below. It contains tokens and passwords in plain text — keep it as safely as a password file.",
   "data.restore.title": "Restore from backup",
   "data.restore.hint": "The app backs up automatically before an upgrade; the most recent ones are listed below. Restoring replaces all current data, and the replaced copy is kept as a backup.",
   "data.backups.empty": "No automatic backups yet (they are created only when an upgrade changes the database).",

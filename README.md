@@ -130,6 +130,33 @@ go run ./testserver         # 默认监听 :9900
 
 后两种与桌面环境无关，是 Linux（尤其是 Wayland）下的推荐方式。
 
+## 数据与隐私
+
+PostPigeon 没有账号、没有服务端，也不往任何地方上传数据：你的东西全在这台机器上。
+设置 →「数据」里可以直接打开数据目录、查看数据库大小、导出或恢复。
+
+数据目录：
+
+| 平台 | 位置 |
+| --- | --- |
+| macOS | `~/Library/Application Support/com.akagiyui.postpigeon/` |
+| Windows | `%AppData%\com.akagiyui.postpigeon\` |
+| Linux | `~/.config/com.akagiyui.postpigeon/` |
+
+有几件事值得先知道：
+
+- **数据库文件里的凭据是明文的。** `postpigeon.db` 保存着你填过的一切，包括
+  Bearer token、Basic 密码、OAuth 客户端密钥，以及被标记为「秘密」的环境变量——
+  「秘密」只决定界面上是否打码，不做加密。**这个文件被拷走，等于这些凭据被拿走。**
+  升级前的自动备份（`postpigeon.db.bak-*`）和「导出全部数据」产生的文件同理，
+  请当作密码文件保管。
+- **导出项目（JSON）会带上环境变量的值**，包括秘密变量。发给同事之前先确认里面
+  没有你自己的密钥。
+- **请求历史默认脱敏**：凭据类请求头与秘密变量的值不会原样写进历史（设置 →
+  「请求与历史」→「历史脱敏」）。关掉之后，历史里会留下完整的 token。
+- **诊断信息压缩包不含数据库**，只有版本、平台、体积摘要与最近几天的日志，
+  可以放心附在问题反馈里。
+
 ## 贡献
 
 见 [CONTRIBUTING.md](CONTRIBUTING.md)。
