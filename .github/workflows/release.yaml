@@ -87,9 +87,8 @@ jobs:
           for d in /usr/local/lib/android /usr/local/.ghcup /usr/share/dotnet \
                    /usr/share/swift /usr/local/share/powershell \
                    /usr/lib/google-cloud-sdk /usr/share/miniconda; do
-            [ -e "$d" ] && sudo mv "$d" /opt/parked/ || true
+            if [ -e "$d" ]; then sudo mv "$d" /opt/parked/ && echo "已挪走 $d"; fi
           done
-          df -h /
 
       # Windows 沿用 setup-go 自带缓存：那边打包才 30 秒，另存一份 Go 缓存
       # 的解压耗时比省下来的编译时间还长。
