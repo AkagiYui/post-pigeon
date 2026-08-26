@@ -1,0 +1,60 @@
+#!/bin/sh
+#
+# 推送发版 tag 前校验它与仓库内容是否自洽。
+#
+# git 没有 pre-tag 钩子——`git tag` 不触发任何钩子——所以拦截点放在推送时。
+# 反正 tag 只有推上去才会触发发版工作流，本地留一个打错的 tag 无害。
+#
+# 校验内容见 scripts/check_release.py：tag 格式、build/config.yml 的版本号
+# 与 tag 是否一致、CHANGELOG.md 里有没有对应小节。
+#
+# 钩子存在 .git/ 里、不随仓库分发，`--no-verify`、网页界面打 tag、换台机器
+# 都能绕过，所以 CI 的发版流程里有一份同样的硬校验兜底。
+#
+# 启用：wails3 task setup:hooks（即 git config core.hooksPath .githooks）
+
+set -e
+
+repo_root=$(git rev-parse --show-toplevel)
+zero=$(git hash-object --stdin </dev/null | tr '0-9a-f' '0')
+
+if ! command -v python3 >/dev/null 2>&1; then
+    echo "pre-push: 找不到 python3，跳过发版校验" >&2
+    exit 0
+fi
+
+status=0
+
+# stdin 每行形如：<本地 ref> <本地 oid> <远端 ref> <远端 oid>
+while read -r _local_ref local_oid remote_ref remote_oid; do
+    # 只管发版 tag
+    case "$remote_ref" in
+        refs/tags/v[0-9]*) ;;
+        *) continue ;;
+    esac
+
+    tag=${remote_ref#refs/tags/}
+
+    # 删除 tag 的推送，没什么可校验的
+    [ "$local_oid" = "$zero" ] && continue
+
+    # 远端已经有这个 tag 了。git 本身也会拒绝，但这里能给出更清楚的提示
+    if [ "$remote_oid" != "$zero" ]; then
+        echo "pre-push: 远端已存在 tag ${tag}，不能重复发布" >&2
+        status=1
+        continue
+    fi
+
+    # 附注 tag 的 oid 指向 tag 对象，要剥到 commit 才能读它的文件树。
+    # 读文件树而不是工作区：工作区可能已经改到别处去了，被推送的是这个提交。
+    commit=$(git rev-parse "${local_oid}^{commit}")
+
+    python3 "${repo_root}/scripts/check_release.py" "$tag" --ref "$commit" || status=1
+done
+
+if [ "$status" -ne 0 ]; then
+    echo "" >&2
+    echo "推送已中止。确认无误要强行推送：git push --no-verify" >&2
+fi
+
+exit $status

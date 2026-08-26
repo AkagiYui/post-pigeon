@@ -17,14 +17,30 @@ env:
   APP_NAME: PostPigeon
 
 jobs:
+  # 第一道闸：tag 必须与仓库内容自洽，否则整个发版流程不启动。
+  # 本地 pre-push 钩子跑的是同一个脚本，但钩子存在 .git/ 里、不随仓库分发，
+  # --no-verify、网页界面打 tag、换台机器都能绕过，所以这里必须再拦一次。
+  verify:
+    name: 校验发版信息
+    runs-on: ubuntu-latest
+    steps:
+      - name: 检出 tag
+        uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
+
+      - name: 校验 tag 与 build/config.yml、CHANGELOG.md 是否一致
+        run: python3 scripts/check_release.py "${{ github.event.inputs.tag || github.ref_name }}"
+
   # 发版前必须通过完整校验
   checks:
     name: 校验
+    needs: verify
     uses: ./.github/workflows/ci.yaml
 
   build:
     name: 构建 ${{ matrix.goos }}/${{ matrix.goarch }}
-    needs: checks
+    needs: [verify, checks]
     strategy:
       fail-fast: false
       matrix:
@@ -47,21 +63,17 @@ jobs:
         shell: bash
 
     steps:
-      - name: 检出代码
+      # workflow_dispatch 时默认检出的是工作流所在分支而不是要发布的 tag，
+      # 不显式指定 ref 的话会拿 master 的代码打上 tag 的版本号发出去
+      - name: 检出 tag
         uses: actions/checkout@v6
+        with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
 
-      - name: 解析版本号
-        id: version
-        run: |
-          TAG="${{ github.event.inputs.tag || github.ref_name }}"
-          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
-          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
-
-      # 版本号唯一真实来源是 git tag：构建前把它写入 build/config.yml，
-      # 由 Taskfile 的 APP_VERSION 读取并通过 ldflags 注入到 config.Version。
-      # 应用运行时拿它和 Release 的 tag 比对，两边必须严格对齐。
-      - name: 同步版本号到 build/config.yml
-        run: python3 scripts/set_version.py "${{ steps.version.outputs.version }}"
+      # build/config.yml 里的版本号由 wails3 task release:prepare 在发版提交里
+      # 写好，并由 verify job 确认与 tag 一致，这里不再改写。Taskfile 的
+      # APP_VERSION 读它，经 ldflags 注入 config.Version，应用运行时拿这个值
+      # 与 Release 的 tag 比对来判断有没有新版本。
 
       - name: 安装 Go
         uses: actions/setup-go@v6
@@ -157,9 +169,10 @@ jobs:
     needs: build
     runs-on: ubuntu-latest
     steps:
-      - name: 检出代码
+      - name: 检出 tag
         uses: actions/checkout@v6
         with:
+          ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
 
       - name: 解析版本号

@@ -46,6 +46,10 @@ Release 正文后面备查。
 - 请求历史默认对 Authorization / Cookie / API Key 请求头与秘密变量值脱敏
 - 窗口状态重置新增 `POSTPIGEON_RESET_WINDOW=1` 与 `--reset-window` 两种方式
   （Linux/Wayland 下按 Shift 无效）
+- 发版流程新增版本号一致性校验：`build/config.yml` 的版本号现在提交进仓库并与
+  git tag 保持一致，由 `.githooks/pre-push`（本地）与 release 工作流的第一个
+  job（CI，硬性）两处校验，对不上就不构建。新增
+  `wails3 task release:prepare -- 1.2.0` 一键对齐版本号与变更日志并提交
 - 发布产物改用 `PostPigeon-<平台>-<架构>` 命名，压缩包只含单个顶层条目
   （macOS 为 `.app` 的 zip、Linux 为二进制的 tar.gz、Windows 为单个 exe），
   这是自动更新能原地替换的前提；NSIS 安装包、deb/rpm/AppImage 改用独立文件名，

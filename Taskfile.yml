@@ -23,6 +23,17 @@ vars:
     sh: date -u +"%Y-%m-%dT%H:%M:%SZ"
 
 tasks:
+  setup:hooks:
+    summary: 启用仓库自带的 git 钩子（pre-push 会校验发版 tag）
+    cmds:
+      - git config core.hooksPath .githooks
+      - 'echo "已启用 .githooks/：推送 v* tag 前会校验它与 build/config.yml、CHANGELOG.md 是否一致"'
+
+  release:prepare:
+    summary: 准备发版，对齐版本号与变更日志并提交（用法：wails3 task release:prepare -- 1.2.0）
+    cmds:
+      - python3 scripts/prepare_release.py {{.CLI_ARGS}}
+
   check:
     summary: 本地跑一遍 CI 的全部校验（gofmt / vet / go test / typecheck / lint / 前端单测）
     cmds:

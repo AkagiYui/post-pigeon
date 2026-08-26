@@ -5,7 +5,8 @@
 见 [README 的「从源码构建」](README.md#从源码构建)。装好后：
 
 ```bash
-wails3 dev     # 开发模式，前端热重载
+wails3 task setup:hooks   # 克隆后跑一次，启用仓库自带的 git 钩子
+wails3 dev                # 开发模式，前端热重载
 ```
 
 ## 提交前必须通过的检查
@@ -85,21 +86,49 @@ CI 在 [.github/workflows/ci.yaml](.github/workflows/ci.yaml)，打包与发版�
 
 ## 发版
 
-1. 把 `CHANGELOG.md` 里的 `## [未发布]` 改写成 `## [1.2.0] - 2026-08-26`
-   （日期用发版当天），并在上面新开一个空的 `## [未发布]`；
-2. 提交后打标签并推送：
+1. 准备发版提交：
 
 ```bash
+wails3 task release:prepare -- 1.2.0
+```
+
+它会把 `build/config.yml` 的版本号设为 1.2.0、把 `CHANGELOG.md` 的
+`## [未发布]` 定版成 `## [1.2.0] - <今天>` 并在上面新开一个空的「未发布」，
+自检通过后提交 `chore(release): 1.2.0`。加 `--no-commit` 可以只改文件自己提交。
+
+2. 打标签并推送：
+
+```bash
+git push origin master
 git tag v1.2.0
 git push origin v1.2.0
 ```
 
-[release 工作流](.github/workflows/release.yaml) 会跑校验、把版本号写进
-`build/config.yml`（经 ldflags 注入 `config.Version`）、构建四个平台的产物，
-生成 `SHA256SUMS`，并连同 `CHANGELOG.md` 一起创建 Release。
+[release 工作流](.github/workflows/release.yaml) 会校验发版信息、跑完整 CI、
+构建四个平台的产物、生成 `SHA256SUMS`，并连同 `CHANGELOG.md` 一起创建 Release。
 
-漏改 CHANGELOG 不会让发版失败，但 Release 正文里会出现一行醒目的提示，
-且应用内的更新说明只剩提交汇总。
+### 版本号必须三处一致
+
+git tag、`build/config.yml` 的 `info.version`、以及构建产物里经 ldflags 注入的
+`config.Version`（Taskfile 的 `APP_VERSION` 读的就是 config.yml）——三者对不上的
+表现是「装了新版却一直提示有更新」，而且要等产物发出去之后才会被发现。所以有
+两道校验，跑的是同一个 [scripts/check_release.py](scripts/check_release.py)：
+
+| 位置 | 触发时机 | 能否绕过 |
+| --- | --- | --- |
+| `.githooks/pre-push` | 推送 `v*` tag 时 | `--no-verify` 可绕过 |
+| release 工作流的第一个 job | tag 推上去之后 | 不能，不通过就不构建 |
+
+校验四项：tag 格式（`v1.2.0` / `v1.2.0-beta.1`）、config.yml 的版本号与 tag
+相等、CHANGELOG.md 里有该版本的非空小节、远端还没有同名 tag。
+
+钩子需要先启用一次（`wails3 task setup:hooks`，即
+`git config core.hooksPath .githooks`）。它存在 `.git/` 里、不随仓库分发，
+网页界面打 tag、换台机器、`--no-verify` 都能绕过，所以 CI 那道才是硬的。
+
+> git 没有 `pre-tag` 钩子——`git tag` 不触发任何钩子——所以拦截点只能放在推送时。
+> 反正 tag 推上去才会触发发版工作流，本地留一个打错的 tag 无害，
+> `git tag -d v1.2.0` 删掉重来即可。
 
 ### 更新产物的命名约束
 
