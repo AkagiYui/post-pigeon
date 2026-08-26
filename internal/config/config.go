@@ -17,6 +17,9 @@ var (
 	AppName = "PostPigeon"
 	// AppIdentifier 应用唯一标识符
 	AppIdentifier = "com.akagiyui.postpigeon"
+	// Repository 更新源仓库（owner/repo）。版本号的唯一真实来源是这里的 git tag：
+	// 打 tag 触发发版，tag 经 ldflags 注入到 Version，运行时再和 Release 的 tag 比对。
+	Repository = "AkagiYui/post-pigeon"
 )
 
 // Config 应用配置实例

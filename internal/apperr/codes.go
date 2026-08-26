@@ -49,4 +49,12 @@ const (
 	// ---- 集合运行 ----
 	CodeRunnerNoTargets = "runner.no_targets"
 	CodeRunnerFailed    = "runner.failed"
+
+	// ---- 自动更新 ----
+	CodeUpdateDisabled  = "update.disabled"
+	CodeUpdateCheck     = "update.check_failed"
+	CodeUpdateDownload  = "update.download_failed"
+	CodeUpdateNotReady  = "update.not_ready"
+	CodeUpdateRestart   = "update.restart_failed"
+	CodeUpdateChangelog = "update.changelog_failed"
 )

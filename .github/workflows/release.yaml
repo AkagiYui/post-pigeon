@@ -13,6 +13,9 @@ on:
 permissions:
   contents: write
 
+env:
+  APP_NAME: PostPigeon
+
 jobs:
   # 发版前必须通过完整校验
   checks:
@@ -20,24 +23,24 @@ jobs:
     uses: ./.github/workflows/ci.yaml
 
   build:
-    name: 构建 ${{ matrix.os }} (${{ matrix.arch }})
+    name: 构建 ${{ matrix.goos }}/${{ matrix.goarch }}
     needs: checks
     strategy:
       fail-fast: false
       matrix:
         include:
           - os: macos-latest
-            arch: arm64
-            artifact: PostPigeon-macos-arm64
+            goos: darwin
+            goarch: arm64
           - os: macos-15-intel
-            arch: x64
-            artifact: PostPigeon-macos-x64
+            goos: darwin
+            goarch: amd64
           - os: windows-latest
-            arch: x64
-            artifact: PostPigeon-windows-x64
+            goos: windows
+            goarch: amd64
           - os: ubuntu-latest
-            arch: x64
-            artifact: PostPigeon-linux-x64
+            goos: linux
+            goarch: amd64
     runs-on: ${{ matrix.os }}
     defaults:
       run:
@@ -56,6 +59,7 @@ jobs:
 
       # 版本号唯一真实来源是 git tag：构建前把它写入 build/config.yml，
       # 由 Taskfile 的 APP_VERSION 读取并通过 ldflags 注入到 config.Version。
+      # 应用运行时拿它和 Release 的 tag 比对，两边必须严格对齐。
       - name: 同步版本号到 build/config.yml
         run: python3 scripts/set_version.py "${{ steps.version.outputs.version }}"
 
@@ -98,16 +102,55 @@ jobs:
       - name: 打包应用
         run: wails3 package
 
-      - name: 归档产物
+      # 更新产物的命名与形态直接决定自动更新能不能跑通，两条硬约束：
+      #   1. 文件名必须是 <AppName>-<GOOS>-<GOARCH>[.zip|.tar.gz|.exe]，
+      #      应用侧的资产匹配器只认这个形状（见 internal/updates/manager.go）；
+      #   2. 压缩包里必须恰好一个顶层条目——updater 替换的是磁盘上单个目标，
+      #      归档里有多个顶层条目时它无法判断该把哪个换进去，会直接拒绝。
+      # 安装包（NSIS / deb / AppImage）走各自的文件名，绝不会被当成更新产物：
+      # 拿安装器替换正在运行的程序等于把应用变成一个安装向导。
+      - name: 归档发布产物
+        id: package
         run: |
-          cd bin
-          tar -czf "../${{ matrix.artifact }}.tar.gz" .
+          set -euo pipefail
+          NAME="${APP_NAME}"
+          GOOS="${{ matrix.goos }}"
+          GOARCH="${{ matrix.goarch }}"
+          mkdir -p dist
+
+          case "$GOOS" in
+            darwin)
+              # ditto 保留 .app 里的符号链接、资源分叉与代码签名，
+              # 普通 zip 会破坏签名导致 Gatekeeper 在替换后拦下应用
+              ditto -c -k --keepParent "bin/${NAME}.app" "dist/${NAME}-darwin-${GOARCH}.zip"
+              ;;
+            windows)
+              cp "bin/${NAME}.exe" "dist/${NAME}-windows-${GOARCH}.exe"
+              installer=$(ls bin/*installer*.exe 2>/dev/null | head -1 || true)
+              if [ -n "${installer}" ]; then
+                cp "${installer}" "dist/${NAME}-windows-${GOARCH}-installer.exe"
+              else
+                echo "::warning::未找到 NSIS 安装包"
+              fi
+              ;;
+            linux)
+              tar -czf "dist/${NAME}-linux-${GOARCH}.tar.gz" -C bin "${NAME}"
+              # AppImage / deb / rpm 只作为首次安装的渠道一并发布，
+              # 它们的文件名不符合更新产物的命名规范，不会被更新器选中
+              for pkg in bin/*.AppImage bin/*.deb bin/*.rpm; do
+                [ -e "${pkg}" ] && cp "${pkg}" dist/ || true
+              done
+              ;;
+          esac
+
+          ls -l dist
 
       - name: 上传产物
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.artifact }}
-          path: ${{ matrix.artifact }}.tar.gz
+          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          path: dist/*
+          if-no-files-found: error
 
   release:
     name: 发布 Release
@@ -119,21 +162,56 @@ jobs:
         with:
           fetch-depth: 0
 
+      - name: 解析版本号
+        id: version
+        run: |
+          TAG="${{ github.event.inputs.tag || github.ref_name }}"
+          echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
+          echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
+
       - name: 下载全部产物
         uses: actions/download-artifact@v7
         with:
           path: artifacts
           merge-multiple: true
 
-      - name: 生成变更日志
-        id: changelog
-        run: python3 scripts/generate_changelog.py > RELEASE_NOTES.md
+      # 更新器下载完产物后会按 SHA256SUMS 校验摘要（github provider 的
+      # ChecksumAsset）。文件名必须与 Release 资产名一一对应，所以在这里、
+      # 所有平台的产物都到齐之后统一算一次。
+      - name: 生成校验和
+        run: |
+          set -euo pipefail
+          cd artifacts
+          sha256sum * > ../SHA256SUMS
+          cat ../SHA256SUMS
+
+      # 发布说明以 CHANGELOG.md 为准（人工润色、面向使用者），
+      # 由提交生成的详细清单折叠在后面备查。
+      # CHANGELOG.md 本身也作为资产上传：应用要靠它做跨版本的变更日志聚合，
+      # 一次请求拿到完整历史，不必受 GitHub API 未认证限流的约束。
+      - name: 生成发布说明
+        run: |
+          set -euo pipefail
+          TAG="${{ steps.version.outputs.tag }}"
+          python3 scripts/extract_changelog.py "$TAG" > RELEASE_NOTES.md
+          {
+            echo
+            echo "<details><summary>完整提交记录</summary>"
+            echo
+            python3 scripts/generate_changelog.py "$TAG"
+            echo
+            echo "</details>"
+          } >> RELEASE_NOTES.md
+          cat RELEASE_NOTES.md
 
       - name: 创建 Release
         uses: softprops/action-gh-release@v2
         with:
-          tag_name: ${{ github.event.inputs.tag || github.ref_name }}
+          tag_name: ${{ steps.version.outputs.tag }}
           body_path: RELEASE_NOTES.md
-          files: artifacts/*
+          files: |
+            artifacts/*
+            SHA256SUMS
+            CHANGELOG.md
           draft: false
-          prerelease: ${{ contains(github.event.inputs.tag || github.ref_name, '-') }}
+          prerelease: ${{ contains(steps.version.outputs.tag, '-') }}

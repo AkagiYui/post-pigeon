@@ -12,6 +12,7 @@ import { LanguageSettings } from "./LanguageSettings"
 import { ProxySettingsPanel } from "./ProxySettingsPanel"
 import { RequestLimitsSettings } from "./RequestLimitsSettings"
 import { TLSSettingsPanel } from "./TLSSettingsPanel"
+import { UpdateSettings } from "./UpdateSettings"
 
 export interface SettingsModalProps {
   open: boolean
@@ -25,6 +26,7 @@ const settingsTabs = [
   { key: "proxy", label: "", icon: <Icon icon="lucide:network" class="h-4 w-4" /> },
   { key: "tls", label: "", icon: <Icon icon="lucide:shield-check" class="h-4 w-4" /> },
   { key: "request", label: "", icon: <Icon icon="lucide:gauge" class="h-4 w-4" /> },
+  { key: "update", label: "", icon: <Icon icon="lucide:refresh-cw" class="h-4 w-4" /> },
   { key: "about", label: "", icon: <Icon icon="lucide:info" class="h-4 w-4" /> },
 ]
 
@@ -62,6 +64,7 @@ export function SettingsModal(props: SettingsModalProps) {
             case "proxy": return <ProxySettingsPanel scope="global" />
             case "tls": return <TLSSettingsPanel scope="global" />
             case "request": return <RequestLimitsSettings />
+            case "update": return <UpdateSettings />
             case "about": return <AboutSettings />
             default: return null
           }

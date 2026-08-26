@@ -68,9 +68,26 @@ CI 在 [.github/workflows/ci.yaml](.github/workflows/ci.yaml)，打包与发版�
   共享连接池与关停服务
 - 前端：`*.test.ts(x)`，由 vitest 运行；优先测纯函数与状态逻辑
 
+## 变更日志
+
+[CHANGELOG.md](CHANGELOG.md) 是面向使用者的变更日志的**唯一事实源**，格式遵循
+[Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)。它有三个消费方，
+所以值得认真写：
+
+1. 仓库里直接阅读；
+2. 发版时 [scripts/extract_changelog.py](scripts/extract_changelog.py) 抽出对应
+   版本的小节作为 GitHub Release 正文（由 commit 生成的详细清单折叠在后面备查）；
+3. 应用内的更新提示——CHANGELOG.md 会作为 Release 资产上传，应用下载全文后按
+   「当前版本 → 新版本」的区间截取，这样跨多个版本升级时中间版本的内容也不会丢。
+
+写法：面向使用者而不是开发者，一条一行，不带 commit 哈希；破坏性变更放在最前面。
+开发期间条目先记在 `## [未发布]` 下面。
+
 ## 发版
 
-给提交打 `vX.Y.Z` 标签并推送即可：
+1. 把 `CHANGELOG.md` 里的 `## [未发布]` 改写成 `## [1.2.0] - 2026-08-26`
+   （日期用发版当天），并在上面新开一个空的 `## [未发布]`；
+2. 提交后打标签并推送：
 
 ```bash
 git tag v1.2.0
@@ -78,4 +95,28 @@ git push origin v1.2.0
 ```
 
 [release 工作流](.github/workflows/release.yaml) 会跑校验、把版本号写进
-`build/config.yml`、构建四个平台的产物，并按 commit 生成变更日志创建 Release。
+`build/config.yml`（经 ldflags 注入 `config.Version`）、构建四个平台的产物，
+生成 `SHA256SUMS`，并连同 `CHANGELOG.md` 一起创建 Release。
+
+漏改 CHANGELOG 不会让发版失败，但 Release 正文里会出现一行醒目的提示，
+且应用内的更新说明只剩提交汇总。
+
+### 更新产物的命名约束
+
+应用的自动更新只认这个形状的资产（见
+[internal/updates/manager.go](internal/updates/manager.go) 的 `assetMatcher`）：
+
+```
+PostPigeon-<GOOS>-<GOARCH>[.zip|.tar.gz|.exe]
+```
+
+两条硬约束，改打包脚本时别破坏：
+
+- **压缩包里必须恰好一个顶层条目**。updater 替换的是磁盘上的单个目标，归档里
+  有多个顶层条目时它无法判断该换哪个，会直接拒绝安装。
+- **安装包必须用别的文件名**（`-installer.exe` / `.deb` / `.rpm` / `.AppImage`）。
+  拿安装器替换正在运行的程序，等于把应用变成一个安装向导。
+
+macOS 的 `.app` 用 `ditto -c -k --keepParent` 打包：普通 zip 会破坏代码签名，
+替换后会被 Gatekeeper 拦下。updater 逐字节替换、**不会重新签名**，所以上传前
+`.app` 就必须已经签名并公证。

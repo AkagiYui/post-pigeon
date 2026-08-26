@@ -1,8 +1,10 @@
 # 变更日志
 
-本文件记录值得使用者关注的变更。发版时的详细条目由
-[scripts/generate_changelog.py](scripts/generate_changelog.py) 依据 commit 自动生成，
-本文件只保留人工整理的摘要。
+本文件是面向使用者的变更日志的唯一事实源：发版时
+[scripts/extract_changelog.py](scripts/extract_changelog.py) 会抽出对应版本的小节
+作为 GitHub Release 正文，应用内的更新提示也读它（详见
+[CONTRIBUTING.md](CONTRIBUTING.md#变更日志)）。由 commit 生成的详细清单折叠在
+Release 正文后面备查。
 
 格式参考 [Keep a Changelog](https://keepachangelog.com/zh-CN/1.1.0/)，
 版本号遵循 [语义化版本](https://semver.org/lang/zh-CN/)。
@@ -11,6 +13,14 @@
 
 ### 新增
 
+- **应用内自动更新**：从 GitHub Releases 检查、下载、校验并原地安装新版本，
+  重启后生效。默认每 6 小时后台检查一次，只检查不自动下载，是否更新由用户决定；
+  可关闭自动检查、切换到预发布通道、跳过指定版本。下载完成后按发布产物附带的
+  `SHA256SUMS` 校验摘要，不匹配则拒绝安装。
+  包管理器安装的副本（deb/rpm）与 AppImage 不做原地替换，只提示新版本并引导到
+  下载页；开发构建不参与更新
+- **跨版本更新说明**：跨多个版本升级时，更新面板会列出当前版本到新版本之间
+  每一个版本的变更内容，而不只是最新一版。设置里也能查看完整的历史更新日志
 - **集合运行器**：按模块或文件夹批量运行接口，支持多轮、请求间隔、失败即停；
   实时进度与断言汇总，报告可导出 Markdown / JSON
 - **Cookie 管理**：按项目持久化 Cookie，登录态自动带到后续请求；
@@ -36,6 +46,10 @@
 - 请求历史默认对 Authorization / Cookie / API Key 请求头与秘密变量值脱敏
 - 窗口状态重置新增 `POSTPIGEON_RESET_WINDOW=1` 与 `--reset-window` 两种方式
   （Linux/Wayland 下按 Shift 无效）
+- 发布产物改用 `PostPigeon-<平台>-<架构>` 命名，压缩包只含单个顶层条目
+  （macOS 为 `.app` 的 zip、Linux 为二进制的 tar.gz、Windows 为单个 exe），
+  这是自动更新能原地替换的前提；NSIS 安装包、deb/rpm/AppImage 改用独立文件名，
+  仅作首次安装渠道。Release 新增 `SHA256SUMS` 与 `CHANGELOG.md` 两个资产
 - 升级到 Wails v3.0.0-beta.13。Linux 桌面栈随上游从 GTK3/WebKit2GTK 4.1
   切到 GTK4/WebKitGTK 6.0（GTK3 在上游 v3.1 会移除），运行时依赖改为
   `libgtk-4-1` 与 `libwebkitgtk-6.0-4`，最低发行版要求抬到

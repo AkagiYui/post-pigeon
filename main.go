@@ -14,12 +14,25 @@ import (
 	"PostPigeon/internal/models"
 	"PostPigeon/internal/platform"
 	"PostPigeon/internal/services"
+	"PostPigeon/internal/updates"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 //go:embed all:frontend/dist
 var assets embed.FS
+
+// 变更日志随应用一起分发，「关于」里的历史记录直接读它，不必联网。
+//
+//go:embed CHANGELOG.md
+var changelogMarkdown string
+
+// 后台检查更新的节奏：启动 30 秒后查第一次（避开启动时的其它初始化），
+// 之后每 6 小时一次。只检查、不自动下载。
+const (
+	updateCheckDelay    = 30 * time.Second
+	updateCheckInterval = 6 * time.Hour
+)
 
 func main() {
 	// 初始化配置
@@ -65,6 +78,8 @@ func main() {
 	postmanService := services.NewPostmanService(db)
 	cookieService := services.NewCookieService(db)
 	runnerService := services.NewRunnerService(db, httpService)
+	updateManager := newUpdateManager()
+	updaterService := services.NewUpdaterService(db, updateManager, changelogMarkdown)
 
 	// 注册数据变更事件
 	application.RegisterEvent[string]("data:changed")
@@ -103,6 +118,7 @@ func main() {
 			application.NewService(cookieService),
 			application.NewService(runnerService),
 			application.NewService(webSocketService),
+			application.NewService(updaterService),
 		},
 		Assets: application.AssetOptions{
 			Handler: application.AssetFileServerFS(assets),
@@ -111,6 +127,22 @@ func main() {
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
 	})
+
+	// 接上更新器。必须放在 application.New 之后：app.Updater 是在那里创建的。
+	// Wails 的 updater 只在内存里记「跳过的版本」与通道选择，这里把持久化的
+	// 设置回填回去，否则用户每次重启都会被同一个跳过的版本再打扰一次。
+	if updateManager != nil {
+		if err := updateManager.Attach(app.Updater); err != nil {
+			slog.Error("接入更新器失败", "error", err)
+		} else {
+			updateSettings := updaterService.GetUpdateSettings()
+			updaterService.ApplySettings(updateSettings)
+			if updateSettings.AutoCheck {
+				updateManager.StartPeriodicCheck(updateCheckDelay, updateCheckInterval)
+				defer updateManager.StopPeriodicCheck()
+			}
+		}
+	}
 
 	// 配置 macOS 系统菜单
 	appMenu := app.NewMenu()
@@ -260,4 +292,29 @@ func main() {
 	}
 
 	slog.Info("PostPigeon 应用退出")
+}
+
+// newUpdateManager 构造更新管理器；不启用更新时返回 nil。
+//
+// 开发构建一律不接更新器：dev 的版本号恒为 0.0.1，任何正式发布都会被判定成
+// 「有新版本」，一不留神就把正在开发的二进制换成了线上版本。需要在本地验证
+// 更新流程时设置 POSTPIGEON_UPDATER_FORCE=1。
+func newUpdateManager() *updates.Manager {
+	if config.BuildHash == "dev" && os.Getenv("POSTPIGEON_UPDATER_FORCE") != "1" {
+		slog.Info("开发构建，跳过更新器初始化")
+		return nil
+	}
+
+	manager, err := updates.New(updates.Options{
+		Repository:     config.Repository,
+		AppName:        config.AppName,
+		CurrentVersion: config.Version,
+		// 发布流程会随产物上传 SHA256SUMS，下载后按它校验摘要
+		ChecksumAsset: "SHA256SUMS",
+	})
+	if err != nil {
+		slog.Error("初始化更新器失败", "error", err)
+		return nil
+	}
+	return manager
 }

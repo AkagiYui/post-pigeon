@@ -31,6 +31,7 @@ const (
 	SettingsKeyTLSGlobal   = "tls.global"   // 全局 TLS 设置（ScopeTLSSettings 的 JSON）
 	SettingsKeyRequest     = "request"      // 请求相关限额（RequestSettings 的 JSON）
 	SettingsKeyHistory     = "history"      // 请求历史保留策略（HistorySettings 的 JSON）
+	SettingsKeyUpdate      = "update"       // 自动更新设置（UpdateSettings 的 JSON）
 )
 
 // RequestSettings 请求相关的资源限额。
@@ -56,6 +57,18 @@ type HistorySettings struct {
 	MaskSensitive bool `json:"maskSensitive"`
 }
 
+// UpdateSettings 自动更新相关设置。
+type UpdateSettings struct {
+	// AutoCheck 启动后与运行期间定时向 GitHub Releases 检查新版本。
+	// 只检查不下载：是否下载安装始终由用户点击决定。
+	AutoCheck bool `json:"autoCheck"`
+	// IncludePrerelease 是否接收预发布版本（tag 里带 - 的版本）。
+	IncludePrerelease bool `json:"includePrerelease"`
+	// SkippedVersion 用户点「跳过此版本」记录的版本号。Wails 的 updater 只在
+	// 内存里记这个值，所以要持久化到这里，并在应用启动时回填。
+	SkippedVersion string `json:"skippedVersion"`
+}
+
 // 默认限额：32MiB 响应上限、1MiB 入库上限、32MiB WebSocket 单帧上限，
 // 历史保留 30 天且单模块最多 2000 条。
 var (
@@ -68,6 +81,11 @@ var (
 		RetentionDays:    30,
 		MaxRowsPerModule: 2000,
 		MaskSensitive:    true,
+	}
+	// 默认自动检查更新、只收正式版本
+	DefaultUpdateSettings = UpdateSettings{
+		AutoCheck:         true,
+		IncludePrerelease: false,
 	}
 )
 
