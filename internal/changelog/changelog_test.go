@@ -105,6 +105,36 @@ func TestBetweenExcludesUnreleased(t *testing.T) {
 	}
 }
 
+// 定版后的形态：一个空的「未发布」压在最新正式版上面。这是
+// scripts/prepare_release.py 的产物，解析器与筛选都必须能正常处理。
+func TestParseEmptyUnreleased(t *testing.T) {
+	const md = `# 变更日志
+
+## [未发布]
+
+## [1.2.0] - 2026-08-26
+
+### 修复
+
+- 修了个 bug
+`
+	entries := changelog.Parse(md)
+	if len(entries) != 2 {
+		t.Fatalf("版本小节数 = %d，期望 2：%+v", len(entries), entries)
+	}
+	if entries[0].Version != "未发布" || len(entries[0].Sections) != 0 {
+		t.Errorf("空的「未发布」应解析为零条目的小节：%+v", entries[0])
+	}
+	// 空的「未发布」不该影响正式版本的筛选
+	released := changelog.Releases(entries)
+	if len(released) != 1 || released[0].Version != "1.2.0" {
+		t.Errorf("Releases 应只返回 1.2.0，实际 %+v", released)
+	}
+	if len(released[0].Sections) != 1 {
+		t.Errorf("1.2.0 的条目丢失：%+v", released[0])
+	}
+}
+
 func TestBetweenOpenBounds(t *testing.T) {
 	entries := changelog.Parse(sample)
 	if got := changelog.Between(entries, "1.1.0", ""); len(got) != 1 || got[0].Version != "1.2.0" {
@@ -170,7 +200,11 @@ func TestValid(t *testing.T) {
 	}
 }
 
-// 仓库自带的 CHANGELOG.md 必须能被解析出版本小节，否则更新弹窗会拿到空内容。
+// 仓库自带的 CHANGELOG.md 必须能被解析出已发布的版本小节，否则更新弹窗会拿到
+// 空内容。
+//
+// 只校验正式版本：scripts/prepare_release.py 定版后会新开一个空的「未发布」，
+// 那是发版之后的正常状态，不该让测试挂掉。
 func TestParseRepositoryChangelog(t *testing.T) {
 	md, err := os.ReadFile("../../CHANGELOG.md")
 	if err != nil {
@@ -180,7 +214,12 @@ func TestParseRepositoryChangelog(t *testing.T) {
 	if len(entries) == 0 {
 		t.Fatal("仓库 CHANGELOG.md 未解析出任何版本小节")
 	}
-	for _, e := range entries {
+
+	released := changelog.Releases(entries)
+	if len(released) == 0 {
+		t.Fatal("仓库 CHANGELOG.md 里没有任何已发布的版本小节")
+	}
+	for _, e := range released {
 		if len(e.Sections) == 0 {
 			t.Errorf("版本 %q 没有解析出任何条目", e.Version)
 		}
