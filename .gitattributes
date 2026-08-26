@@ -46,3 +46,7 @@
 *.zip binary
 *.gz binary
 *.tar binary
+
+# 脚本引擎内置库：vendored 产物，其 sha256 记在 manifest.json 里做完整性校验，
+# 行尾一旦被规范化哈希就变，跨平台 checkout 会校验失败，故禁止 EOL 转换
+internal/scripting/libs/*.js -text
