@@ -52,6 +52,19 @@ export function AboutSettings() {
 
       <div class="border-t border-border my-4" />
 
+      {/* 历史版本：用户在版本之间来回跳是常态，退回旧版本不该让他自己去翻仓库 */}
+      <div class="flex items-center justify-between">
+        <span class="text-sm text-foreground">{t("settings.about.releases")}</span>
+        <ExternalLink href={appInfo()?.releasesUrl ?? ""} text={t("settings.about.releases.link")} />
+      </div>
+      <p class="-mt-2 text-xs text-muted-foreground">{t("settings.about.releases.hint")}</p>
+
+      {/* 源码仓库 */}
+      <div class="flex items-center justify-between">
+        <span class="text-sm text-foreground">{t("settings.about.repository")}</span>
+        <ExternalLink href={appInfo()?.repositoryUrl ?? ""} text="GitHub" />
+      </div>
+
       {/* 个人主页 */}
       <div class="flex items-center justify-between">
         <span class="text-sm text-foreground">{t("settings.about.homepage")}</span>

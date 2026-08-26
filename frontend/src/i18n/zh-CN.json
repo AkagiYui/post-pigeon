@@ -620,5 +620,9 @@
   "data.diagnostics.hint": "导出一个压缩包，含版本、平台、数据库体积与最近几天的日志，反馈问题时带上它。不含数据库文件（里面有明文的 token 与密码）。",
   "data.diagnostics.export": "导出诊断信息",
   "data.crash.notice": "上次没有正常退出，可能是崩溃了。导出诊断信息反馈给我们，里面有崩溃当时的日志。",
-  "data.crash.toast": "上次没有正常退出，可在「设置 → 数据」里导出诊断信息"
+  "data.crash.toast": "上次没有正常退出，可在「设置 → 数据」里导出诊断信息",
+  "settings.about.releases": "历史版本",
+  "settings.about.releases.link": "全部版本",
+  "settings.about.releases.hint": "新版本用着不顺手时，可以从这里下载任意旧版本装回去，数据不受影响。",
+  "settings.about.repository": "源码仓库"
 }

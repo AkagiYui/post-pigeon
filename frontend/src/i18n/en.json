@@ -620,5 +620,9 @@
   "data.diagnostics.hint": "Exports a zip with the version, platform, database size and the last few days of logs — attach it when reporting a problem. It does not include the database file (which holds tokens and passwords in plain text).",
   "data.diagnostics.export": "Export diagnostics",
   "data.crash.notice": "The app did not exit cleanly last time — it may have crashed. Export diagnostics and send it over; the logs from that moment are inside.",
-  "data.crash.toast": "The app did not exit cleanly last time. You can export diagnostics under Settings → Data"
+  "data.crash.toast": "The app did not exit cleanly last time. You can export diagnostics under Settings → Data",
+  "settings.about.releases": "Previous versions",
+  "settings.about.releases.link": "All releases",
+  "settings.about.releases.hint": "If a new version does not work for you, download any earlier one from here and install it back — your data stays put.",
+  "settings.about.repository": "Repository"
 }
