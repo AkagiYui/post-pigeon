@@ -724,17 +724,16 @@ func setModuleBaseURLInTx(tx *gorm.DB, moduleID string, environmentID string, ba
 // createParsedEndpoint 在事务内创建一个解析出的端点（导入到模块根级）
 func createParsedEndpoint(tx *gorm.DB, moduleID string, ep parsedEndpoint, sortOrder int) error {
 	newEndpoint := &models.Endpoint{
-		ModuleID:        moduleID,
-		FolderID:        nil,
-		Name:            ep.Name,
-		Method:          ep.Method,
-		Path:            ep.Path,
-		BodyType:        ep.BodyType,
-		BodyContent:     ep.BodyContent,
-		ContentType:     ep.ContentType,
-		Timeout:         30000,
-		FollowRedirects: true,
-		SortOrder:       sortOrder,
+		ModuleID:    moduleID,
+		FolderID:    nil,
+		Name:        ep.Name,
+		Method:      ep.Method,
+		Path:        ep.Path,
+		BodyType:    ep.BodyType,
+		BodyContent: ep.BodyContent,
+		ContentType: ep.ContentType,
+		Timeout:     30000,
+		SortOrder:   sortOrder,
 	}
 	if err := tx.Create(newEndpoint).Error; err != nil {
 		return err

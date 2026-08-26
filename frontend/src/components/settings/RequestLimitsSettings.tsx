@@ -12,6 +12,9 @@ import { Input } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"
 import { toastError, toastSuccess } from "@/stores/toast"
 
+/** 超时未设置时后端使用的默认值（毫秒），与 models.DefaultRequestTimeoutMs 保持一致 */
+const DEFAULT_TIMEOUT_MS = 300000
+
 /** 字节 ↔ MiB 换算，界面上用 MiB 更易读 */
 const MIB = 1024 * 1024
 const toMiB = (bytes: number) => (bytes > 0 ? Math.round((bytes / MIB) * 100) / 100 : 0)
@@ -45,7 +48,59 @@ function NumberField(props: {
   )
 }
 
+/** 可留空的整数输入行：留空表示用 placeholder 上的默认值 */
+function OptionalNumberField(props: {
+  label: string
+  hint: string
+  value: string
+  unit: string
+  placeholder: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <div class="space-y-1.5">
+      <label class="text-sm font-medium">{props.label}</label>
+      <div class="flex items-center gap-2">
+        <Input
+          size="sm"
+          type="number"
+          min="0"
+          step="1"
+          placeholder={props.placeholder}
+          value={props.value}
+          // 只保留数字，避免 number 输入框允许的 e / +/- 等字符混进来
+          onInput={(e) => props.onChange(e.currentTarget.value.replace(/[^\d]/g, ""))}
+          class="w-32"
+        />
+        <span class="text-xs text-muted-foreground">{props.unit}</span>
+      </div>
+      <p class="text-xs text-muted-foreground">{props.hint}</p>
+    </div>
+  )
+}
+
+/** 开关行 */
+function ToggleField(props: {
+  label: string
+  hint: string
+  checked: boolean
+  onChange: (v: boolean) => void
+}) {
+  return (
+    <div class="space-y-1.5">
+      <label class="flex cursor-pointer select-none items-center gap-2 text-sm">
+        <Checkbox checked={props.checked} onChange={(e) => props.onChange(e.currentTarget.checked)} />
+        <span class="font-medium">{props.label}</span>
+      </label>
+      <p class="pl-6 text-xs text-muted-foreground">{props.hint}</p>
+    </div>
+  )
+}
+
 export function RequestLimitsSettings() {
+  const [timeoutMs, setTimeoutMs] = createSignal("")
+  const [followRedirects, setFollowRedirects] = createSignal(true)
+  const [sendNoCache, setSendNoCache] = createSignal(false)
   const [maxResponseMiB, setMaxResponseMiB] = createSignal(32)
   const [maxStoredMiB, setMaxStoredMiB] = createSignal(1)
   const [maxWSMiB, setMaxWSMiB] = createSignal(32)
@@ -63,6 +118,10 @@ export function RequestLimitsSettings() {
         SettingsService.GetHistorySettings(),
       ])
       if (request) {
+        // 未设置回显为空（placeholder 写着默认值），0 表示不限制超时
+        setTimeoutMs(request.timeoutMs == null ? "" : String(request.timeoutMs))
+        setFollowRedirects(request.followRedirects)
+        setSendNoCache(request.sendNoCacheHeaders)
         setMaxResponseMiB(toMiB(request.maxResponseBytes))
         setMaxStoredMiB(toMiB(request.maxStoredBodyBytes))
         setMaxWSMiB(toMiB(request.maxWebSocketMessageBytes))
@@ -83,6 +142,10 @@ export function RequestLimitsSettings() {
     setSaving(true)
     try {
       await SettingsService.SaveRequestSettings(new RequestSettings({
+        // 留空即「未设置」，不写这一项，由后端按默认值处理；显式填 0 表示不限制超时
+        timeoutMs: timeoutMs().trim() === "" ? null : Math.max(0, Math.round(Number(timeoutMs()))),
+        followRedirects: followRedirects(),
+        sendNoCacheHeaders: sendNoCache(),
         maxResponseBytes: fromMiB(maxResponseMiB()),
         maxStoredBodyBytes: fromMiB(maxStoredMiB()),
         maxWebSocketMessageBytes: fromMiB(maxWSMiB()),
@@ -133,6 +196,27 @@ export function RequestLimitsSettings() {
       </div>
 
       <div class="min-h-0 flex-1 space-y-5 overflow-auto pr-1">
+        <OptionalNumberField
+          label={t("request.timeout")}
+          hint={t("request.timeout.hint")}
+          unit="ms"
+          placeholder={String(DEFAULT_TIMEOUT_MS)}
+          value={timeoutMs()}
+          onChange={setTimeoutMs}
+        />
+        <ToggleField
+          label={t("request.followRedirects")}
+          hint={t("request.followRedirects.hint")}
+          checked={followRedirects()}
+          onChange={setFollowRedirects}
+        />
+        <ToggleField
+          label={t("request.noCache")}
+          hint={t("request.noCache.hint")}
+          checked={sendNoCache()}
+          onChange={setSendNoCache}
+        />
+
         <NumberField
           label={t("request.maxResponse")}
           hint={t("request.maxResponse.hint")}
@@ -175,13 +259,12 @@ export function RequestLimitsSettings() {
           onChange={setMaxRows}
         />
 
-        <div class="space-y-1.5">
-          <label class="flex cursor-pointer select-none items-center gap-2 text-sm">
-            <Checkbox checked={maskSensitive()} onChange={(e) => setMaskSensitive(e.currentTarget.checked)} />
-            <span class="font-medium">{t("history.maskSensitive")}</span>
-          </label>
-          <p class="pl-6 text-xs text-muted-foreground">{t("history.maskSensitive.hint")}</p>
-        </div>
+        <ToggleField
+          label={t("history.maskSensitive")}
+          hint={t("history.maskSensitive.hint")}
+          checked={maskSensitive()}
+          onChange={setMaskSensitive}
+        />
 
         <div class="flex items-center gap-2">
           <Button size="sm" variant="outline" onClick={pruneNow} disabled={pruning()}>

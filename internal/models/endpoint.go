@@ -56,18 +56,20 @@ const (
 
 // Endpoint 端点，属于模块或文件夹。通过 Type 区分 HTTP 接口 / 文档 / WebSocket / SSE。
 type Endpoint struct {
-	ID              string  `gorm:"primaryKey" json:"id"`
-	ModuleID        string  `gorm:"not null;index" json:"moduleId"`
-	FolderID        *string `gorm:"index" json:"folderId"`
-	Name            string  `gorm:"not null" json:"name"`
-	Type            string  `gorm:"default:http" json:"type"` // http, doc, websocket, sse
-	Method          string  `gorm:"not null;default:GET" json:"method"`
-	Path            string  `gorm:"not null;default:/" json:"path"`
-	BodyType        string  `gorm:"default:none" json:"bodyType"`
-	BodyContent     string  `gorm:"type:text" json:"bodyContent"`
-	ContentType     string  `json:"contentType"`
-	Timeout         int     `gorm:"default:30000" json:"timeout"`
-	FollowRedirects bool    `gorm:"default:true" json:"followRedirects"`
+	ID          string  `gorm:"primaryKey" json:"id"`
+	ModuleID    string  `gorm:"not null;index" json:"moduleId"`
+	FolderID    *string `gorm:"index" json:"folderId"`
+	Name        string  `gorm:"not null" json:"name"`
+	Type        string  `gorm:"default:http" json:"type"` // http, doc, websocket, sse
+	Method      string  `gorm:"not null;default:GET" json:"method"`
+	Path        string  `gorm:"not null;default:/" json:"path"`
+	BodyType    string  `gorm:"default:none" json:"bodyType"`
+	BodyContent string  `gorm:"type:text" json:"bodyContent"`
+	ContentType string  `json:"contentType"`
+	Timeout     int     `gorm:"default:30000" json:"timeout"`
+	// FollowRedirects 是否跟随 3xx 重定向。nil 表示继承上级（目前只有全局设置），
+	// 显式 true/false 才覆盖全局。注意不能带 gorm default，否则 nil 会被写成默认值而丢掉「继承」。
+	FollowRedirects *bool `json:"followRedirects"`
 	// 文档正文（Type=doc 时的 Markdown 内容）
 	DocContent string `gorm:"type:text" json:"docContent"`
 	// 接口元数据

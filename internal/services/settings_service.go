@@ -4,6 +4,7 @@ import (
 	"PostPigeon/internal/models"
 	"fmt"
 	"log/slog"
+	"time"
 
 	"gorm.io/gorm"
 )
@@ -185,4 +186,20 @@ func normalizeRequestSettings(s *models.RequestSettings) {
 	if s.MaxWebSocketMessageBytes < 0 {
 		s.MaxWebSocketMessageBytes = 0
 	}
+	// 0 表示不限制超时；负数是非法输入，按「未设置」处理而不是「永不超时」
+	if s.TimeoutMs != nil && *s.TimeoutMs < 0 {
+		s.TimeoutMs = nil
+	}
+}
+
+// requestTimeout 返回全局设置里的请求超时兜底值：
+// 未设置时用默认值，显式设为 0 则返回 0（表示不限制超时）。
+func requestTimeout(s models.RequestSettings) time.Duration {
+	if s.TimeoutMs == nil {
+		return models.DefaultRequestTimeoutMs * time.Millisecond
+	}
+	if *s.TimeoutMs <= 0 {
+		return 0
+	}
+	return time.Duration(*s.TimeoutMs) * time.Millisecond
 }

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"fmt"
 	"net/http"
 	"strings"
@@ -220,5 +221,172 @@ func TestHistoryRetentionByDays(t *testing.T) {
 	}
 	if len(list) != 1 || !strings.HasSuffix(list[0].URL, "/fresh") {
 		t.Fatalf("应只保留 7 天内的记录，实际 %+v", list)
+	}
+}
+
+// TestGlobalRequestTimeoutFallback 验证接口未设置超时时用全局设置兜底。
+func TestGlobalRequestTimeoutFallback(t *testing.T) {
+	db := newTestDB(t)
+	srv := echoServer(t)
+	timeoutMs := 120
+	if err := NewSettingsService(db).SaveRequestSettings(models.RequestSettings{
+		TimeoutMs:       &timeoutMs,
+		FollowRedirects: true,
+	}); err != nil {
+		t.Fatalf("保存请求设置失败: %v", err)
+	}
+
+	hs := newTestHTTPService(t, db)
+	start := time.Now()
+	_, err := hs.SendRequest(SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/slow"})
+	if code := apperr.Code(err); code != apperr.CodeRequestTimeout {
+		t.Fatalf("错误码应为 %s，实际 %s（err=%v）", apperr.CodeRequestTimeout, code, err)
+	}
+	// 兜底值生效的证据：远早于旧的 30s 兜底
+	if elapsed := time.Since(start); elapsed > 5*time.Second {
+		t.Errorf("应按全局 120ms 超时，实际耗时 %v", elapsed)
+	}
+}
+
+// TestFollowRedirectsInheritance 验证接口级跟随重定向的三态：
+// nil 继承全局设置，显式 true/false 覆盖全局。
+func TestFollowRedirectsInheritance(t *testing.T) {
+	db := newTestDB(t)
+	srv := echoServer(t)
+	settings := NewSettingsService(db)
+	hs := newTestHTTPService(t, db)
+
+	statusOf := func(t *testing.T, global bool, endpoint *bool) int {
+		t.Helper()
+		if err := settings.SaveRequestSettings(models.RequestSettings{FollowRedirects: global}); err != nil {
+			t.Fatalf("保存请求设置失败: %v", err)
+		}
+		resp, err := hs.SendRequest(SendRequestData{
+			Method: "GET", BaseURL: srv.URL, Path: "/redirect", FollowRedirects: endpoint, Timeout: 5000,
+		})
+		if err != nil {
+			t.Fatalf("SendRequest err=%v", err)
+		}
+		return resp.StatusCode
+	}
+
+	cases := []struct {
+		name     string
+		global   bool
+		endpoint *bool
+		want     int
+	}{
+		{"继承-全局开启", true, nil, 200},
+		{"继承-全局关闭", false, nil, 302},
+		{"显式开启压过全局关闭", false, models.Ptr(true), 200},
+		{"显式关闭压过全局开启", true, models.Ptr(false), 302},
+	}
+	for _, c := range cases {
+		t.Run(c.name, func(t *testing.T) {
+			if got := statusOf(t, c.global, c.endpoint); got != c.want {
+				t.Errorf("状态码 = %d，期望 %d", got, c.want)
+			}
+		})
+	}
+}
+
+// TestSendNoCacheHeaders 验证「发送无缓存头」开关，以及不覆盖请求自带的 Cache-Control。
+func TestSendNoCacheHeaders(t *testing.T) {
+	db := newTestDB(t)
+	srv := echoServer(t)
+	settings := NewSettingsService(db)
+	hs := newTestHTTPService(t, db)
+
+	cacheControl := func(t *testing.T, data SendRequestData) string {
+		t.Helper()
+		resp, err := hs.SendRequest(data)
+		if err != nil {
+			t.Fatalf("SendRequest err=%v", err)
+		}
+		var echo struct {
+			Headers map[string]string `json:"headers"`
+		}
+		if err := json.Unmarshal([]byte(resp.Body), &echo); err != nil {
+			t.Fatalf("解析回显失败: %v", err)
+		}
+		return echo.Headers["Cache-Control"]
+	}
+
+	base := SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/echo", FollowRedirects: models.Ptr(true), Timeout: 5000}
+
+	// 默认关闭：不带 Cache-Control
+	if err := settings.SaveRequestSettings(models.RequestSettings{FollowRedirects: true}); err != nil {
+		t.Fatalf("保存请求设置失败: %v", err)
+	}
+	if got := cacheControl(t, base); got != "" {
+		t.Errorf("开关关闭时不应发送 Cache-Control，实际 %q", got)
+	}
+
+	// 打开：补上 no-cache
+	if err := settings.SaveRequestSettings(models.RequestSettings{FollowRedirects: true, SendNoCacheHeaders: true}); err != nil {
+		t.Fatalf("保存请求设置失败: %v", err)
+	}
+	if got := cacheControl(t, base); got != "no-cache" {
+		t.Errorf("开关打开时应发送 no-cache，实际 %q", got)
+	}
+
+	// 请求自带 Cache-Control 时不覆盖
+	withHeader := base
+	withHeader.Headers = []models.EndpointHeader{{Name: "Cache-Control", Value: "max-age=60", Enabled: true}}
+	if got := cacheControl(t, withHeader); got != "max-age=60" {
+		t.Errorf("不应覆盖请求自带的 Cache-Control，实际 %q", got)
+	}
+}
+
+// TestRequestTimeoutSemantics 验证超时设置的三态：
+// 未设置（不入库）= 默认 300000ms，显式 0 = 不限制超时，负数按未设置处理。
+func TestRequestTimeoutSemantics(t *testing.T) {
+	db := newTestDB(t)
+	settings := NewSettingsService(db)
+	wantDefault := models.DefaultRequestTimeoutMs * time.Millisecond
+
+	// 从未配置过
+	if got := getRequestSettings(db).TimeoutMs; got != nil {
+		t.Errorf("未配置时应为 nil，实际 %d", *got)
+	}
+	if d := requestTimeout(getRequestSettings(db)); d != wantDefault {
+		t.Errorf("未配置时超时应为 %v，实际 %v", wantDefault, d)
+	}
+
+	// 界面清空：不写入这一项，JSON 里也不该出现该字段
+	if err := settings.SaveRequestSettings(models.RequestSettings{FollowRedirects: true}); err != nil {
+		t.Fatalf("保存请求设置失败: %v", err)
+	}
+	if raw := settings.GetSetting(models.SettingsKeyRequest); strings.Contains(raw, "timeoutMs") {
+		t.Errorf("清空后不应写入 timeoutMs，实际 %s", raw)
+	}
+	if got := getRequestSettings(db).TimeoutMs; got != nil {
+		t.Errorf("清空后应为 nil，实际 %d", *got)
+	}
+
+	// 显式填 0：原样保留，表示不限制超时
+	zero := 0
+	if err := settings.SaveRequestSettings(models.RequestSettings{TimeoutMs: &zero}); err != nil {
+		t.Fatalf("保存请求设置失败: %v", err)
+	}
+	stored := getRequestSettings(db)
+	if stored.TimeoutMs == nil || *stored.TimeoutMs != 0 {
+		t.Fatalf("填 0 应原样保留，实际 %v", stored.TimeoutMs)
+	}
+	if d := requestTimeout(stored); d != 0 {
+		t.Errorf("0 应表示不限制超时，实际 %v", d)
+	}
+
+	// 负数是非法输入：按未设置处理，而不是「永不超时」
+	negative := -1
+	if err := settings.SaveRequestSettings(models.RequestSettings{TimeoutMs: &negative}); err != nil {
+		t.Fatalf("保存请求设置失败: %v", err)
+	}
+	stored = getRequestSettings(db)
+	if stored.TimeoutMs != nil {
+		t.Errorf("负数应回落到未设置，实际 %d", *stored.TimeoutMs)
+	}
+	if d := requestTimeout(stored); d != wantDefault {
+		t.Errorf("超时时长 = %v，期望 %v", d, wantDefault)
 	}
 }

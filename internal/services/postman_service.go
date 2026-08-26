@@ -311,7 +311,6 @@ func (s *PostmanService) createEndpointFromPostman(
 		Path:               path,
 		Description:        firstNonEmpty(item.Description, request.Description),
 		SortOrder:          sortOrder,
-		FollowRedirects:    true,
 		Timeout:            30000,
 		InheritOperations:  true,
 		PreRequestScript:   preScript,

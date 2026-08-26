@@ -8,7 +8,6 @@ import { t } from "@/hooks/useI18n"
 
 import { AboutSettings } from "./AboutSettings"
 import { AppearanceSettings } from "./AppearanceSettings"
-import { LanguageSettings } from "./LanguageSettings"
 import { ProxySettingsPanel } from "./ProxySettingsPanel"
 import { RequestLimitsSettings } from "./RequestLimitsSettings"
 import { TLSSettingsPanel } from "./TLSSettingsPanel"
@@ -22,7 +21,6 @@ export interface SettingsModalProps {
 /** 设置标签列表 */
 const settingsTabs = [
   { key: "appearance", label: "", icon: <Icon icon="lucide:palette" class="h-4 w-4" /> }, // label 在渲染时由 i18n 填充
-  { key: "language", label: "", icon: <Icon icon="lucide:globe" class="h-4 w-4" /> },
   { key: "proxy", label: "", icon: <Icon icon="lucide:network" class="h-4 w-4" /> },
   { key: "tls", label: "", icon: <Icon icon="lucide:shield-check" class="h-4 w-4" /> },
   { key: "request", label: "", icon: <Icon icon="lucide:gauge" class="h-4 w-4" /> },
@@ -60,7 +58,6 @@ export function SettingsModal(props: SettingsModalProps) {
         {(key) => {
           switch (key) {
             case "appearance": return <AppearanceSettings />
-            case "language": return <LanguageSettings />
             case "proxy": return <ProxySettingsPanel scope="global" />
             case "tls": return <TLSSettingsPanel scope="global" />
             case "request": return <RequestLimitsSettings />

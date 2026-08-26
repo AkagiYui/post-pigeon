@@ -3,7 +3,6 @@ import { createEffect, createSignal, on } from "solid-js"
 
 import { SelectableProxy } from "@/../bindings/PostPigeon/internal/models"
 import { ProxyService } from "@/../bindings/PostPigeon/internal/services"
-import { Checkbox } from "@/components/ui/checkbox"
 import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { t } from "@/hooks/useI18n"
@@ -11,7 +10,8 @@ import { toastError } from "@/stores/toast"
 
 export interface EndpointSettingsEditorProps {
   timeout: number
-  followRedirects: boolean
+  /** 跟随重定向：null 表示继承上级（全局设置） */
+  followRedirects: boolean | null
   /** 接口状态：developing / testing / released / deprecated */
   status: string
   /** 标签（JSON 字符串数组） */
@@ -26,7 +26,7 @@ export interface EndpointSettingsEditorProps {
   projectId?: string
   onChange?: (data: {
     timeout?: number
-    followRedirects?: boolean
+    followRedirects?: boolean | null
     status?: string
     tags?: string
     description?: string
@@ -50,6 +50,13 @@ function tlsModeFromJSON(json?: string): string {
 function tlsJSONFromMode(mode: string): string {
   return mode === "strict" || mode === "insecure" ? JSON.stringify({ mode }) : ""
 }
+
+/** 接口级跟随重定向选项：继承上级 / 显式开启 / 显式关闭 */
+const followRedirectsOptions = () => [
+  { value: "inherit", label: t("endpoint.followRedirects.inherit") },
+  { value: "true", label: t("endpoint.followRedirects.on") },
+  { value: "false", label: t("endpoint.followRedirects.off") },
+]
 
 /** 接口级证书校验选项 */
 const tlsOptions = () => [
@@ -177,9 +184,12 @@ export function EndpointSettingsEditor(props: EndpointSettingsEditorProps) {
       </div>
       <div class="flex items-center gap-3">
         <label class="text-sm font-medium w-28 shrink-0">{t("endpoint.followRedirects")}</label>
-        <Checkbox
-          checked={props.followRedirects}
-          onChange={(e) => props.onChange?.({ followRedirects: e.currentTarget.checked })}
+        <Select
+          options={followRedirectsOptions()}
+          value={props.followRedirects == null ? "inherit" : String(props.followRedirects)}
+          onChange={(v) => props.onChange?.({ followRedirects: v === "inherit" ? null : v === "true" })}
+          size="sm"
+          class="w-64"
         />
       </div>
       <div class="flex items-center gap-3">

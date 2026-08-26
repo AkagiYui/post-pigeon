@@ -74,7 +74,12 @@ func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
 	// 每个参数单独一行、以 \ 续行，长命令仍然可读
 	lines := []string{fmt.Sprintf("curl -X %s %s", method, shellQuote(parsed.String()))}
 
-	if data.FollowRedirects {
+	// 接口没显式设置时按全局设置渲染 -L（与 requestVars 一样，无库场景用默认值）
+	limits := models.DefaultRequestSettings
+	if s.db != nil {
+		limits = getRequestSettings(s.db)
+	}
+	if resolveFollowRedirects(data, limits) {
 		lines = append(lines, "-L")
 	}
 	if data.Timeout > 0 {

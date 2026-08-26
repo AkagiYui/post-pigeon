@@ -83,7 +83,8 @@ interface UnsavedRequestData {
   bodyContent: string
   contentType: string
   timeout: number
-  followRedirects: boolean
+  /** 跟随重定向：null 表示继承上级（全局设置），true/false 为显式设置 */
+  followRedirects: boolean | null
   baseUrl: string
   params: ParamRow[]
   headers: HeaderRow[]
@@ -127,7 +128,7 @@ export function ApiManagement(props: ApiManagementProps) {
   const emptyEndpoint: EndpointData = {
     id: "", name: "", method: "GET" as HTTPMethod, path: "",
     bodyType: "none" as BodyType, bodyContent: "", contentType: "",
-    timeout: 30000, followRedirects: true, baseUrl: "",
+    timeout: 30000, followRedirects: null, baseUrl: "",
     params: [], headers: [], bodyFields: [], auth: emptyAuth(),
     preRequestScript: "", postResponseScript: "",
     ...endpointDefaults,
@@ -490,7 +491,7 @@ export function ApiManagement(props: ApiManagementProps) {
     const unsaved: UnsavedRequestData = {
       name: t("endpoint.newRequest"), method: "GET" as HTTPMethod,
       path: "/", bodyType: "none" as BodyType, bodyContent: "", contentType: "",
-      timeout: 30000, followRedirects: true, baseUrl: "",
+      timeout: 30000, followRedirects: null, baseUrl: "",
       params: [], headers: [], bodyFields: [], auth: emptyAuth(),
       preRequestScript: "", postResponseScript: "",
       ...endpointDefaults,

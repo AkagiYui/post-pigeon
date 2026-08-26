@@ -167,7 +167,7 @@ func TestToCurlRoundTrip(t *testing.T) {
 		},
 		BodyType:        string(models.BodyTypeJSON),
 		BodyContent:     `{"n":1}`,
-		FollowRedirects: true,
+		FollowRedirects: models.Ptr(true),
 		Timeout:         3000,
 	})
 	if err != nil {

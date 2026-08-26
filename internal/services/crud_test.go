@@ -285,7 +285,7 @@ func TestEndpointLifecycle(t *testing.T) {
 	err = es.SaveEndpointData(EndpointSaveData{
 		ID: e1.ID, Name: "E1改", Method: "POST", Path: "/z",
 		BodyType: "json", BodyContent: `{"a":1}`, ContentType: "application/json",
-		Timeout: 5000, FollowRedirects: false,
+		Timeout: 5000, FollowRedirects: models.Ptr(false),
 		Params:     []models.EndpointParam{{Type: "query", Name: "q", Value: "1", Enabled: true}},
 		Headers:    []models.EndpointHeader{{Name: "X-Test", Value: "hi", Enabled: true}},
 		BodyFields: []models.EndpointBodyField{{Name: "f", Value: "fv", FieldType: "text", Enabled: true}},
@@ -303,7 +303,7 @@ func TestEndpointLifecycle(t *testing.T) {
 	if d.Name != "E1改" || d.Method != "POST" || d.Path != "/z" || d.BodyType != "json" {
 		t.Errorf("基础字段未更新: %+v", d.Endpoint)
 	}
-	if d.FollowRedirects != false || d.Timeout != 5000 {
+	if d.FollowRedirects == nil || *d.FollowRedirects != false || d.Timeout != 5000 {
 		t.Errorf("FollowRedirects/Timeout 未正确保存: %v/%d", d.FollowRedirects, d.Timeout)
 	}
 	if len(d.Params) != 1 || d.Params[0].Name != "q" {

@@ -767,7 +767,6 @@ func (ic *importCtx) createAPIEndpoint(moduleID string, folderID *string, name s
 		Tags:              jsonArray(api.Tags),
 		Description:       api.Description,
 		Timeout:           30000,
-		FollowRedirects:   true,
 		InheritOperations: true,
 		SortOrder:         sortOrder,
 	}
@@ -789,7 +788,7 @@ func (ic *importCtx) createWSEndpoint(moduleID string, folderID *string, name st
 	ep := models.Endpoint{
 		ModuleID: moduleID, FolderID: folderID, Name: defaultStr(name, api.Path),
 		Type: string(models.EndpointTypeWebSocket), Method: "GET", Path: api.Path,
-		Timeout: 30000, FollowRedirects: true, InheritOperations: true, SortOrder: sortOrder,
+		Timeout: 30000, InheritOperations: true, SortOrder: sortOrder,
 	}
 	ic.tx.Create(&ep)
 	ic.result.WebSockets++
@@ -903,7 +902,7 @@ func (ic *importCtx) createRequestEndpoint(moduleID string, folderID *string, it
 		ModuleID: moduleID, FolderID: folderID, Name: defaultStr(item.Name, item.Path),
 		Type: string(models.EndpointTypeHTTP), Method: strings.ToUpper(defaultStr(item.Method, "GET")),
 		Path: item.Path, BodyType: bodyType, BodyContent: bodyContent, ContentType: contentType,
-		Timeout: 30000, FollowRedirects: true, InheritOperations: true, SortOrder: sortOrder,
+		Timeout: 30000, InheritOperations: true, SortOrder: sortOrder,
 	}
 	ic.tx.Create(&ep)
 	ic.result.Endpoints++

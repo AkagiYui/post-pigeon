@@ -44,7 +44,19 @@ type RequestSettings struct {
 	MaxStoredBodyBytes int64 `json:"maxStoredBodyBytes"`
 	// MaxWebSocketMessageBytes WebSocket 单帧最大字节数，0 表示不限制。
 	MaxWebSocketMessageBytes int64 `json:"maxWebSocketMessageBytes"`
+	// TimeoutMs 请求超时时间（毫秒），仅在接口自身未设置超时时兜底。
+	// 三态：nil 表示未设置（按 DefaultRequestTimeoutMs 处理），0 表示不限制超时，正数为具体时长。
+	TimeoutMs *int `json:"timeoutMs,omitempty"`
+	// FollowRedirects 是否自动跟随 3xx 重定向，默认开启。
+	// 这是全局开关：关掉之后所有请求都不跟随，接口级开关只能在其之上再关，不能反向打开。
+	FollowRedirects bool `json:"followRedirects"`
+	// SendNoCacheHeaders 为每个请求补上 Cache-Control: no-cache，默认关闭。
+	// 请求自己显式带了 Cache-Control 时不覆盖。
+	SendNoCacheHeaders bool `json:"sendNoCacheHeaders"`
 }
+
+// DefaultRequestTimeoutMs 请求超时的默认值（毫秒），对应设置项未设置（留空）的情况。
+const DefaultRequestTimeoutMs = 300000
 
 // HistorySettings 请求历史的保留策略。
 type HistorySettings struct {
@@ -76,6 +88,8 @@ var (
 		MaxResponseBytes:         32 << 20,
 		MaxStoredBodyBytes:       1 << 20,
 		MaxWebSocketMessageBytes: 32 << 20,
+		FollowRedirects:          true,
+		SendNoCacheHeaders:       false,
 	}
 	DefaultHistorySettings = HistorySettings{
 		RetentionDays:    30,
@@ -96,6 +110,9 @@ var DefaultSettings = map[string]string{
 	SettingsKeyLanguage:    "",
 	SettingsKeyUIScale:     "1.0",
 }
+
+// Ptr 返回 v 的指针，便于构造 *bool / *int 这类「未设置 vs 显式值」的三态字段。
+func Ptr[T any](v T) *T { return &v }
 
 // ToJSON 将值序列化为 JSON 字符串
 func ToJSON(v interface{}) string {

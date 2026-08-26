@@ -303,15 +303,16 @@ func (s *EndpointService) SearchEndpoints(moduleID string, query string) ([]mode
 
 // EndpointSaveData 端点保存数据
 type EndpointSaveData struct {
-	ID                 string `json:"id"`
-	Name               string `json:"name"`
-	Method             string `json:"method"`
-	Path               string `json:"path"`
-	BodyType           string `json:"bodyType"`
-	BodyContent        string `json:"bodyContent"`
-	ContentType        string `json:"contentType"`
-	Timeout            int    `json:"timeout"`
-	FollowRedirects    bool   `json:"followRedirects"`
+	ID          string `json:"id"`
+	Name        string `json:"name"`
+	Method      string `json:"method"`
+	Path        string `json:"path"`
+	BodyType    string `json:"bodyType"`
+	BodyContent string `json:"bodyContent"`
+	ContentType string `json:"contentType"`
+	Timeout     int    `json:"timeout"`
+	// FollowRedirects nil 表示继承上级（全局设置）
+	FollowRedirects    *bool  `json:"followRedirects"`
 	PreRequestScript   string `json:"preRequestScript"`
 	PostResponseScript string `json:"postResponseScript"`
 	// 新增元数据与文档/操作

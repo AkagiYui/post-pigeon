@@ -1,16 +1,23 @@
-// 外观设置组件
+// 外观与语言设置组件
 import type { JSX } from "solid-js"
 
 import { Select } from "@/components/ui/select"
 import { Slider } from "@/components/ui/slider"
-import { t } from "@/hooks/useI18n"
+import { changeLanguage, t, userLanguageChoice } from "@/hooks/useI18n"
 import { changeThemeAccent, changeThemeMode, changeUIScale, themeAccent, themeMode, UI_SCALE_CONFIG, uiScale } from "@/hooks/useTheme"
 import { ACCENT_COLORS, type ThemeAccent, type ThemeMode } from "@/lib/types"
 
 /**
- * AppearanceSettings 外观设置
+ * AppearanceSettings 外观与语言设置
  */
 export function AppearanceSettings() {
+  // 语言选项（放在组件内确保 t() 响应语言切换）
+  const languageOptions = () => [
+    { value: "system" as const, label: t("settings.language.system") },
+    { value: "zh-CN" as const, label: t("settings.language.zhCN") },
+    { value: "en" as const, label: t("settings.language.en") },
+  ]
+
   // 主题模式选项（放在组件内确保 t() 响应语言切换）
   const modeOptions = () => [
     { value: "system" as const, label: t("settings.theme.system") },
@@ -71,6 +78,16 @@ export function AppearanceSettings() {
           onChange={changeUIScale}
           marks={UI_SCALE_CONFIG.MARKS}
           class="w-64"
+        />
+      </SettingItem>
+
+      {/* 语言 */}
+      <SettingItem label={t("settings.language")}>
+        <Select
+          options={languageOptions()}
+          value={userLanguageChoice()}
+          onChange={(v) => changeLanguage(v as "zh-CN" | "en" | "system")}
+          class="w-32"
         />
       </SettingItem>
     </div>

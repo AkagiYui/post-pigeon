@@ -17,7 +17,8 @@ export interface EndpointData {
   bodyContent: string
   contentType: string
   timeout: number
-  followRedirects: boolean
+  /** 跟随重定向：null 表示继承上级（全局设置），true/false 为显式设置 */
+  followRedirects: boolean | null
   baseUrl: string
   params: ParamRow[]
   headers: HeaderRow[]

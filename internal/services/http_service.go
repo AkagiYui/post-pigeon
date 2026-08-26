@@ -176,21 +176,22 @@ func (s *HTTPService) runPersist(job persistJob) {
 
 // SendRequestData 发送请求的参数
 type SendRequestData struct {
-	EndpointID      string                     `json:"endpointId"`
-	ModuleID        string                     `json:"moduleId"`
-	EnvironmentID   string                     `json:"environmentId"`
-	Method          string                     `json:"method"`
-	BaseURL         string                     `json:"baseUrl"`
-	Path            string                     `json:"path"`
-	Headers         []models.EndpointHeader    `json:"headers"`
-	Params          []models.EndpointParam     `json:"params"`
-	BodyType        string                     `json:"bodyType"`
-	BodyContent     string                     `json:"bodyContent"`
-	ContentType     string                     `json:"contentType"`
-	BodyFields      []models.EndpointBodyField `json:"bodyFields"`
-	Auth            *models.EndpointAuth       `json:"auth"`
-	Timeout         int                        `json:"timeout"`
-	FollowRedirects bool                       `json:"followRedirects"`
+	EndpointID    string                     `json:"endpointId"`
+	ModuleID      string                     `json:"moduleId"`
+	EnvironmentID string                     `json:"environmentId"`
+	Method        string                     `json:"method"`
+	BaseURL       string                     `json:"baseUrl"`
+	Path          string                     `json:"path"`
+	Headers       []models.EndpointHeader    `json:"headers"`
+	Params        []models.EndpointParam     `json:"params"`
+	BodyType      string                     `json:"bodyType"`
+	BodyContent   string                     `json:"bodyContent"`
+	ContentType   string                     `json:"contentType"`
+	BodyFields    []models.EndpointBodyField `json:"bodyFields"`
+	Auth          *models.EndpointAuth       `json:"auth"`
+	Timeout       int                        `json:"timeout"`
+	// FollowRedirects nil 表示继承全局设置，显式 true/false 才覆盖
+	FollowRedirects *bool `json:"followRedirects"`
 	// ProxyConfig 接口级代理选择（EndpointProxy 的 JSON）。空表示 inherit（跟随项目/全局）。
 	ProxyConfig string `json:"proxyConfig"`
 	// TLSConfig 接口级 TLS 选择（EndpointTLS 的 JSON）。空表示 inherit（跟随项目/全局）。
@@ -372,25 +373,34 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	}
 	parsedURL.RawQuery = query.Encode()
 
+	// 全局请求设置：超时兜底、重定向开关、no-cache 头与后面的响应体限额都取自这里
+	limits := getRequestSettings(s.db)
+
 	// 创建请求。
 	// 超时用「取消 + 计时器」实现，而非 context.WithTimeout：普通请求受超时约束整个收发；
 	// 一旦判定为流式响应（text/event-stream），停止计时器，让连接长存（超时仅约束到响应头）。
+	// 接口自身没设超时时取全局设置；两者的 0 都表示「不限制超时」，此时不起计时器。
 	timeout := time.Duration(data.Timeout) * time.Millisecond
-	if timeout <= 0 {
-		timeout = 30 * time.Second
+	if data.Timeout <= 0 {
+		timeout = requestTimeout(limits)
 	}
 	ctx, cancel := context.WithCancel(context.Background())
 	// timedOut 用于把「超时取消」与「用户取消」区分开，好让前端拿到不同的错误码
 	var timedOut atomic.Bool
-	timeoutTimer := time.AfterFunc(timeout, func() {
-		timedOut.Store(true)
-		cancel()
-	})
+	var timeoutTimer *time.Timer
+	if timeout > 0 {
+		timeoutTimer = time.AfterFunc(timeout, func() {
+			timedOut.Store(true)
+			cancel()
+		})
+	}
 	// 登记为进行中的请求，前端可据 RequestID 主动取消
 	tracked := s.registerRequest(data.RequestID, cancel)
 	streaming := false
 	defer func() {
-		timeoutTimer.Stop()
+		if timeoutTimer != nil {
+			timeoutTimer.Stop()
+		}
 		s.unregisterRequest(data.RequestID)
 		// 流式响应交由后台 goroutine 持有 ctx，此处不取消；其余路径正常释放。
 		if !streaming {
@@ -408,6 +418,11 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		if header.Enabled {
 			req.Header.Set(header.Name, resolveVars(header.Value, vars))
 		}
+	}
+
+	// 全局「发送无缓存头」：请求自己没写 Cache-Control 时才补，避免盖掉用户的显式设置
+	if limits.SendNoCacheHeaders && req.Header.Get("Cache-Control") == "" {
+		req.Header.Set("Cache-Control", "no-cache")
 	}
 
 	// Cookie 参数：并入 Cookie 请求头
@@ -468,8 +483,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		Transport: transport,
 	}
 
-	// 处理重定向
-	if !data.FollowRedirects {
+	// 处理重定向：接口没显式设置时跟随全局设置
+	if !resolveFollowRedirects(data, limits) {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		}
@@ -546,7 +561,9 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	// 同一个（已注入代理的）客户端——SSE 只是流式响应的一种文本规范，并非独立的请求类型。
 	if isEventStream(resp.Header.Get("Content-Type")) {
 		streaming = true // 通知外层 defer：ctx 交由后台 goroutine 持有，勿在此处取消
-		timeoutTimer.Stop()
+		if timeoutTimer != nil {
+			timeoutTimer.Stop()
+		}
 		// 流 ID 必须全局唯一：同一个端点可以同时开多个标签页，若沿用端点 ID
 		// 后开的流会覆盖先开的 cancel，导致第一条流再也停不掉、连接与 goroutine 泄漏。
 		streamID := "stream-" + uuid.NewString()
@@ -578,7 +595,6 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	// 读取响应体：受限额约束。
 	// 不设上限时，一个下载类接口就能把整个文件读进内存，再连同 base64 副本一起塞进
 	// IPC 和 SQLite（约 3 倍体积）。这里最多多读 1 字节以判定是否发生截断。
-	limits := getRequestSettings(s.db)
 	bodyBytes, truncated, err := readBodyWithLimit(resp.Body, limits.MaxResponseBytes)
 	if err != nil {
 		return nil, s.classifyRequestError(err, tracked, &timedOut)
@@ -699,6 +715,15 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	s.enqueuePersist(persistJob{data: data, resp: responseData})
 
 	return responseData, nil
+}
+
+// resolveFollowRedirects 解析本次请求是否跟随重定向：
+// 接口级为 nil 表示继承，取全局设置；显式 true/false 则覆盖全局。
+func resolveFollowRedirects(data SendRequestData, limits models.RequestSettings) bool {
+	if data.FollowRedirects != nil {
+		return *data.FollowRedirects
+	}
+	return limits.FollowRedirects
 }
 
 // readBodyWithLimit 读取响应体，最多 limit 字节；limit<=0 表示不限制。

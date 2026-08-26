@@ -124,6 +124,9 @@ func adoptLegacyDB(db *gorm.DB) error {
 	if err := migrateScriptsToOperations(db); err != nil {
 		return fmt.Errorf("脚本迁移失败: %w", err)
 	}
+	if err := migrateFollowRedirectsToInherit(db); err != nil {
+		return fmt.Errorf("跟随重定向迁移失败: %w", err)
+	}
 
 	if err := stampGooseVersion(db); err != nil {
 		return fmt.Errorf("登记 goose 版本失败: %w", err)
@@ -263,6 +266,12 @@ func migrateScriptsToOperations(db *gorm.DB) error {
 	}
 	slog.Info("端点脚本已迁移为操作", "count", len(endpoints))
 	return nil
+}
+
+// migrateFollowRedirectsToInherit 与 00006 迁移等价：历史库被 stamp 到最新版本后不会
+// 再跑那条 SQL，这里补上同样的收敛，让两条路径得到一致的数据。
+func migrateFollowRedirectsToInherit(db *gorm.DB) error {
+	return db.Exec("UPDATE `endpoints` SET `follow_redirects` = NULL WHERE `follow_redirects` = 1").Error
 }
 
 // migrateProjectSortOrder 为现有项目初始化排序值
