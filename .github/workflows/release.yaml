@@ -15,6 +15,7 @@ permissions:
 
 env:
   APP_NAME: PostPigeon
+  WAILS_VERSION: v3.0.0-beta.13
 
 jobs:
   # 第一道闸：tag 必须与仓库内容自洽，否则整个发版流程不启动。
@@ -75,11 +76,53 @@ jobs:
       # APP_VERSION 读它，经 ldflags 注入 config.Version，应用运行时拿这个值
       # 与 Release 的 tag 比对来判断有没有新版本。
 
+      # wails3 generate appimage 的 findGTKFiles 会 filepath.Walk 整个 /usr/ 去找
+      # 三个 WebKit 文件，而 runner 的 /usr 里预装了 Android SDK、ghcup、dotnet 等
+      # 二三十 GB、上百万个 inode，光遍历就要一两分钟。/opt 与 /usr 同在根文件系统，
+      # mv 是 O(1) 重命名，比 rm -rf 删几个 GB 划算得多。
+      - name: 挪走 runner 预装的大目录
+        if: runner.os == 'Linux'
+        run: |
+          sudo mkdir -p /opt/parked
+          for d in /usr/local/lib/android /usr/local/.ghcup /usr/share/dotnet \
+                   /usr/share/swift /usr/local/share/powershell \
+                   /usr/lib/google-cloud-sdk /usr/share/miniconda; do
+            [ -e "$d" ] && sudo mv "$d" /opt/parked/ || true
+          done
+          df -h /
+
+      # Windows 沿用 setup-go 自带缓存：那边打包才 30 秒，另存一份 Go 缓存
+      # 的解压耗时比省下来的编译时间还长。
       - name: 安装 Go
         uses: actions/setup-go@v6
         with:
-          cache: true
+          cache: ${{ runner.os == 'Windows' }}
           go-version-file: 'go.mod'
+
+      - name: 解析 Go 缓存路径
+        if: runner.os != 'Windows'
+        id: gocache
+        run: |
+          {
+            echo "build=$(go env GOCACHE)"
+            echo "mod=$(go env GOMODCACHE)"
+            echo "bin=$(go env GOPATH)/bin"
+          } >> "$GITHUB_OUTPUT"
+
+      # setup-go 自带缓存的 key 只含 hash(go.sum)，仓库里几个构建负载会抢同一个
+      # 条目（-trimpath 的生产构建与普通 build 缓存条目完全不同），而且它只在
+      # miss 时写入、之后永不更新，cgo 那 40 多秒于是每次重来。独立 key +
+      # restore-keys 让缓存随 go.sum 滚动前进。
+      - name: 缓存 Go 构建产物
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.gocache.outputs.build }}
+            ${{ steps.gocache.outputs.mod }}
+          key: gopkg-${{ runner.os }}-${{ matrix.goarch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gopkg-${{ runner.os }}-${{ matrix.goarch }}-
 
       - name: 安装 pnpm
         uses: pnpm/action-setup@v6
@@ -97,7 +140,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
 
       - name: 安装 NSIS (Windows)
         if: runner.os == 'Windows'
@@ -105,8 +148,17 @@ jobs:
           choco install nsis --version=3.12 --no-progress -y
           echo "C:\Program Files (x86)\NSIS" >> "${GITHUB_PATH}"
 
+      # setup-go 已把 GOPATH/bin 放进 PATH，缓存命中时 command -v 能直接找到，
+      # 省掉一次编译（macOS Intel 上要 25 秒）
+      - name: 缓存 Wails CLI
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.gocache.outputs.bin }}/wails3
+          key: wails3-${{ runner.os }}-${{ runner.arch }}-${{ env.WAILS_VERSION }}
+
       - name: 安装 Wails CLI
-        run: go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.13
+        run: command -v wails3 >/dev/null 2>&1 || go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
 
       - name: 更新构建资源
         run: wails3 task common:update:build-assets

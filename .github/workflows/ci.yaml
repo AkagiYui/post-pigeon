@@ -2,16 +2,18 @@ name: CI
 
 on:
   pull_request:
-  push:
-    branches:
-      - master
-  # 供 build.yaml / release.yaml 在打包前复用同一套校验
+  # 供 build.yaml / release.yaml 在打包前复用同一套校验。
+  # 这里刻意没有 push:master —— build.yaml 本来就监听 master 推送并无条件跑
+  # checks，再加一个 push 触发只会让每次推送把整套校验跑两遍。
   workflow_call:
 
 # 同一分支的重复推送只保留最新一次校验
 concurrency:
   group: ci-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
+
+env:
+  WAILS_VERSION: v3.0.0-beta.13
 
 jobs:
   go:
@@ -21,16 +23,38 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v6
 
+      # 不用 setup-go 自带缓存：它的 key 只含 hash(go.sum)，仓库里几个
+      # 构建负载（普通 build、-race 测试、-trimpath 生产打包）会抢同一个条目，
+      # 而且只在 miss 时写入、之后永不更新。独立 key + restore-keys 才能滚动前进。
       - name: 安装 Go
         uses: actions/setup-go@v6
         with:
-          cache: true
+          cache: false
           go-version-file: 'go.mod'
+
+      - name: 解析 Go 缓存路径
+        id: gocache
+        run: |
+          {
+            echo "build=$(go env GOCACHE)"
+            echo "mod=$(go env GOMODCACHE)"
+            echo "bin=$(go env GOPATH)/bin"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 缓存 Go 构建产物
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.gocache.outputs.build }}
+            ${{ steps.gocache.outputs.mod }}
+          key: go-check-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-check-${{ runner.os }}-
 
       - name: 安装 Linux 依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
 
       # main.go 用 //go:embed all:frontend/dist 嵌入前端产物，而 dist 不入库；
       # 校验流程不构建前端，补个占位文件让 embed 能解析（all: 前缀会收 . 开头的文件）
@@ -79,16 +103,38 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v6
 
+      # 不用 setup-go 自带缓存：它的 key 只含 hash(go.sum)，仓库里几个
+      # 构建负载（普通 build、-race 测试、-trimpath 生产打包）会抢同一个条目，
+      # 而且只在 miss 时写入、之后永不更新。独立 key + restore-keys 才能滚动前进。
       - name: 安装 Go
         uses: actions/setup-go@v6
         with:
-          cache: true
+          cache: false
           go-version-file: 'go.mod'
+
+      - name: 解析 Go 缓存路径
+        id: gocache
+        run: |
+          {
+            echo "build=$(go env GOCACHE)"
+            echo "mod=$(go env GOMODCACHE)"
+            echo "bin=$(go env GOPATH)/bin"
+          } >> "$GITHUB_OUTPUT"
+
+      - name: 缓存 Go 构建产物
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.gocache.outputs.build }}
+            ${{ steps.gocache.outputs.mod }}
+          key: go-bindings-${{ runner.os }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            go-bindings-${{ runner.os }}-
 
       - name: 安装 Linux 依赖
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
 
       # main.go 用 //go:embed all:frontend/dist 嵌入前端产物，而 dist 不入库；
       # 校验流程不构建前端，补个占位文件让 embed 能解析（all: 前缀会收 . 开头的文件）
@@ -112,9 +158,15 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # tsconfig 覆盖 bindings/ 目录，类型检查前需要先生成绑定
+      - name: 缓存 Wails CLI
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.gocache.outputs.bin }}/wails3
+          key: wails3-${{ runner.os }}-${{ runner.arch }}-${{ env.WAILS_VERSION }}
+
       - name: 生成 Wails 绑定
         run: |
-          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.13
+          command -v wails3 >/dev/null 2>&1 || go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
           wails3 generate bindings -ts -clean=true
 
       # tsconfig 覆盖 src/routeTree.gen.ts，该文件由 tanstack router 插件在构建时

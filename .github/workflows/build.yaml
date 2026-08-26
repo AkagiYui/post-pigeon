@@ -6,13 +6,23 @@ on:
     branches:
       - master
 
+# 连续推 master 时旧的构建没有意义，只保留最新一次
+concurrency:
+  group: build-${{ github.ref }}
+  cancel-in-progress: true
+
+env:
+  WAILS_VERSION: v3.0.0-beta.13
+
 jobs:
   # 检查 commits，决定是否需要构建
   check-commits:
     name: 检查 commits
     runs-on: ubuntu-latest
     outputs:
-      should-build: ${{ steps.check.outputs.should-build }}
+      # 手动触发时 github.event.commits 是 null，没有 commit 可判断；
+      # 既然是人主动点的，就当作明确想要一次构建
+      should-build: ${{ github.event_name == 'workflow_dispatch' && 'true' || steps.check.outputs.should-build }}
 
     steps:
       - name: 检出代码
@@ -20,15 +30,16 @@ jobs:
 
       - name: 检查是否需要构建
         id: check
+        if: github.event_name != 'workflow_dispatch'
         env:
           COMMITS_JSON: ${{ toJson(github.event.commits) }}
         run: python3 scripts/check_build.py
 
   # 打包前先跑完整校验（vet / test / typecheck / lint / 前端单测）
+  # ci.yaml 不再单独监听 push:master（否则每次推送校验会跑两遍），
+  # 所以这里无论是否需要构建都要跑，纯文档提交也不能漏掉校验
   checks:
     name: 校验
-    needs: check-commits
-    if: needs.check-commits.outputs.should-build == 'true'
     uses: ./.github/workflows/ci.yaml
 
   build:
@@ -64,11 +75,53 @@ jobs:
       - name: 检出代码
         uses: actions/checkout@v6
 
+      # wails3 generate appimage 的 findGTKFiles 会 filepath.Walk 整个 /usr/ 去找
+      # 三个 WebKit 文件，而 runner 的 /usr 里预装了 Android SDK、ghcup、dotnet 等
+      # 二三十 GB、上百万个 inode，光遍历就要一两分钟。/opt 与 /usr 同在根文件系统，
+      # mv 是 O(1) 重命名，比 rm -rf 删几个 GB 划算得多。
+      - name: 挪走 runner 预装的大目录
+        if: runner.os == 'Linux'
+        run: |
+          sudo mkdir -p /opt/parked
+          for d in /usr/local/lib/android /usr/local/.ghcup /usr/share/dotnet \
+                   /usr/share/swift /usr/local/share/powershell \
+                   /usr/lib/google-cloud-sdk /usr/share/miniconda; do
+            [ -e "$d" ] && sudo mv "$d" /opt/parked/ || true
+          done
+          df -h /
+
+      # Windows 沿用 setup-go 自带缓存：那边打包才 30 秒，另存一份 Go 缓存
+      # 的解压耗时比省下来的编译时间还长。
       - name: 安装 Go
         uses: actions/setup-go@v6
         with:
-          cache: true
+          cache: ${{ runner.os == 'Windows' }}
           go-version-file: 'go.mod'
+
+      - name: 解析 Go 缓存路径
+        if: runner.os != 'Windows'
+        id: gocache
+        run: |
+          {
+            echo "build=$(go env GOCACHE)"
+            echo "mod=$(go env GOMODCACHE)"
+            echo "bin=$(go env GOPATH)/bin"
+          } >> "$GITHUB_OUTPUT"
+
+      # setup-go 自带缓存的 key 只含 hash(go.sum)，ci.yaml 的 `go build ./...`
+      # 和这里的 `-tags production -trimpath` 生产构建会抢同一个条目（-trimpath
+      # 让缓存条目完全不同），而且 setup-go 只在 miss 时写缓存、之后再不更新，
+      # 于是 cgo 那 40 多秒每次都得重来。独立 key + restore-keys 让缓存滚动前进。
+      - name: 缓存 Go 构建产物
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: |
+            ${{ steps.gocache.outputs.build }}
+            ${{ steps.gocache.outputs.mod }}
+          key: gopkg-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('go.sum') }}
+          restore-keys: |
+            gopkg-${{ runner.os }}-${{ matrix.arch }}-
 
       - name: 安装 pnpm
         uses: pnpm/action-setup@v6
@@ -86,7 +139,7 @@ jobs:
         if: runner.os == 'Linux'
         run: |
           sudo apt-get update
-          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+          sudo apt-get install -y --no-install-recommends libgtk-4-dev libwebkitgtk-6.0-dev
 
       - name: 安装 NSIS (Windows)
         if: runner.os == 'Windows'
@@ -94,9 +147,17 @@ jobs:
           choco install nsis --version=3.12 --no-progress -y
           echo "C:\Program Files (x86)\NSIS" >> "${GITHUB_PATH}"
 
+      # setup-go 已把 GOPATH/bin 放进 PATH，缓存命中时 command -v 能直接找到，
+      # 省掉一次编译（macOS Intel 上要 25 秒）
+      - name: 缓存 Wails CLI
+        if: runner.os != 'Windows'
+        uses: actions/cache@v4
+        with:
+          path: ${{ steps.gocache.outputs.bin }}/wails3
+          key: wails3-${{ runner.os }}-${{ runner.arch }}-${{ env.WAILS_VERSION }}
+
       - name: 安装 Wails CLI
-        run: |
-          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.13
+        run: command -v wails3 >/dev/null 2>&1 || go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}
 
       - name: 更新构建资源
         run: wails3 task common:update:build-assets
