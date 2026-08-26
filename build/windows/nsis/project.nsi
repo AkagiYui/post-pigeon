@@ -34,9 +34,17 @@ Unicode true
 ####
 !include "wails_tools.nsh"
 
-# The version information for this two must consist of 4 parts
-VIProductVersion "${INFO_PRODUCTVERSION}.0"
-VIFileVersion    "${INFO_PRODUCTVERSION}.0"
+# 这两个字段只接受纯数字的 X.X.X.X，而 INFO_PRODUCTVERSION 可能带预发布后缀
+# （如 0.0.4-beta.1），直接拼上去 makensis 会以
+# "invalid VIFileVersion format" 中止。所以数字版本由 build/windows/Taskfile.yml
+# 剥掉后缀后用 -DARG_NUMERIC_VERSION 传进来。
+# 下面 VIAddVersionKey 的 ProductVersion / FileVersion 是自由文本，
+# 仍用完整版本号，安装包属性里能看到 beta 标识。
+!ifndef ARG_NUMERIC_VERSION
+    !define ARG_NUMERIC_VERSION "0.0.0"
+!endif
+VIProductVersion "${ARG_NUMERIC_VERSION}.0"
+VIFileVersion    "${ARG_NUMERIC_VERSION}.0"
 
 VIAddVersionKey "CompanyName"     "${INFO_COMPANYNAME}"
 VIAddVersionKey "FileDescription" "${INFO_PRODUCTNAME} Installer"
