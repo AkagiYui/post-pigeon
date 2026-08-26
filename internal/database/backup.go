@@ -2,6 +2,7 @@ package database
 
 import (
 	"fmt"
+	"io"
 	"log/slog"
 	"os"
 	"path/filepath"
@@ -9,7 +10,9 @@ import (
 	"strings"
 	"time"
 
+	"github.com/glebarez/sqlite"
 	"gorm.io/gorm"
+	"gorm.io/gorm/logger"
 )
 
 // backupKeep 是保留的迁移前备份份数，超出的按时间从旧到新删除。
@@ -126,7 +129,7 @@ func pruneBackups(dbPath string) {
 	}
 	var backups []string
 	for _, e := range entries {
-		if !e.IsDir() && strings.HasPrefix(e.Name(), prefix) {
+		if !e.IsDir() && isBackupName(e.Name(), prefix) {
 			backups = append(backups, e.Name())
 		}
 	}
@@ -136,9 +139,14 @@ func pruneBackups(dbPath string) {
 	// 文件名以时间戳打头，字典序即时间序
 	sort.Strings(backups)
 	for _, name := range backups[:len(backups)-backupKeep] {
-		if err := os.Remove(filepath.Join(dir, name)); err != nil {
+		path := filepath.Join(dir, name)
+		if err := os.Remove(path); err != nil {
 			slog.Warn("删除旧备份失败", "file", name, "error", err)
 			continue
+		}
+		// 附属的 WAL 文件跟着走，别把半份备份留在原地
+		for _, suffix := range []string{"-wal", "-shm"} {
+			_ = os.Remove(path + suffix)
 		}
 		slog.Info("已删除旧备份", "file", name)
 	}
@@ -148,4 +156,200 @@ func pruneBackups(dbPath string) {
 func fileExists(path string) bool {
 	_, err := os.Stat(path)
 	return err == nil
+}
+
+// pendingRestoreSuffix 是「待恢复」文件的后缀。恢复不能在应用运行中原地替换数据库
+// 文件（连接还开着、WAL 也还在），所以先把候选文件放到这里，下次启动时在打开数据库
+// 之前完成替换。
+const pendingRestoreSuffix = ".restore-pending"
+
+// BackupFile 是数据目录里的一份备份。
+type BackupFile struct {
+	// Path 备份文件的完整路径
+	Path string `json:"path"`
+	// Name 文件名
+	Name string `json:"name"`
+	// SizeBytes 文件大小
+	SizeBytes int64 `json:"sizeBytes"`
+	// CreatedAt 文件修改时间，即备份产生的时间
+	CreatedAt time.Time `json:"createdAt"`
+}
+
+// ListBackups 列出数据目录里的备份，按时间从新到旧。
+func ListBackups(dbPath string) ([]BackupFile, error) {
+	dir := filepath.Dir(dbPath)
+	prefix := filepath.Base(dbPath) + backupSuffix
+
+	entries, err := os.ReadDir(dir)
+	if err != nil {
+		return nil, err
+	}
+	var backups []BackupFile
+	for _, e := range entries {
+		if e.IsDir() || !isBackupName(e.Name(), prefix) {
+			continue
+		}
+		info, err := e.Info()
+		if err != nil {
+			continue
+		}
+		backups = append(backups, BackupFile{
+			Path:      filepath.Join(dir, e.Name()),
+			Name:      e.Name(),
+			SizeBytes: info.Size(),
+			CreatedAt: info.ModTime(),
+		})
+	}
+	sort.Slice(backups, func(i, j int) bool { return backups[i].Name > backups[j].Name })
+	return backups, nil
+}
+
+// isBackupName 判断文件名是否是一份备份本体。
+//
+// 排除 -wal / -shm：它们是某份备份的附属文件（恢复前保留现场时会连带改名），
+// 不该被当成独立的备份列出来，也不该被单独清理掉。
+func isBackupName(name, prefix string) bool {
+	if !strings.HasPrefix(name, prefix) {
+		return false
+	}
+	return !strings.HasSuffix(name, "-wal") && !strings.HasSuffix(name, "-shm")
+}
+
+// ExportTo 把当前数据库导出成 dst 处的独立数据库文件，用于用户主动备份。
+//
+// 先写临时文件再改名：VACUUM INTO 要求目标不存在，而用户在保存对话框里选中已有
+// 文件就是要覆盖它——直接删掉再写的话，一旦写失败，用户的旧文件也没了。
+func ExportTo(db *gorm.DB, dst string) error {
+	tmp := dst + ".tmp"
+	_ = os.Remove(tmp)
+	if err := db.Exec("VACUUM INTO ?", tmp).Error; err != nil {
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// StageRestore 校验 src 是一个可用的 PostPigeon 数据库，并把它暂存为待恢复文件。
+// 真正的替换发生在下次启动时的 ApplyPendingRestore。
+func StageRestore(dbPath, src string) error {
+	pending := dbPath + pendingRestoreSuffix
+	removeDBFiles(pending)
+
+	if err := copyFile(src, pending); err != nil {
+		return fmt.Errorf("复制备份失败: %w", err)
+	}
+	if err := verifyDatabase(pending); err != nil {
+		removeDBFiles(pending)
+		return err
+	}
+	slog.Info("已暂存待恢复的数据库", "source", src)
+	return nil
+}
+
+// PendingRestore 返回待恢复文件的路径，不存在时返回空串。
+func PendingRestore(dbPath string) string {
+	pending := dbPath + pendingRestoreSuffix
+	if fileExists(pending) {
+		return pending
+	}
+	return ""
+}
+
+// CancelPendingRestore 撤销一次已暂存但尚未生效的恢复。
+func CancelPendingRestore(dbPath string) {
+	removeDBFiles(dbPath + pendingRestoreSuffix)
+}
+
+// ApplyPendingRestore 在打开数据库之前把待恢复文件换上，返回是否发生了恢复。
+//
+// 必须在任何连接建立之前调用：替换的是数据库文件本身，连着的连接会看到一个
+// 「被抽走」的文件。当前库不会被丢弃，而是改名成一份备份，让恢复本身也可撤销。
+func ApplyPendingRestore(dbPath string) (bool, error) {
+	pending := dbPath + pendingRestoreSuffix
+	if !fileExists(pending) {
+		return false, nil
+	}
+
+	if fileExists(dbPath) {
+		keep := filepath.Join(filepath.Dir(dbPath),
+			fmt.Sprintf("%s%s%s-restore", filepath.Base(dbPath), backupSuffix, time.Now().Format("20060102T150405")))
+		// 连 -wal / -shm 一起改名：只搬主文件的话，尚未 checkpoint 的事务会被留在原地，
+		// 保留下来的这份「恢复前现场」就是残缺的
+		for _, suffix := range []string{"", "-wal", "-shm"} {
+			if !fileExists(dbPath + suffix) {
+				continue
+			}
+			if err := os.Rename(dbPath+suffix, keep+suffix); err != nil {
+				return false, fmt.Errorf("保留恢复前的数据库失败: %w", err)
+			}
+		}
+		slog.Info("恢复前的数据库已保留为备份", "backup", keep)
+	}
+
+	if err := os.Rename(pending, dbPath); err != nil {
+		return false, fmt.Errorf("应用待恢复的数据库失败: %w", err)
+	}
+	// 待恢复文件是完整的库，它的 -wal / -shm 是校验时产生的残留，直接丢掉
+	for _, suffix := range []string{"-wal", "-shm"} {
+		_ = os.Remove(pending + suffix)
+	}
+
+	slog.Info("已从备份恢复数据库")
+	pruneBackups(dbPath)
+	return true, nil
+}
+
+// verifyDatabase 确认文件是一个结构完整、且确实属于本应用的 SQLite 数据库。
+func verifyDatabase(path string) error {
+	db, err := gorm.Open(sqlite.Open(path), &gorm.Config{Logger: logger.Default.LogMode(logger.Silent)})
+	if err != nil {
+		return fmt.Errorf("无法打开备份文件: %w", err)
+	}
+	defer func() {
+		if sqlDB, err := db.DB(); err == nil {
+			_ = sqlDB.Close()
+		}
+	}()
+
+	var result string
+	if err := db.Raw("PRAGMA quick_check").Scan(&result).Error; err != nil {
+		return fmt.Errorf("备份文件不是可用的数据库: %w", err)
+	}
+	if result != "ok" {
+		return fmt.Errorf("备份文件已损坏: %s", result)
+	}
+	if !tableExists(db, "projects") || !tableExists(db, "goose_db_version") {
+		return fmt.Errorf("这不是 PostPigeon 的数据库备份")
+	}
+	return nil
+}
+
+// copyFile 复制文件内容。
+func copyFile(src, dst string) error {
+	in, err := os.Open(src)
+	if err != nil {
+		return err
+	}
+	defer in.Close()
+
+	out, err := os.OpenFile(dst, os.O_CREATE|os.O_WRONLY|os.O_TRUNC, 0o600)
+	if err != nil {
+		return err
+	}
+	if _, err := io.Copy(out, in); err != nil {
+		out.Close()
+		_ = os.Remove(dst)
+		return err
+	}
+	return out.Close()
+}
+
+// removeDBFiles 删除一个数据库文件及其 WAL 附属文件。
+func removeDBFiles(path string) {
+	for _, suffix := range []string{"", "-wal", "-shm"} {
+		_ = os.Remove(path + suffix)
+	}
 }

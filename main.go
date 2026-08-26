@@ -66,6 +66,16 @@ func main() {
 	}
 	defer lock.Release()
 
+	// 应用上次暂存的「从备份恢复」。必须在打开数据库之前：换掉的是数据库文件本身，
+	// 已经建立的连接会看到一个被抽走的文件。
+	if restored, err := database.ApplyPendingRestore(cfg.DBPath); err != nil {
+		fatal("从备份恢复失败", err,
+			"数据目录："+cfg.DataDir+"\n\n"+
+				"待恢复的文件是 postpigeon.db.restore-pending，删掉它即可按原样启动。")
+	} else if restored {
+		slog.Info("已从备份恢复数据库，继续按恢复后的库启动")
+	}
+
 	// 初始化数据库
 	db, err := database.Initialize(cfg.DBPath)
 	if err != nil {

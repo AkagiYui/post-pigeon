@@ -61,4 +61,7 @@ const (
 	// ---- 数据维护 ----
 	CodeDataStats   = "data.stats_failed"
 	CodeDataCompact = "data.compact_failed"
+	CodeDataExport  = "data.export_failed"
+	CodeDataRestore = "data.restore_failed"
+	CodeDataOpenDir = "data.open_dir_failed"
 )

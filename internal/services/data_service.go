@@ -1,12 +1,17 @@
 package services
 
 import (
+	"fmt"
 	"log/slog"
 	"os"
+	"time"
 
 	"PostPigeon/internal/apperr"
 	"PostPigeon/internal/config"
+	"PostPigeon/internal/database"
+	"PostPigeon/internal/platform"
 
+	"github.com/wailsapp/wails/v3/pkg/application"
 	"gorm.io/gorm"
 )
 
@@ -89,4 +94,97 @@ func dbFilesSize(dbPath string) int64 {
 		}
 	}
 	return total
+}
+
+// OpenDataDir 用系统文件管理器打开数据目录。
+//
+// 用户的全部数据都在这个目录里（数据库、自动备份、日志），却没有任何入口能找到它。
+func (s *DataService) OpenDataDir() error {
+	if err := platform.OpenPath(s.cfg.DataDir); err != nil {
+		return apperr.Wrap(err, apperr.CodeDataOpenDir)
+	}
+	return nil
+}
+
+// ExportData 让用户选一个位置，把整个数据库导出过去；用户取消时返回空串。
+//
+// 走原生保存对话框而不是「后端返回字节、前端下载」：库可以有几百 MB，
+// 没必要在 JS 桥上搬一遍。
+func (s *DataService) ExportData() (string, error) {
+	dst, err := application.Get().Dialog.SaveFile().
+		SetFilename(fmt.Sprintf("PostPigeon-%s.db", time.Now().Format("20060102"))).
+		AddFilter("PostPigeon 数据库", "*.db").
+		CanCreateDirectories(true).
+		PromptForSingleSelection()
+	if err != nil {
+		return "", apperr.Wrap(err, apperr.CodeDataExport)
+	}
+	if dst == "" {
+		return "", nil // 用户取消
+	}
+	if err := s.exportTo(dst); err != nil {
+		return "", err
+	}
+	return dst, nil
+}
+
+// exportTo 把当前库导出到指定路径。
+func (s *DataService) exportTo(dst string) error {
+	if err := database.ExportTo(s.db, dst); err != nil {
+		return apperr.Wrap(err, apperr.CodeDataExport)
+	}
+	slog.Info("已导出数据库", "path", dst)
+	return nil
+}
+
+// ListBackups 列出数据目录里的备份，按时间从新到旧。
+func (s *DataService) ListBackups() ([]database.BackupFile, error) {
+	backups, err := database.ListBackups(s.cfg.DBPath)
+	if err != nil {
+		return nil, apperr.Wrap(err, apperr.CodeDataStats)
+	}
+	return backups, nil
+}
+
+// RestoreBackup 从指定文件恢复数据库。校验当场做，替换在下次启动时发生。
+func (s *DataService) RestoreBackup(path string) error {
+	if path == "" {
+		return apperr.New(apperr.CodeInvalidInput)
+	}
+	if err := database.StageRestore(s.cfg.DBPath, path); err != nil {
+		return apperr.Wrap(err, apperr.CodeDataRestore)
+	}
+	return nil
+}
+
+// PickBackupFile 让用户选一个备份文件并暂存恢复；用户取消时返回空串。
+func (s *DataService) PickBackupFile() (string, error) {
+	src, err := application.Get().Dialog.OpenFile().
+		AddFilter("PostPigeon 数据库", "*.db").
+		PromptForSingleSelection()
+	if err != nil {
+		return "", apperr.Wrap(err, apperr.CodeDataRestore)
+	}
+	if src == "" {
+		return "", nil // 用户取消
+	}
+	if err := s.RestoreBackup(src); err != nil {
+		return "", err
+	}
+	return src, nil
+}
+
+// GetPendingRestore 返回已暂存、等下次启动生效的恢复文件路径；没有时返回空串。
+func (s *DataService) GetPendingRestore() string {
+	return database.PendingRestore(s.cfg.DBPath)
+}
+
+// CancelRestore 撤销一次已暂存但尚未生效的恢复。
+func (s *DataService) CancelRestore() {
+	database.CancelPendingRestore(s.cfg.DBPath)
+}
+
+// QuitApp 退出应用，供「恢复已就绪，重启后生效」这类流程使用。
+func (s *DataService) QuitApp() {
+	application.Get().Quit()
 }

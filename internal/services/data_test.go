@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"os"
 	"path/filepath"
 	"strings"
 	"testing"
@@ -121,4 +122,51 @@ func TestCompactDatabaseShrinksFile(t *testing.T) {
 		t.Fatalf("压缩后项目丢失，count=%d", projects)
 	}
 	fillHistories(t, db, module.ID, 1)
+}
+
+// TestExportListAndRestore 服务层的导出 → 列出备份 → 暂存恢复串起来能走通。
+// （带原生对话框的入口需要 Wails 应用实例，这里直接测下面那层。）
+func TestExportListAndRestore(t *testing.T) {
+	svc, db := newTestDataService(t)
+	mustCreateProject(t, db, "导出验证")
+
+	dst := filepath.Join(t.TempDir(), "导出的备份.db")
+	if err := svc.exportTo(dst); err != nil {
+		t.Fatalf("导出失败: %v", err)
+	}
+	stat, err := os.Stat(dst)
+	if err != nil {
+		t.Fatalf("导出文件不存在: %v", err)
+	}
+	if stat.Size() <= 0 {
+		t.Fatal("导出文件为空")
+	}
+
+	if err := svc.RestoreBackup(dst); err != nil {
+		t.Fatalf("暂存恢复失败: %v", err)
+	}
+	if svc.GetPendingRestore() == "" {
+		t.Fatal("应存在待恢复文件")
+	}
+
+	svc.CancelRestore()
+	if svc.GetPendingRestore() != "" {
+		t.Fatal("撤销后不应再有待恢复文件")
+	}
+
+	// 空路径与不存在的文件都要被拒绝
+	if err := svc.RestoreBackup(""); err == nil {
+		t.Fatal("空路径应被拒绝")
+	}
+	if err := svc.RestoreBackup(filepath.Join(t.TempDir(), "不存在.db")); err == nil {
+		t.Fatal("不存在的文件应被拒绝")
+	}
+
+	backups, err := svc.ListBackups()
+	if err != nil {
+		t.Fatalf("列出备份失败: %v", err)
+	}
+	if len(backups) != 0 {
+		t.Fatalf("全新库不该有自动备份，实际: %+v", backups)
+	}
 }
