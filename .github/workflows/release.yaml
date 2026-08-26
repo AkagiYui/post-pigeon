@@ -157,10 +157,13 @@ jobs:
 
           ls -l dist
 
+      # 名字带 release- 前缀，好让下面的 release job 只捞发布产物：
+      # checks 复用的 ci.yaml 也会上传一个 go-coverage 工件，不加区分地
+      # merge-multiple 会把覆盖率报告一起发到 Release 里去
       - name: 上传产物
         uses: actions/upload-artifact@v7
         with:
-          name: ${{ matrix.goos }}-${{ matrix.goarch }}
+          name: release-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*
           if-no-files-found: error
 
@@ -182,9 +185,10 @@ jobs:
           echo "tag=${TAG}" >> "$GITHUB_OUTPUT"
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
-      - name: 下载全部产物
+      - name: 下载全部发布产物
         uses: actions/download-artifact@v7
         with:
+          pattern: release-*
           path: artifacts
           merge-multiple: true
 
