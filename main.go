@@ -38,13 +38,13 @@ func main() {
 	// 初始化配置
 	cfg, err := config.New()
 	if err != nil {
-		log.Fatal("初始化配置失败:", err)
+		fatal("初始化配置失败", err, "无法创建数据目录，请检查用户配置目录的权限与剩余空间。")
 	}
 
 	// 初始化日志系统
 	logFile, err := logger.Setup(cfg)
 	if err != nil {
-		log.Fatal("初始化日志失败:", err)
+		fatal("初始化日志失败", err, "日志目录："+cfg.LogsDir)
 	}
 	defer logFile.Close()
 
@@ -53,7 +53,11 @@ func main() {
 	// 初始化数据库
 	db, err := database.Initialize(cfg.DBPath)
 	if err != nil {
-		log.Fatal("初始化数据库失败:", err)
+		fatal("数据库初始化失败", err,
+			"数据目录："+cfg.DataDir+"\n"+
+				"日志目录："+cfg.LogsDir+"\n\n"+
+				"升级会在改动数据库前自动备份。数据目录下最新的 postpigeon.db.bak-* 就是备份，"+
+				"把它改名成 postpigeon.db 即可回到升级前的状态。")
 	}
 
 	// 创建服务实例
@@ -292,6 +296,25 @@ func main() {
 	}
 
 	slog.Info("PostPigeon 应用退出")
+}
+
+// fatal 记录致命错误、弹出原生对话框，然后退出。
+//
+// 启动阶段的失败必须让用户看见：GUI 应用是双击起来的，既没有控制台也还没有窗口，
+// 只写 stderr 的话用户看到的就是「双击没反应」，既不知道出了什么事，也不知道数据
+// 还在不在。对话框由 platform.ShowErrorDialog 用系统自带工具弹，不依赖 Wails 的
+// 主循环（那时 application 还没创建）。
+func fatal(reason string, err error, detail string) {
+	// 日志系统可能还没起来，两条都发：slog 落到默认 handler，log 落到 stderr
+	slog.Error(reason, "error", err)
+	log.Printf("%s: %v", reason, err)
+
+	message := reason + "：\n" + err.Error()
+	if detail != "" {
+		message += "\n\n" + detail
+	}
+	platform.ShowErrorDialog(config.AppName+" 启动失败", message)
+	os.Exit(1)
 }
 
 // newUpdateManager 构造更新管理器；不启用更新时返回 nil。
