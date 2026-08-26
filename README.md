@@ -63,7 +63,7 @@ Go 负责网络与数据，SolidJS 负责界面，全部数据存在本地 SQLit
 | Go | 见 [go.mod](go.mod) | 后端与构建 |
 | Node.js | ≥ 24 | 前端构建 |
 | pnpm | 见 [frontend/package.json](frontend/package.json) 的 `packageManager` | 前端包管理 |
-| Wails CLI | v3 | `go install github.com/wailsapp/wails/v3/cmd/wails3@latest` |
+| Wails CLI | v3 | `go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.13` |
 
 Linux 还需要 `libgtk-4-dev` 与 `libwebkitgtk-6.0-dev`（Ubuntu 24.04+ / Debian 13+）。
 

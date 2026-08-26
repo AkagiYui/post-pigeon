@@ -114,7 +114,7 @@ jobs:
       # tsconfig 覆盖 bindings/ 目录，类型检查前需要先生成绑定
       - name: 生成 Wails 绑定
         run: |
-          go install github.com/wailsapp/wails/v3/cmd/wails3@latest
+          go install github.com/wailsapp/wails/v3/cmd/wails3@v3.0.0-beta.13
           wails3 generate bindings -ts -clean=true
 
       # tsconfig 覆盖 src/routeTree.gen.ts，该文件由 tanstack router 插件在构建时

@@ -36,6 +36,10 @@
 - 请求历史默认对 Authorization / Cookie / API Key 请求头与秘密变量值脱敏
 - 窗口状态重置新增 `POSTPIGEON_RESET_WINDOW=1` 与 `--reset-window` 两种方式
   （Linux/Wayland 下按 Shift 无效）
+- 升级到 Wails v3.0.0-beta.13。Linux 桌面栈随上游从 GTK3/WebKit2GTK 4.1
+  切到 GTK4/WebKitGTK 6.0（GTK3 在上游 v3.1 会移除），运行时依赖改为
+  `libgtk-4-1` 与 `libwebkitgtk-6.0-4`，最低发行版要求抬到
+  Ubuntu 24.04 / Debian 13；macOS 最低版本由 10.15 抬到 12.0
 
 ### 修复
 

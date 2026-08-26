@@ -39,7 +39,7 @@
     "@tanstack/router-plugin": "^1.132.0",
     "@tanstack/solid-router": "^1.132.0",
     "@thisbeyond/solid-dnd": "^0.7.5",
-    "@wailsio/runtime": "latest",
+    "@wailsio/runtime": "3.0.0-beta.13",
     "class-variance-authority": "^0.7.1",
     "clsx": "^2.1.1",
     "codemirror": "^6.0.2",

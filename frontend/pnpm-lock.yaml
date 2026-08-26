@@ -75,8 +75,8 @@ importers:
         specifier: ^0.7.5
         version: 0.7.5(solid-js@1.9.12)
       '@wailsio/runtime':
-        specifier: latest
-        version: 3.0.0-alpha.79
+        specifier: 3.0.0-beta.13
+        version: 3.0.0-beta.13
       class-variance-authority:
         specifier: ^0.7.1
         version: 0.7.1
@@ -1461,8 +1461,8 @@ packages:
   '@vitest/utils@4.1.11':
     resolution: {integrity: sha512-zTCVGpyFsGWBhllOyKlTw/vnr6D9qxsfSDyfbyZmTyjHw5N/VuvzHpHoQjm2ZJzn4RJgx5w4r7V0er69CmLgPQ==}
 
-  '@wailsio/runtime@3.0.0-alpha.79':
-    resolution: {integrity: sha512-NITzxKmJsMEruc39L166lbPJVECxzcbdqpHVqOOF7Cu/7Zqk/e3B/gNpkUjhNyo5rVb3V1wpS8oEgLUmpu1cwA==}
+  '@wailsio/runtime@3.0.0-beta.13':
+    resolution: {integrity: sha512-59nmw/qiRN8LukEmIDDmyTZBZJ/pCoxpLowAtnS6VVJvoQhiTryB28menjgNhkbZg36g8nd4GifBlKzjmtycyA==}
 
   '@zag-js/accordion@1.41.2':
     resolution: {integrity: sha512-7G//V7svGGT8k5avw7bbQvbRC0Q/9QtX51b4iyAB1alR9E5mFd6Ch8q4njwcXClMQ7xePS3jUfVnzVGiRInEiQ==}
@@ -4432,7 +4432,7 @@ snapshots:
       convert-source-map: 2.0.0
       tinyrainbow: 3.1.1
 
-  '@wailsio/runtime@3.0.0-alpha.79': {}
+  '@wailsio/runtime@3.0.0-beta.13': {}
 
   '@zag-js/accordion@1.41.2':
     dependencies:
