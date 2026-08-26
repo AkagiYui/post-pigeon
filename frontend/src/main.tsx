@@ -7,11 +7,12 @@ import "solid-devtools"
 import { RouterProvider } from "@tanstack/solid-router"
 import { render } from "solid-js/web"
 
-import { ProjectService } from "@/../bindings/PostPigeon/internal/services"
-import { initI18n } from "@/hooks/useI18n"
+import { DataService, ProjectService } from "@/../bindings/PostPigeon/internal/services"
+import { initI18n, t } from "@/hooks/useI18n"
 import { initScaleShortcuts, initTheme } from "@/hooks/useTheme"
 import { getRouter } from "@/router"
 import { activeProjectId, openProjectIds, projectNames, setActiveProjectId, setOpenProjectIds, setProjectNames } from "@/stores/app"
+import { toastWarning } from "@/stores/toast"
 
 // 禁用默认的右键菜单
 // 有自定义右键菜单的组件会自己处理 contextmenu 事件
@@ -75,6 +76,18 @@ async function restoreAppState() {
   }
 }
 
+
+/** 上次没能正常退出时提示用户，并指向导出诊断信息的入口 */
+async function notifyIfLastRunCrashed() {
+  try {
+    if (await DataService.GetLastRunCrashed()) {
+      toastWarning(t("data.crash.toast"))
+    }
+  } catch {
+    // 提示本身失败不影响使用
+  }
+}
+
 // 初始化主题、语言，并恢复应用状态。
 // 整条链路必须带 catch：任何一步失败都不应变成未捕获的 Promise 拒绝，
 // 否则用户看到的是一个永远停在加载态的空白窗口且控制台里毫无线索。
@@ -115,6 +128,9 @@ Promise.all([initTheme(), initI18n()]).then(async () => {
       })
     })
   }
+  // 上次异常退出：给一次可见的提示。崩溃对无服务端应用来说是彻底沉默的，
+  // 用户只会记得「它有时候会突然没了」，我们也永远收不到线索。
+  void notifyIfLastRunCrashed()
 }).catch((error) => {
   console.error("应用初始化失败", error)
   const rootElement = document.getElementById("app")

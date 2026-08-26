@@ -33,20 +33,23 @@ export function DataSettings() {
   const [info, setInfo] = createSignal<DatabaseInfo | null>(null)
   const [backups, setBackups] = createSignal<BackupFile[]>([])
   const [pending, setPending] = createSignal("")
+  const [crashed, setCrashed] = createSignal(false)
   const [busy, setBusy] = createSignal("")
   // 恢复是覆盖性操作，沿用本项目「再点一次确认」的交互，不额外弹窗
   const [confirming, setConfirming] = createSignal("")
 
   const load = async () => {
     try {
-      const [nextInfo, nextBackups, nextPending] = await Promise.all([
+      const [nextInfo, nextBackups, nextPending, nextCrashed] = await Promise.all([
         DataService.GetDatabaseInfo(),
         DataService.ListBackups(),
         DataService.GetPendingRestore(),
+        DataService.GetLastRunCrashed(),
       ])
       setInfo(nextInfo)
       setBackups(nextBackups || [])
       setPending(nextPending)
+      setCrashed(nextCrashed)
     } catch (e) {
       toastError(e, "error.op.loadFailed")
     }
@@ -121,6 +124,18 @@ export function DataSettings() {
     }
   }
 
+  const exportDiagnostics = async () => {
+    setBusy("diagnostics")
+    try {
+      const path = await DataService.ExportDiagnostics()
+      if (path) toastSuccess(t("data.exported", { path }))
+    } catch (e) {
+      toastError(e, "error.op.exportFailed")
+    } finally {
+      setBusy("")
+    }
+  }
+
   const cancelRestore = async () => {
     try {
       await DataService.CancelRestore()
@@ -159,6 +174,20 @@ export function DataSettings() {
           </Button>
         </div>
         <p class="text-xs text-muted-foreground">{t("data.export.hint")}</p>
+      </div>
+
+      {/* 诊断信息 */}
+      <div class="space-y-3 rounded-md border border-border p-3">
+        <div class="text-sm font-medium">{t("data.diagnostics.title")}</div>
+        <Show when={crashed()}>
+          <p class="rounded-md border border-destructive/40 bg-destructive/5 p-2 text-xs">
+            {t("data.crash.notice")}
+          </p>
+        </Show>
+        <p class="text-xs text-muted-foreground">{t("data.diagnostics.hint")}</p>
+        <Button size="sm" variant="outline" onClick={exportDiagnostics} disabled={busy() !== ""}>
+          {busy() === "diagnostics" ? t("data.exporting") : t("data.diagnostics.export")}
+        </Button>
       </div>
 
       {/* 从备份恢复 */}

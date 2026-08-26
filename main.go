@@ -10,6 +10,7 @@ import (
 	"time"
 
 	"PostPigeon/internal/config"
+	"PostPigeon/internal/crashreport"
 	"PostPigeon/internal/database"
 	"PostPigeon/internal/instancelock"
 	"PostPigeon/internal/logger"
@@ -66,6 +67,16 @@ func main() {
 	}
 	defer lock.Release()
 
+	// 运行标记：正常退出时清掉，下次启动还看得见就说明上次是崩的。
+	// 放在实例锁之后，免得被随后就退出的第二个实例覆盖。
+	lastRunCrashed, err := crashreport.Mark(cfg.DataDir)
+	if err != nil {
+		slog.Warn("写入运行标记失败", "error", err)
+	}
+	if lastRunCrashed {
+		slog.Warn("上次未正常退出，可在设置 → 数据里导出诊断信息")
+	}
+
 	// 应用上次暂存的「从备份恢复」。必须在打开数据库之前：换掉的是数据库文件本身，
 	// 已经建立的连接会看到一个被抽走的文件。
 	if restored, err := database.ApplyPendingRestore(cfg.DBPath); err != nil {
@@ -107,7 +118,7 @@ func main() {
 	curlService := services.NewCurlService(db)
 	postmanService := services.NewPostmanService(db)
 	cookieService := services.NewCookieService(db)
-	dataService := services.NewDataService(db, cfg)
+	dataService := services.NewDataService(db, cfg, lastRunCrashed)
 	runnerService := services.NewRunnerService(db, httpService)
 	updateManager := newUpdateManager()
 	updaterService := services.NewUpdaterService(db, updateManager, changelogMarkdown)
@@ -323,6 +334,10 @@ func main() {
 		os.Exit(1)
 	}
 
+	// 走到这里才算正常退出，清掉运行标记
+	if err := crashreport.Clear(cfg.DataDir); err != nil {
+		slog.Warn("清除运行标记失败", "error", err)
+	}
 	slog.Info("PostPigeon 应用退出")
 }
 

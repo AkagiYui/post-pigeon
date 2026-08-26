@@ -1,9 +1,14 @@
 package services
 
 import (
+	"archive/zip"
 	"fmt"
 	"log/slog"
 	"os"
+	"path/filepath"
+	"runtime"
+	"sort"
+	"strings"
 	"time"
 
 	"PostPigeon/internal/apperr"
@@ -22,11 +27,16 @@ import (
 type DataService struct {
 	db  *gorm.DB
 	cfg *config.Config
+	// lastRunCrashed 上次是否异常退出，由启动时的运行标记判定
+	lastRunCrashed bool
 }
 
+// diagnosticsLogCount 诊断包里附带的日志文件份数（按天切分，取最近几天）。
+const diagnosticsLogCount = 3
+
 // NewDataService 创建数据维护服务实例。
-func NewDataService(db *gorm.DB, cfg *config.Config) *DataService {
-	return &DataService{db: db, cfg: cfg}
+func NewDataService(db *gorm.DB, cfg *config.Config, lastRunCrashed bool) *DataService {
+	return &DataService{db: db, cfg: cfg, lastRunCrashed: lastRunCrashed}
 }
 
 // DatabaseInfo 数据库的体积概况。
@@ -187,4 +197,147 @@ func (s *DataService) CancelRestore() {
 // QuitApp 退出应用，供「恢复已就绪，重启后生效」这类流程使用。
 func (s *DataService) QuitApp() {
 	application.Get().Quit()
+}
+
+// GetLastRunCrashed 返回上次是否异常退出，供界面提示用户导出诊断信息。
+func (s *DataService) GetLastRunCrashed() bool {
+	return s.lastRunCrashed
+}
+
+// ExportDiagnostics 让用户选个位置，导出一份诊断信息压缩包；取消时返回空串。
+//
+// 无服务端应用出问题时你什么也看不到，只能靠用户描述。这个包让「反馈问题」这件事
+// 从「它有时候会崩」变成一份可读的现场：版本、平台、数据库体积、最近的日志。
+//
+// 刻意不含数据库本身：库里有明文的 token 与密码，不该因为反馈一个 bug 就被带出去。
+func (s *DataService) ExportDiagnostics() (string, error) {
+	dst, err := application.Get().Dialog.SaveFile().
+		SetFilename(fmt.Sprintf("PostPigeon-诊断-%s.zip", time.Now().Format("20060102-150405"))).
+		AddFilter("压缩包", "*.zip").
+		CanCreateDirectories(true).
+		PromptForSingleSelection()
+	if err != nil {
+		return "", apperr.Wrap(err, apperr.CodeDataExport)
+	}
+	if dst == "" {
+		return "", nil // 用户取消
+	}
+	if err := s.writeDiagnostics(dst); err != nil {
+		return "", apperr.Wrap(err, apperr.CodeDataExport)
+	}
+	slog.Info("已导出诊断信息", "path", dst)
+	return dst, nil
+}
+
+// writeDiagnostics 把诊断信息写成 zip。先写 .tmp 再改名，覆盖失败不至于毁掉原文件。
+func (s *DataService) writeDiagnostics(dst string) error {
+	tmp := dst + ".tmp"
+	file, err := os.Create(tmp)
+	if err != nil {
+		return err
+	}
+	zw := zip.NewWriter(file)
+
+	fail := func(err error) error {
+		_ = zw.Close()
+		_ = file.Close()
+		_ = os.Remove(tmp)
+		return err
+	}
+
+	summary, err := zw.Create("summary.txt")
+	if err != nil {
+		return fail(err)
+	}
+	if _, err := summary.Write([]byte(s.diagnosticsSummary())); err != nil {
+		return fail(err)
+	}
+
+	for _, name := range recentLogFiles(s.cfg.LogsDir, diagnosticsLogCount) {
+		content, err := os.ReadFile(filepath.Join(s.cfg.LogsDir, name))
+		if err != nil {
+			continue // 少一份日志不该让整个导出失败
+		}
+		entry, err := zw.Create("logs/" + name)
+		if err != nil {
+			return fail(err)
+		}
+		if _, err := entry.Write(content); err != nil {
+			return fail(err)
+		}
+	}
+
+	if err := zw.Close(); err != nil {
+		return fail(err)
+	}
+	if err := file.Close(); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	if err := os.Rename(tmp, dst); err != nil {
+		_ = os.Remove(tmp)
+		return err
+	}
+	return nil
+}
+
+// diagnosticsSummary 汇总一份纯文本的运行现场。
+func (s *DataService) diagnosticsSummary() string {
+	var b strings.Builder
+	fmt.Fprintf(&b, "PostPigeon 诊断信息\n")
+	fmt.Fprintf(&b, "导出时间: %s\n\n", time.Now().Format(time.RFC3339))
+
+	fmt.Fprintf(&b, "版本:     %s\n", config.Version)
+	fmt.Fprintf(&b, "构建哈希: %s\n", config.BuildHash)
+	fmt.Fprintf(&b, "构建时间: %s\n", config.BuildTime)
+	fmt.Fprintf(&b, "平台:     %s/%s\n", runtime.GOOS, runtime.GOARCH)
+	fmt.Fprintf(&b, "Go:       %s\n\n", runtime.Version())
+
+	fmt.Fprintf(&b, "数据目录: %s\n", s.cfg.DataDir)
+	fmt.Fprintf(&b, "上次退出: %s\n\n", crashedText(s.lastRunCrashed))
+
+	if info, err := s.GetDatabaseInfo(); err == nil {
+		fmt.Fprintf(&b, "数据库大小:   %d 字节\n", info.SizeBytes)
+		fmt.Fprintf(&b, "可回收空间:   %d 字节\n\n", info.ReclaimableBytes)
+	}
+
+	if backups, err := database.ListBackups(s.cfg.DBPath); err == nil {
+		fmt.Fprintf(&b, "备份（%d 份）:\n", len(backups))
+		for _, backup := range backups {
+			fmt.Fprintf(&b, "  %s  %d 字节  %s\n",
+				backup.Name, backup.SizeBytes, backup.CreatedAt.Format(time.RFC3339))
+		}
+		b.WriteString("\n")
+	}
+
+	b.WriteString("说明：本压缩包只含上面这份摘要与最近的日志，不含数据库文件——\n")
+	b.WriteString("库里有明文的 token 与密码，不应该因为反馈一个问题就被带出去。\n")
+	return b.String()
+}
+
+// crashedText 把「上次是否异常退出」翻译成摘要里的一句话。
+func crashedText(crashed bool) string {
+	if crashed {
+		return "异常退出（未走正常关闭流程）"
+	}
+	return "正常"
+}
+
+// recentLogFiles 返回日志目录里最近的若干个日志文件名（文件名以日期结尾，字典序即时间序）。
+func recentLogFiles(logsDir string, limit int) []string {
+	entries, err := os.ReadDir(logsDir)
+	if err != nil {
+		return nil
+	}
+	var names []string
+	for _, e := range entries {
+		if !e.IsDir() && strings.HasPrefix(e.Name(), "postpigeon-") && strings.HasSuffix(e.Name(), ".log") {
+			names = append(names, e.Name())
+		}
+	}
+	sort.Sort(sort.Reverse(sort.StringSlice(names)))
+	if len(names) > limit {
+		names = names[:limit]
+	}
+	return names
 }

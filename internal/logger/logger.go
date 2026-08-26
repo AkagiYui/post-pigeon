@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"path/filepath"
+	"runtime/debug"
 	"strings"
 	"time"
 
@@ -23,6 +24,13 @@ func Setup(cfg *config.Config) (*os.File, error) {
 	file, err := os.OpenFile(logPath, os.O_CREATE|os.O_WRONLY|os.O_APPEND, 0644)
 	if err != nil {
 		return nil, fmt.Errorf("无法打开日志文件: %w", err)
+	}
+
+	// 让 panic 与运行时 fatal 的堆栈也落进日志文件。Go 运行时默认只往 stderr 打，
+	// 而双击启动的 GUI 应用没有 stderr 可看——崩溃于是彻底沉默，用户只记得
+	// 「它有时候会突然没了」，日志里却什么都查不到。
+	if err := debug.SetCrashOutput(file, debug.CrashOptions{}); err != nil {
+		slog.Warn("设置崩溃输出失败", "error", err)
 	}
 
 	// 同时输出到标准输出和文件

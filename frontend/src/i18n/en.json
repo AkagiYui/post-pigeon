@@ -615,5 +615,10 @@
   "data.restore.pickFile": "Restore from file…",
   "error.data.export_failed": "Failed to export data",
   "error.data.restore_failed": "Failed to restore data",
-  "error.data.open_dir_failed": "Failed to open data folder"
+  "error.data.open_dir_failed": "Failed to open data folder",
+  "data.diagnostics.title": "Diagnostics",
+  "data.diagnostics.hint": "Exports a zip with the version, platform, database size and the last few days of logs — attach it when reporting a problem. It does not include the database file (which holds tokens and passwords in plain text).",
+  "data.diagnostics.export": "Export diagnostics",
+  "data.crash.notice": "The app did not exit cleanly last time — it may have crashed. Export diagnostics and send it over; the logs from that moment are inside.",
+  "data.crash.toast": "The app did not exit cleanly last time. You can export diagnostics under Settings → Data"
 }

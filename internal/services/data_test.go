@@ -1,9 +1,12 @@
 package services
 
 import (
+	"archive/zip"
 	"fmt"
+	"io"
 	"os"
 	"path/filepath"
+	"slices"
 	"strings"
 	"testing"
 
@@ -24,7 +27,7 @@ func newTestDataService(t *testing.T) (*DataService, *gorm.DB) {
 		t.Fatalf("初始化测试数据库失败: %v", err)
 	}
 	cfg := &config.Config{DataDir: dir, LogsDir: filepath.Join(dir, "logs"), DBPath: dbPath}
-	return NewDataService(db, cfg), db
+	return NewDataService(db, cfg, false), db
 }
 
 // fillHistories 塞入若干条带大响应体的历史记录，把库撑大。
@@ -168,5 +171,106 @@ func TestExportListAndRestore(t *testing.T) {
 	}
 	if len(backups) != 0 {
 		t.Fatalf("全新库不该有自动备份，实际: %+v", backups)
+	}
+}
+
+// TestWriteDiagnostics 诊断包必须含摘要与最近的日志，且绝不能含数据库文件。
+func TestWriteDiagnostics(t *testing.T) {
+	svc, db := newTestDataService(t)
+	mustCreateProject(t, db, "诊断验证")
+
+	// 造几个日志文件：只应带上最近的 diagnosticsLogCount 份
+	if err := os.MkdirAll(svc.cfg.LogsDir, 0o755); err != nil {
+		t.Fatalf("建日志目录失败: %v", err)
+	}
+	logNames := []string{
+		"postpigeon-2026-08-20.log",
+		"postpigeon-2026-08-21.log",
+		"postpigeon-2026-08-22.log",
+		"postpigeon-2026-08-23.log",
+	}
+	for _, name := range logNames {
+		if err := os.WriteFile(filepath.Join(svc.cfg.LogsDir, name), []byte("日志内容 "+name), 0o600); err != nil {
+			t.Fatalf("造日志失败: %v", err)
+		}
+	}
+	if err := os.WriteFile(filepath.Join(svc.cfg.LogsDir, "无关文件.txt"), []byte("x"), 0o600); err != nil {
+		t.Fatalf("造文件失败: %v", err)
+	}
+
+	dst := filepath.Join(t.TempDir(), "诊断.zip")
+	if err := svc.writeDiagnostics(dst); err != nil {
+		t.Fatalf("导出诊断失败: %v", err)
+	}
+
+	reader, err := zip.OpenReader(dst)
+	if err != nil {
+		t.Fatalf("打开诊断包失败: %v", err)
+	}
+	defer reader.Close()
+
+	var names []string
+	var summary string
+	for _, f := range reader.File {
+		names = append(names, f.Name)
+		if f.Name == "summary.txt" {
+			rc, err := f.Open()
+			if err != nil {
+				t.Fatalf("读取摘要失败: %v", err)
+			}
+			content, _ := io.ReadAll(rc)
+			rc.Close()
+			summary = string(content)
+		}
+	}
+
+	if summary == "" {
+		t.Fatalf("诊断包里没有摘要，实际内容: %v", names)
+	}
+	for _, want := range []string{"版本", "平台", "数据库大小", "上次退出"} {
+		if !strings.Contains(summary, want) {
+			t.Fatalf("摘要里缺少「%s」:\n%s", want, summary)
+		}
+	}
+
+	// 只带最近 3 份日志，且不含无关文件
+	logCount := 0
+	for _, name := range names {
+		if strings.HasPrefix(name, "logs/") {
+			logCount++
+		}
+		if strings.Contains(name, "无关文件") {
+			t.Fatalf("带上了无关文件: %v", names)
+		}
+		// 数据库绝不能进包：里面是明文凭据
+		if strings.Contains(name, ".db") {
+			t.Fatalf("诊断包不应含数据库文件: %v", names)
+		}
+	}
+	if logCount != diagnosticsLogCount {
+		t.Fatalf("应带 %d 份日志，实际 %d 份: %v", diagnosticsLogCount, logCount, names)
+	}
+	if !slices.Contains(names, "logs/postpigeon-2026-08-23.log") {
+		t.Fatalf("应带上最新的日志: %v", names)
+	}
+	if slices.Contains(names, "logs/postpigeon-2026-08-20.log") {
+		t.Fatalf("最旧的日志不应带上: %v", names)
+	}
+}
+
+// TestDiagnosticsSummaryReportsCrash 上次异常退出这件事必须写进摘要。
+func TestDiagnosticsSummaryReportsCrash(t *testing.T) {
+	svc, _ := newTestDataService(t)
+	if strings.Contains(svc.diagnosticsSummary(), "异常退出") {
+		t.Fatal("正常退出不该写成异常")
+	}
+	if !svc.GetLastRunCrashed() {
+		svc.lastRunCrashed = true
+	}
+	if !strings.Contains(svc.diagnosticsSummary(), "异常退出") {
+		t.Fatal("上次异常退出应写进摘要")
+	}
+	if !svc.GetLastRunCrashed() {
+		t.Fatal("GetLastRunCrashed 应返回 true")
 	}
 }
