@@ -27,7 +27,7 @@ wails3 task check
 | 前端 Lint | `pnpm -C frontend lint` |
 | 前端测试 | `pnpm -C frontend test` |
 
-CI 在 [.github/workflows/ci.yaml](.github/workflows/ci.yaml)，打包与发版会先跑它。
+校验在 [.github/workflows/check.yaml](.github/workflows/check.yaml)，打包与发版会先跑它。
 
 ## Commit 规范
 

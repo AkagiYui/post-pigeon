@@ -1,4 +1,4 @@
-name: CI
+name: 校验
 
 on:
   pull_request:
@@ -9,7 +9,7 @@ on:
 
 # 同一分支的重复推送只保留最新一次校验
 concurrency:
-  group: ci-${{ github.workflow }}-${{ github.ref }}
+  group: check-${{ github.workflow }}-${{ github.ref }}
   cancel-in-progress: true
 
 env:

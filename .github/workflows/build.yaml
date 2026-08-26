@@ -36,11 +36,11 @@ jobs:
         run: python3 scripts/check_build.py
 
   # 打包前先跑完整校验（vet / test / typecheck / lint / 前端单测）
-  # ci.yaml 不再单独监听 push:master（否则每次推送校验会跑两遍），
+  # check.yaml 不再单独监听 push:master（否则每次推送校验会跑两遍），
   # 所以这里无论是否需要构建都要跑，纯文档提交也不能漏掉校验
   checks:
     name: 校验
-    uses: ./.github/workflows/ci.yaml
+    uses: ./.github/workflows/check.yaml
 
   build:
     needs: [check-commits, checks]
@@ -107,7 +107,7 @@ jobs:
             echo "bin=$(go env GOPATH)/bin"
           } >> "$GITHUB_OUTPUT"
 
-      # setup-go 自带缓存的 key 只含 hash(go.sum)，ci.yaml 的 `go build ./...`
+      # setup-go 自带缓存的 key 只含 hash(go.sum)，check.yaml 的 `go build ./...`
       # 和这里的 `-tags production -trimpath` 生产构建会抢同一个条目（-trimpath
       # 让缓存条目完全不同），而且 setup-go 只在 miss 时写缓存、之后再不更新，
       # 于是 cgo 那 40 多秒每次都得重来。独立 key + restore-keys 让缓存滚动前进。

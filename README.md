@@ -1,7 +1,6 @@
 # PostPigeon
 
 [![Build](https://github.com/AkagiYui/post-pigeon/actions/workflows/build.yaml/badge.svg)](https://github.com/AkagiYui/post-pigeon/actions/workflows/build.yaml)
-[![CI](https://github.com/AkagiYui/post-pigeon/actions/workflows/ci.yaml/badge.svg)](https://github.com/AkagiYui/post-pigeon/actions/workflows/ci.yaml)
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](https://opensource.org/licenses/MIT)
 
 PostPigeon 是一个基于 [Wails 3](https://v3.wails.io/) 构建的桌面 API 调试工具：
