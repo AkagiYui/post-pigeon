@@ -111,6 +111,10 @@ jobs:
       # 和这里的 `-tags production -trimpath` 生产构建会抢同一个条目（-trimpath
       # 让缓存条目完全不同），而且 setup-go 只在 miss 时写缓存、之后再不更新，
       # 于是 cgo 那 40 多秒每次都得重来。独立 key + restore-keys 让缓存滚动前进。
+      # key 用 runner.arch 而不是矩阵变量：build.yaml 的矩阵字段是 arch(x64)、
+      # release.yaml 的是 goarch(amd64)，各用各的会让同一台机器上的两条流水线
+      # 互相看不见对方攒的缓存。Build 跑在 master 上，它的缓存对 tag 也可见，
+      # 于是不常跑的 Release 能直接吃到热缓存。
       - name: 缓存 Go 构建产物
         if: runner.os != 'Windows'
         uses: actions/cache@v4
@@ -118,9 +122,9 @@ jobs:
           path: |
             ${{ steps.gocache.outputs.build }}
             ${{ steps.gocache.outputs.mod }}
-          key: gopkg-${{ runner.os }}-${{ matrix.arch }}-${{ hashFiles('go.sum') }}
+          key: gopkg-${{ runner.os }}-${{ runner.arch }}-${{ hashFiles('go.sum') }}
           restore-keys: |
-            gopkg-${{ runner.os }}-${{ matrix.arch }}-
+            gopkg-${{ runner.os }}-${{ runner.arch }}-
 
       - name: 安装 pnpm
         uses: pnpm/action-setup@v6
