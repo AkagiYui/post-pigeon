@@ -62,6 +62,15 @@ jobs:
     defaults:
       run:
         shell: bash
+    # secrets 上下文在 step 的 if: 里不可见，必须先映射到 env 才能用
+    # env.XXX != '' 判断「有没有配签名」。全部为空时 macOS 产物退回 ad-hoc
+    # 签名，其余平台完全不受影响，发版照常走完。
+    env:
+      MACOS_CERTIFICATE: ${{ secrets.MACOS_CERTIFICATE }}
+      MACOS_CERTIFICATE_PASSWORD: ${{ secrets.MACOS_CERTIFICATE_PASSWORD }}
+      APPLE_API_KEY_P8: ${{ secrets.APPLE_API_KEY_P8 }}
+      APPLE_API_KEY_ID: ${{ secrets.APPLE_API_KEY_ID }}
+      APPLE_API_ISSUER: ${{ secrets.APPLE_API_ISSUER }}
 
     steps:
       # workflow_dispatch 时默认检出的是工作流所在分支而不是要发布的 tag，
@@ -170,8 +179,76 @@ jobs:
       - name: 更新构建资源
         run: wails3 task common:update:build-assets
 
+      # 证书导进临时钥匙串，构建结束即删。没配 secrets 时整步跳过，
+      # codesign:mac 会自动退回 ad-hoc，不影响其它平台发版。
+      - name: 导入 macOS 签名证书
+        if: runner.os == 'macOS' && env.MACOS_CERTIFICATE != ''
+        run: |
+          set -euo pipefail
+          KEYCHAIN="${RUNNER_TEMP}/codesign.keychain-db"
+          KEYCHAIN_PASSWORD="$(openssl rand -base64 24)"
+
+          security create-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"
+          # 钥匙串默认 5 分钟无操作自动上锁，而构建比这久得多，
+          # 不改超时的话签名那一步会因为钥匙串已上锁而失败
+          security set-keychain-settings -lut 21600 "${KEYCHAIN}"
+          security unlock-keychain -p "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}"
+
+          printf '%s' "${MACOS_CERTIFICATE}" | base64 --decode > "${RUNNER_TEMP}/cert.p12"
+          security import "${RUNNER_TEMP}/cert.p12" -k "${KEYCHAIN}" \
+            -P "${MACOS_CERTIFICATE_PASSWORD}" -T /usr/bin/codesign
+          rm -f "${RUNNER_TEMP}/cert.p12"
+
+          # 少了这句，codesign 取用私钥时会弹图形授权框，在无人值守的
+          # runner 上表现为整步挂到超时
+          security set-key-partition-list -S apple-tool:,apple:,codesign: \
+            -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}" > /dev/null
+
+          # 放进搜索列表，codesign 才找得到这个钥匙串里的身份；
+          # 同时保留原有钥匙串，否则后续步骤取不到系统证书
+          security list-keychains -d user -s "${KEYCHAIN}" \
+            $(security list-keychains -d user | tr -d '"')
+
+          # 身份串（"Developer ID Application: 某某 (TEAMID)"）不是秘密，
+          # 从证书里现取即可，不必再多配一个 secret
+          IDENTITY="$(security find-identity -v -p codesigning "${KEYCHAIN}" \
+            | grep 'Developer ID Application' | head -1 | sed -E 's/.*"(.*)"$/\1/')"
+          if [ -z "${IDENTITY}" ]; then
+            echo "::error::钥匙串里没有 Developer ID Application 证书，请检查 MACOS_CERTIFICATE"
+            exit 1
+          fi
+          echo "签名身份：${IDENTITY}"
+          echo "MACOS_SIGN_IDENTITY=${IDENTITY}" >> "${GITHUB_ENV}"
+
+      # 上一步把 MACOS_SIGN_IDENTITY 写进了 GITHUB_ENV，
+      # build/darwin/Taskfile.yml 的 codesign:mac 读它决定正式签还是 ad-hoc
       - name: 打包应用
         run: wails3 package
+
+      # 必须排在「归档发布产物」之前：staple 是往 .app 里写票据，
+      # 归档一旦先做，发出去的就是没票据的包。
+      - name: 公证并钉票据
+        if: runner.os == 'macOS' && env.MACOS_CERTIFICATE != '' && env.APPLE_API_KEY_P8 != ''
+        env:
+          APPLE_API_KEY_PATH: ${{ runner.temp }}/notarize_key.p8
+        run: |
+          set -euo pipefail
+          printf '%s' "${APPLE_API_KEY_P8}" | base64 --decode > "${APPLE_API_KEY_PATH}"
+          wails3 task darwin:notarize
+
+      - name: 检查签名状态
+        if: runner.os == 'macOS'
+        run: wails3 task darwin:sign:verify
+
+      # 未签名的 macOS 产物照发不误，但要在 job 摘要里留个显眼的提示，
+      # 免得当成正常发布推给用户
+      - name: 提示 macOS 产物未签名
+        if: runner.os == 'macOS' && env.MACOS_CERTIFICATE == ''
+        run: echo "::warning::未配置 MACOS_CERTIFICATE，本次 macOS 产物为 ad-hoc 签名，用户下载后会被 Gatekeeper 拦下"
+
+      - name: 提示 macOS 产物未公证
+        if: runner.os == 'macOS' && env.MACOS_CERTIFICATE != '' && env.APPLE_API_KEY_P8 == ''
+        run: echo "::warning::未配置 APPLE_API_KEY_P8，本次 macOS 产物已签名但未公证，Gatekeeper 仍会拦下"
 
       # 更新产物的命名与形态直接决定自动更新能不能跑通，两条硬约束：
       #   1. 文件名必须是 <AppName>-<GOOS>-<GOARCH>[.zip|.tar.gz|.exe]，
@@ -225,6 +302,13 @@ jobs:
           name: release-${{ matrix.goos }}-${{ matrix.goarch }}
           path: dist/*
           if-no-files-found: error
+
+      # runner 本就是一次性的，但凭据不该在后续步骤里继续可用
+      - name: 清理签名凭据
+        if: always() && runner.os == 'macOS'
+        run: |
+          security delete-keychain "${RUNNER_TEMP}/codesign.keychain-db" 2>/dev/null || true
+          rm -f "${RUNNER_TEMP}/notarize_key.p8" "${RUNNER_TEMP}/cert.p12"
 
   release:
     name: 发布 Release

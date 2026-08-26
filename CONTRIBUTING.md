@@ -149,3 +149,96 @@ PostPigeon-<GOOS>-<GOARCH>[.zip|.tar.gz|.exe]
 macOS 的 `.app` 用 `ditto -c -k --keepParent` 打包：普通 zip 会破坏代码签名，
 替换后会被 Gatekeeper 拦下。updater 逐字节替换、**不会重新签名**，所以上传前
 `.app` 就必须已经签名并公证。
+
+### macOS 代码签名
+
+**没有 Apple 开发者账号也能发版**：不配任何 secret 时，macOS 产物退回 ad-hoc
+签名，其余平台完全不受影响，工作流正常跑完，只在 job 摘要里留一条 warning。
+代价是用户下载后双击会看到「已损坏，应移到废纸篓」，得右键打开或
+`xattr -dr com.apple.quarantine PostPigeon.app`。
+
+配齐 secret 后自动切换成 Developer ID 签名 + Apple 公证，用户可以直接双击打开。
+判据是这一条，三种状态泾渭分明：
+
+```bash
+spctl -a -vvv -t exec bin/PostPigeon.app
+```
+
+| 输出 | 含义 |
+| --- | --- |
+| `rejected`（无 source 行） | ad-hoc，未配签名 |
+| `rejected` + `source=Unnotarized Developer ID` | 签了但没公证，**仍会被拦** |
+| `accepted` + `source=Notarized Developer ID` | 发版可用状态 |
+
+本地自查用 `wails3 task darwin:sign:verify`，它会把上面这条连同
+`codesign -dv`、`stapler validate` 一起打出来。
+
+#### 需要配置的 GitHub Secrets
+
+前提是 Apple Developer Program 会员（$99/年，个人账号即可），
+证书类型必须是 **Developer ID Application**——不是 Apple Development，
+也不是 Mac App Distribution，后两者不能用于 App Store 之外的分发。
+
+| Secret | 从哪来 |
+| --- | --- |
+| `MACOS_CERTIFICATE` | 钥匙串导出的 `.p12`，`base64 -i cert.p12 \| pbcopy` |
+| `MACOS_CERTIFICATE_PASSWORD` | 导出 `.p12` 时设的密码 |
+| `APPLE_API_KEY_P8` | App Store Connect API Key 的 `.p8`，同样 base64 |
+| `APPLE_API_KEY_ID` | 该 Key 的 Key ID |
+| `APPLE_API_ISSUER` | App Store Connect 里的 Issuer ID |
+
+获取步骤：
+
+1. **证书**：developer.apple.com → Certificates → `+` → Developer ID Application
+   → 用钥匙串助理生成 CSR 上传 → 下载 `.cer` 双击导入钥匙串 → 在钥匙串里找到它，
+   右键「导出」为 `.p12`（会连带私钥，必须设密码）。
+2. **公证 Key**：App Store Connect → Users and Access → Integrations → Keys
+   → `+` 新建，角色选 Developer → 下载 `.p8`（**只能下载一次**）。
+   Key ID 在列表里，Issuer ID 在同一页顶部。
+
+签名身份串不用配 secret：工作流从导入的证书里现取第一个
+Developer ID Application 身份。
+
+#### 哪些是秘密，哪些不是
+
+**必须保密**：`.p12` 文件及其密码、`.p8` 文件。前者包含私钥，泄露等于别人能用
+你的身份签任意软件；后者能操作你的 App Store Connect 账号。两者都不要提交进仓库。
+
+**不是秘密**：Team ID、Key ID、Issuer ID、签名身份串
+（`Developer ID Application: 你的名字 (TEAMID)`）、Bundle ID。这些本来就印在每个
+已签名的分发包里，任何人 `codesign -dv` 你的应用都能看到。之所以把 Key ID 和
+Issuer ID 也放进 Secrets，只是图省事——放进工作流明文同样没有安全问题。
+
+#### 本地手动签名发版
+
+```bash
+export MACOS_SIGN_IDENTITY="Developer ID Application: 你的名字 (TEAMID)"
+wails3 package
+wails3 task darwin:notarize      # 需要下面的凭据二选一
+wails3 task darwin:sign:verify
+```
+
+公证凭据本地推荐用钥匙串配置档，配一次就行：
+
+```bash
+xcrun notarytool store-credentials "postpigeon-notary" \
+  --apple-id you@example.com --team-id TEAMID --password 应用专用密码
+export APPLE_KEYCHAIN_PROFILE=postpigeon-notary
+```
+
+应用专用密码在 appleid.apple.com → 登录与安全 → App 专用密码 生成，
+不是 Apple ID 的登录密码。
+
+#### 改打包流程时的顺序约束
+
+签名之后再动包内任何文件都会让签名失效，而失败信息很隐晦——用户端只报
+「已损坏」。所以这个顺序不能乱：
+
+```
+拷贝资源 → 注入 Info.plist 本地化 → codesign → notarytool submit → stapler staple → ditto 打包
+```
+
+具体来说，[build/darwin/Taskfile.yml](build/darwin/Taskfile.yml) 里
+`inject:localizations` 必须排在 `codesign:mac` 之前，
+[release.yaml](.github/workflows/release.yaml) 里「公证并钉票据」必须排在
+「归档发布产物」之前（staple 是往 `.app` 里写票据，先归档就等于发出没票据的包）。

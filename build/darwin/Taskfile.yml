@@ -4,10 +4,11 @@ includes:
   common: ../Taskfile.yml
 
 vars:
-  # Signing configuration - edit these values for your project
-  # SIGN_IDENTITY: "Developer ID Application: Your Company (TEAMID)"
-  # KEYCHAIN_PROFILE: "my-notarize-profile"
-  # ENTITLEMENTS: "build/darwin/entitlements.plist"
+  # 签名配置全部走环境变量，不写进仓库（见 CONTRIBUTING.md「macOS 代码签名」）：
+  #   MACOS_SIGN_IDENTITY   Developer ID Application 身份名，设了才做正式签名
+  #   APPLE_API_KEY_PATH / APPLE_API_KEY_ID / APPLE_API_ISSUER   公证用 API Key
+  #   APPLE_KEYCHAIN_PROFILE                                     公证用本机配置档
+  # 一个都不设时打包依然成功，只是退回 ad-hoc 签名，方便没有开发者账号的人构建。
 
   # Docker image for cross-compilation (used when building on non-macOS)
   CROSS_IMAGE: wails-cross
@@ -151,7 +152,7 @@ tasks:
       - task: inject:localizations
         vars:
           PLIST: '{{.BIN_DIR}}/{{.APP_NAME}}.app/Contents/Info.plist'
-      - task: '{{if eq OS "darwin"}}codesign:adhoc{{else}}codesign:skip{{end}}'
+      - task: '{{if eq OS "darwin"}}codesign:mac{{else}}codesign:skip{{end}}'
 
   inject:localizations:
     summary: 从 frontend/src/i18n/*.json 的文件名派生 CFBundleLocalizations 写入 Info.plist
@@ -169,11 +170,34 @@ tasks:
         $PB -c "Delete :CFBundleDevelopmentRegion" "$PLIST" 2>/dev/null || true
         $PB -c "Add :CFBundleDevelopmentRegion string en" "$PLIST"
 
-  codesign:adhoc:
-    summary: Ad-hoc signs the app bundle (macOS only)
+  codesign:mac:
+    summary: 签名 .app —— 有 Developer ID 就正式签，否则退回 ad-hoc
     internal: true
     cmds:
-      - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.app"
+      - |
+        set -eu
+        APP="{{.BIN_DIR}}/{{.APP_NAME}}.app"
+        if [ -z "${MACOS_SIGN_IDENTITY:-}" ]; then
+          # ad-hoc 包能在本机跑，但分发出去 spctl 直接 rejected，
+          # 只适合本地构建和没有开发者账号的贡献者。
+          echo "未设置 MACOS_SIGN_IDENTITY，使用 ad-hoc 签名（不可对外分发）"
+          codesign --force --sign - "$APP"
+          exit 0
+        fi
+        # 不用 --deep：Apple 已不推荐，且本包内没有嵌套 framework/helper，
+        # 直接签 bundle 就够（Contents 下只有 MacOS/ 与 Resources/）。
+        # --options runtime 启用加固运行时，是公证的硬性前提；
+        # --timestamp 打可信时间戳，让签名在证书过期后依然有效。
+        echo "使用 Developer ID 签名：$MACOS_SIGN_IDENTITY"
+        if [ -f build/darwin/entitlements.plist ]; then
+          codesign --force --timestamp --options runtime \
+            --entitlements build/darwin/entitlements.plist \
+            --sign "$MACOS_SIGN_IDENTITY" "$APP"
+        else
+          codesign --force --timestamp --options runtime \
+            --sign "$MACOS_SIGN_IDENTITY" "$APP"
+        fi
+        codesign --verify --strict --verbose=2 "$APP"
 
   codesign:skip:
     summary: Skips codesigning when cross-compiling
@@ -198,33 +222,82 @@ tasks:
       - codesign --force --deep --sign - "{{.BIN_DIR}}/{{.APP_NAME}}.dev.app"
       - '{{.BIN_DIR}}/{{.APP_NAME}}.dev.app/Contents/MacOS/{{.APP_NAME}}'
 
-  sign:
-    summary: Signs the application bundle with Developer ID
+  notarize:
+    summary: 公证 .app 并把票据钉进包里（需先 wails3 package）
     desc: |
-      Signs the .app bundle for distribution.
-      Configure SIGN_IDENTITY in the vars section at the top of this file.
-    deps:
-      - task: package
-    cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}.app" --identity "{{.SIGN_IDENTITY}}" {{if .ENTITLEMENTS}}--entitlements {{.ENTITLEMENTS}}{{end}}
-    preconditions:
-      - sh: '[ -n "{{.SIGN_IDENTITY}}" ]'
-        msg: "SIGN_IDENTITY is required. Set it in the vars section at the top of build/darwin/Taskfile.yml"
+      把已签名的 .app 提交 Apple 公证，通过后 staple 票据。
+      前提：包必须是 Developer ID + 加固运行时签的，ad-hoc 包提交必被拒。
 
-  sign:notarize:
-    summary: Signs and notarizes the application bundle
-    desc: |
-      Signs the .app bundle and submits it for notarization.
-      Configure SIGN_IDENTITY and KEYCHAIN_PROFILE in the vars section at the top of this file.
-
-      Setup (one-time):
-        wails3 signing credentials --apple-id "you@email.com" --team-id "TEAMID" --password "app-specific-password" --profile "my-profile"
-    deps:
-      - task: package
+      凭据二选一：
+        1) App Store Connect API Key（推荐，CI 用）
+           APPLE_API_KEY_PATH  下载的 AuthKey_XXXXXX.p8 路径
+           APPLE_API_KEY_ID    Key ID
+           APPLE_API_ISSUER    Issuer ID
+        2) 本机钥匙串配置档（本地手动发版用）
+           APPLE_KEYCHAIN_PROFILE  配置档名字
+           一次性创建：
+             xcrun notarytool store-credentials "配置档名字" \
+               --apple-id you@example.com --team-id TEAMID \
+               --password 应用专用密码
     cmds:
-      - wails3 tool sign --input "{{.BIN_DIR}}/{{.APP_NAME}}.app" --identity "{{.SIGN_IDENTITY}}" {{if .ENTITLEMENTS}}--entitlements {{.ENTITLEMENTS}}{{end}} --notarize --keychain-profile {{.KEYCHAIN_PROFILE}}
-    preconditions:
-      - sh: '[ -n "{{.SIGN_IDENTITY}}" ]'
-        msg: "SIGN_IDENTITY is required. Set it in the vars section at the top of build/darwin/Taskfile.yml"
-      - sh: '[ -n "{{.KEYCHAIN_PROFILE}}" ]'
-        msg: "KEYCHAIN_PROFILE is required. Set it in the vars section at the top of build/darwin/Taskfile.yml"
+      - |
+        set -eu
+        APP="{{.BIN_DIR}}/{{.APP_NAME}}.app"
+        if [ ! -d "$APP" ]; then
+          echo "找不到 $APP，先跑 wails3 package"
+          exit 1
+        fi
+        # 加固运行时没开的话公证一定失败，与其等 Apple 回绝不如就地拦下
+        if ! codesign -dv --verbose=4 "$APP" 2>&1 | grep -q 'flags=.*runtime'; then
+          echo "错误：$APP 未启用加固运行时，无法公证。"
+          echo "请设置 MACOS_SIGN_IDENTITY 后重新 wails3 package。"
+          exit 1
+        fi
+
+        # 公证提交的是压缩包，但票据是 staple 回 .app 本身的，
+        # 所以这个 zip 只是运输载体；发布产物必须在 staple 之后重新打包。
+        TMP="{{.BIN_DIR}}/.notarize"
+        rm -rf "$TMP"
+        mkdir -p "$TMP"
+        ditto -c -k --keepParent "$APP" "$TMP/notarize.zip"
+
+        if [ -n "${APPLE_API_KEY_PATH:-}" ]; then
+          xcrun notarytool submit "$TMP/notarize.zip" \
+            --key "$APPLE_API_KEY_PATH" \
+            --key-id "$APPLE_API_KEY_ID" \
+            --issuer "$APPLE_API_ISSUER" \
+            --wait
+        elif [ -n "${APPLE_KEYCHAIN_PROFILE:-}" ]; then
+          xcrun notarytool submit "$TMP/notarize.zip" \
+            --keychain-profile "$APPLE_KEYCHAIN_PROFILE" \
+            --wait
+        else
+          echo "未提供公证凭据：需要 APPLE_API_KEY_PATH 三件套，或 APPLE_KEYCHAIN_PROFILE。"
+          echo "详见 wails3 task darwin:notarize --summary"
+          rm -rf "$TMP"
+          exit 1
+        fi
+
+        rm -rf "$TMP"
+        xcrun stapler staple "$APP"
+        xcrun stapler validate "$APP"
+
+  sign:verify:
+    summary: 检查 .app 的签名与公证状态（发版前自查）
+    cmds:
+      - |
+        set -eu
+        APP="{{.BIN_DIR | default "bin"}}/{{.APP_NAME}}.app"
+        echo "=== codesign -dv ==="
+        codesign -dv --verbose=4 "$APP" 2>&1 || true
+        echo
+        echo "=== codesign --verify ==="
+        codesign --verify --strict --verbose=2 "$APP" 2>&1 || true
+        echo
+        echo "=== stapler ==="
+        xcrun stapler validate "$APP" 2>&1 || true
+        echo
+        # 这行才是最终判据：只有 accepted + source=Notarized Developer ID
+        # 才是用户下载后能直接双击打开的状态。
+        echo "=== spctl（判据在这行）==="
+        spctl -a -vvv -t exec "$APP" 2>&1 || true
