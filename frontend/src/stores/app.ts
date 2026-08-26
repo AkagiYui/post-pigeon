@@ -3,64 +3,43 @@ import { createEffect, createRoot, createSignal } from "solid-js"
 
 import type { Environment } from "@/../bindings/PostPigeon/internal/models"
 
-// ---- localStorage 持久化工具 ----
-
-const STORAGE_PREFIX = "PostPigeon:"
-
-/**
- * 从 localStorage 读取 JSON 数据
- */
-function loadFromStorage<T>(key: string, fallback: T): T {
-  try {
-    const raw = localStorage.getItem(STORAGE_PREFIX + key)
-    if (raw !== null) {
-      return JSON.parse(raw) as T
-    }
-  } catch {
-    // 解析失败时忽略
-  }
-  return fallback
-}
-
-/**
- * 将数据写入 localStorage
- */
-function saveToStorage(key: string, value: unknown) {
-  try {
-    localStorage.setItem(STORAGE_PREFIX + key, JSON.stringify(value))
-  } catch {
-    // 写入失败时忽略（如存储空间不足）
-  }
-}
+import {
+  isNullableString,
+  isStringArray,
+  isStringRecord,
+  loadFromStorage,
+  oneOf,
+  saveToStorage,
+} from "./persist"
 
 // ---- 持久化的应用状态 ----
 
 /** 当前打开的项目 ID 列表（持久化） */
 const [openProjectIds, setOpenProjectIds] = createSignal<string[]>(
-  loadFromStorage<string[]>("openProjectIds", []),
+  loadFromStorage("openProjectIds", [], isStringArray),
 )
 
 /** 当前激活的项目 ID（持久化） */
 const [activeProjectId, setActiveProjectId] = createSignal<string | null>(
-  loadFromStorage<string | null>("activeProjectId", null),
+  loadFromStorage<string | null>("activeProjectId", null, isNullableString),
 )
 
 /** 当前环境 ID 映射（每个项目独立，持久化） */
 const [currentEnvironmentIds, setCurrentEnvironmentIds] = createSignal<Record<string, string>>(
-  loadFromStorage<Record<string, string>>("currentEnvironmentIds", {}),
+  loadFromStorage<Record<string, string>>("currentEnvironmentIds", {}, isStringRecord),
 )
 
 /** 项目名称映射 projectId -> projectName（持久化） */
 const [projectNames, setProjectNames] = createSignal<Record<string, string>>(
-  loadFromStorage<Record<string, string>>("projectNames", {}),
+  loadFromStorage<Record<string, string>>("projectNames", {}, isStringRecord),
 )
 
-/** 项目环境列表映射 projectId -> environments[]（持久化） */
+/** 项目环境列表映射 projectId -> environments[]（仅内存缓存，不持久化） */
 const [projectEnvironments, setProjectEnvironments] = createSignal<Record<string, Environment[]>>({})
 
 /** 响应面板布局方向：bottom（上下结构）/ right（左右结构）（持久化） */
 const [responseLayout, setResponseLayout] = createSignal<"bottom" | "right">(
-  loadFromStorage<"bottom" | "right">("responseLayout", "bottom"),
+  loadFromStorage("responseLayout", "bottom" as const, oneOf("bottom", "right")),
 )
 
 /** 设置模态框是否显示（不持久化） */
