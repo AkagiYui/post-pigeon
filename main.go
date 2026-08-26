@@ -97,6 +97,7 @@ func main() {
 	curlService := services.NewCurlService(db)
 	postmanService := services.NewPostmanService(db)
 	cookieService := services.NewCookieService(db)
+	dataService := services.NewDataService(db, cfg)
 	runnerService := services.NewRunnerService(db, httpService)
 	updateManager := newUpdateManager()
 	updaterService := services.NewUpdaterService(db, updateManager, changelogMarkdown)
@@ -136,6 +137,7 @@ func main() {
 			application.NewService(curlService),
 			application.NewService(postmanService),
 			application.NewService(cookieService),
+			application.NewService(dataService),
 			application.NewService(runnerService),
 			application.NewService(webSocketService),
 			application.NewService(updaterService),

@@ -8,6 +8,7 @@ import { t } from "@/hooks/useI18n"
 
 import { AboutSettings } from "./AboutSettings"
 import { AppearanceSettings } from "./AppearanceSettings"
+import { DataSettings } from "./DataSettings"
 import { ProxySettingsPanel } from "./ProxySettingsPanel"
 import { RequestLimitsSettings } from "./RequestLimitsSettings"
 import { TLSSettingsPanel } from "./TLSSettingsPanel"
@@ -24,6 +25,7 @@ const settingsTabs = [
   { key: "proxy", label: "", icon: <Icon icon="lucide:network" class="h-4 w-4" /> },
   { key: "tls", label: "", icon: <Icon icon="lucide:shield-check" class="h-4 w-4" /> },
   { key: "request", label: "", icon: <Icon icon="lucide:gauge" class="h-4 w-4" /> },
+  { key: "data", label: "", icon: <Icon icon="lucide:database" class="h-4 w-4" /> },
   { key: "update", label: "", icon: <Icon icon="lucide:refresh-cw" class="h-4 w-4" /> },
   { key: "about", label: "", icon: <Icon icon="lucide:info" class="h-4 w-4" /> },
 ]
@@ -61,6 +63,7 @@ export function SettingsModal(props: SettingsModalProps) {
             case "proxy": return <ProxySettingsPanel scope="global" />
             case "tls": return <TLSSettingsPanel scope="global" />
             case "request": return <RequestLimitsSettings />
+            case "data": return <DataSettings />
             case "update": return <UpdateSettings />
             case "about": return <AboutSettings />
             default: return null

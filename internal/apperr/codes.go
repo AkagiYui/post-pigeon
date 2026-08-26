@@ -57,4 +57,8 @@ const (
 	CodeUpdateNotReady  = "update.not_ready"
 	CodeUpdateRestart   = "update.restart_failed"
 	CodeUpdateChangelog = "update.changelog_failed"
+
+	// ---- 数据维护 ----
+	CodeDataStats   = "data.stats_failed"
+	CodeDataCompact = "data.compact_failed"
 )

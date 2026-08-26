@@ -586,5 +586,15 @@
   "error.update.download_failed": "Could not download the update",
   "error.update.not_ready": "There is no update to install",
   "error.update.restart_failed": "Could not apply the update",
-  "error.update.changelog_failed": "Could not load the changelog"
+  "error.update.changelog_failed": "Could not load the changelog",
+  "settings.data": "Data",
+  "data.hint": "All your data lives in a single database file on this machine. Here you can see how large it is and give deleted space back to the disk.",
+  "data.dbSize": "Database size",
+  "data.reclaimable": "Reclaimable space",
+  "data.reclaimable.hint": "Clearing history or deleting projects only marks data as deleted — the file shrinks only after compacting.",
+  "data.compact": "Compact database",
+  "data.compacting": "Compacting…",
+  "data.compacted": "Compacted, {size} reclaimed",
+  "error.data.stats_failed": "Failed to read database info",
+  "error.data.compact_failed": "Failed to compact database"
 }

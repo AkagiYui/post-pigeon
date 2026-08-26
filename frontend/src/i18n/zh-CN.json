@@ -586,5 +586,15 @@
   "error.update.download_failed": "下载更新失败",
   "error.update.not_ready": "没有可安装的更新",
   "error.update.restart_failed": "应用更新失败",
-  "error.update.changelog_failed": "获取变更日志失败"
+  "error.update.changelog_failed": "获取变更日志失败",
+  "settings.data": "数据",
+  "data.hint": "你的全部数据都在本机的一个数据库文件里，这里可以查看它有多大、把删掉的空间还给磁盘。",
+  "data.dbSize": "数据库大小",
+  "data.reclaimable": "可回收空间",
+  "data.reclaimable.hint": "清理历史、删除项目只是把数据标记为删除，压缩之后文件才会真的变小。",
+  "data.compact": "压缩数据库",
+  "data.compacting": "正在压缩…",
+  "data.compacted": "已压缩，回收 {size}",
+  "error.data.stats_failed": "读取数据库信息失败",
+  "error.data.compact_failed": "压缩数据库失败"
 }
