@@ -83,7 +83,7 @@
       "source": "https://cdn.jsdelivr.net/npm/mockjs@1.1.0/dist/mock.js",
       "usage": "const Mock = require('mockjs')",
       "description": "随机/模拟数据生成",
-      "sha256": "9540c922ce0f32e56d3f44d60f38c1a5f95e46a8a1861e18ff017d995eed8779"
+      "sha256": "27ece85a104de125d1cd0697ae4028281a8b301f7bbb8c98096dd45a974a5a6a"
     },
     {
       "name": "jsrsasign",

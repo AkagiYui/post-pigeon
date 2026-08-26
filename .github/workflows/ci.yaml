@@ -117,6 +117,12 @@ jobs:
           go install github.com/wailsapp/wails/v3/cmd/wails3@latest
           wails3 generate bindings -ts -clean=true
 
+      # tsconfig 覆盖 src/routeTree.gen.ts，该文件由 tanstack router 插件在构建时
+      # 生成且不入库；顺带让 CI 真正跑一次生产构建，构建挂了也能立刻发现
+      - name: 构建前端
+        working-directory: frontend
+        run: pnpm build
+
       - name: 类型检查
         working-directory: frontend
         run: pnpm typecheck
