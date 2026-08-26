@@ -68,6 +68,8 @@ func Initialize(dbPath string) (*gorm.DB, error) {
 //
 // 迁移期间外键必须关闭：为已有表重建/补外键时，DROP 被引用的父表会触发隐式 DELETE，
 // 开启外键会报 “FOREIGN KEY constraint failed (787)”。
+//
+// 真正要跑迁移时，会先用 VACUUM INTO 备份整库（见 backupBeforeMigrate）。
 func migrate(dbPath string) error {
 	// 不含 foreign_keys，故此连接上外键默认关闭
 	dsn := dbPath + "?_pragma=journal_mode(WAL)&_pragma=busy_timeout(5000)"
@@ -86,6 +88,13 @@ func migrate(dbPath string) error {
 
 	// 历史库判定：有业务表（projects）但没有 goose 版本表，说明是 goose 接管前的旧库。
 	preGoose := tableExists(db, "projects") && !tableExists(db, "goose_db_version")
+
+	// 动 schema 之前先留一份快照：迁移跑坏、或用户降级后被旧版本改写数据时，
+	// 这是唯一的退路。没有待应用的迁移则不备份（含降级场景：goose.Up 是空操作）。
+	if err := backupBeforeMigrate(db, dbPath, preGoose); err != nil {
+		return err
+	}
+
 	if preGoose {
 		if err := adoptLegacyDB(db); err != nil {
 			return err

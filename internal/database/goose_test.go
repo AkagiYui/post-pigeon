@@ -4,6 +4,8 @@ import (
 	"path/filepath"
 	"testing"
 
+	"gorm.io/gorm"
+
 	"PostPigeon/internal/models"
 )
 
@@ -72,5 +74,17 @@ func TestReinitPreservesData(t *testing.T) {
 	db2.Model(&models.Project{}).Where("id = ?", "keep").Count(&n)
 	if n != 1 {
 		t.Fatalf("二次初始化后项目丢失，count=%d", n)
+	}
+}
+
+// closeDB 关闭连接，避免同一文件上并存多个连接池。
+func closeDB(t *testing.T, db *gorm.DB) {
+	t.Helper()
+	sqlDB, err := db.DB()
+	if err != nil {
+		t.Fatalf("取底层连接失败: %v", err)
+	}
+	if err := sqlDB.Close(); err != nil {
+		t.Fatalf("关闭数据库失败: %v", err)
 	}
 }
