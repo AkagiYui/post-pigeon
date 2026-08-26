@@ -2,6 +2,7 @@ package main
 
 import (
 	"embed"
+	"errors"
 	"log"
 	"log/slog"
 	"os"
@@ -10,6 +11,7 @@ import (
 
 	"PostPigeon/internal/config"
 	"PostPigeon/internal/database"
+	"PostPigeon/internal/instancelock"
 	"PostPigeon/internal/logger"
 	"PostPigeon/internal/models"
 	"PostPigeon/internal/platform"
@@ -49,6 +51,20 @@ func main() {
 	defer logFile.Close()
 
 	slog.Info("PostPigeon 应用启动", "version", config.Version, "buildHash", config.BuildHash)
+
+	// 抢占实例锁。必须放在碰数据库之前：两个实例操作同一个 SQLite 文件时，WAL 与
+	// busy_timeout 会让它「看起来能用」，实际是设置、窗口状态、Cookie 互相覆盖，
+	// 后关闭的那个赢；升级时更糟——两个进程会各自跑一遍迁移和迁移前备份。
+	lock, err := instancelock.Acquire(cfg.DataDir)
+	if errors.Is(err, instancelock.ErrAlreadyRunning) {
+		slog.Info("已有实例在运行，本次启动直接退出")
+		platform.ShowInfoDialog(config.AppName, "PostPigeon 已经在运行了。\n\n请切换到已经打开的窗口。")
+		os.Exit(0)
+	}
+	if err != nil {
+		fatal("获取实例锁失败", err, "数据目录："+cfg.DataDir)
+	}
+	defer lock.Release()
 
 	// 初始化数据库
 	db, err := database.Initialize(cfg.DBPath)
