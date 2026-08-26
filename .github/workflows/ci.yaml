@@ -27,6 +27,16 @@ jobs:
           cache: true
           go-version-file: 'go.mod'
 
+      - name: 安装 Linux 依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
+      # main.go 用 //go:embed all:frontend/dist 嵌入前端产物，而 dist 不入库；
+      # 校验流程不构建前端，补个占位文件让 embed 能解析（all: 前缀会收 . 开头的文件）
+      - name: 准备 embed 占位目录
+        run: mkdir -p frontend/dist && touch frontend/dist/.gitkeep
+
       - name: gofmt 检查
         run: |
           unformatted=$(gofmt -l . | grep -v '^frontend/' || true)
@@ -74,6 +84,16 @@ jobs:
         with:
           cache: true
           go-version-file: 'go.mod'
+
+      - name: 安装 Linux 依赖
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y libgtk-4-dev libwebkitgtk-6.0-dev
+
+      # main.go 用 //go:embed all:frontend/dist 嵌入前端产物，而 dist 不入库；
+      # 校验流程不构建前端，补个占位文件让 embed 能解析（all: 前缀会收 . 开头的文件）
+      - name: 准备 embed 占位目录
+        run: mkdir -p frontend/dist && touch frontend/dist/.gitkeep
 
       - name: 安装 pnpm
         uses: pnpm/action-setup@v6
