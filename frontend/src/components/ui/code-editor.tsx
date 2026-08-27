@@ -13,7 +13,7 @@ import { createEffect, onCleanup, onMount } from "solid-js"
 
 import { cn } from "@/lib/utils"
 
-export type CodeLanguage = "javascript" | "json" | "xml" | "html" | "markdown" | "text"
+export type CodeLanguage = "javascript" | "json" | "jsonc" | "xml" | "html" | "markdown" | "text"
 
 export interface CodeEditorProps {
   value: string
@@ -28,6 +28,10 @@ function langExtension(lang?: CodeLanguage): Extension[] {
   switch (lang) {
     case "javascript": return [javascript()]
     case "json": return [json()]
+    // JSONC（带注释的 JSON）：@codemirror/lang-json 的语法不认注释，会把整段标成错误；
+    // JavaScript 语法本身就涵盖注释与对象字面量，高亮效果正好（Apifox 的 JSON5 语言定义
+    // 走的也是 source.js）
+    case "jsonc": return [javascript()]
     case "xml": return [xml()]
     case "html": return [html()]
     case "markdown": return [markdown()]

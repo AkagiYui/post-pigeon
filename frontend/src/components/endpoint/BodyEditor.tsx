@@ -5,13 +5,22 @@ import { createMemo, For, Show } from "solid-js"
 import type { BodyFieldRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { CodeEditor, type CodeLanguage } from "@/components/ui/code-editor"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"
 import { t } from "@/hooks/useI18n"
+import { formatBody, formatJSONC } from "@/lib/format"
 import { type BodyType } from "@/lib/types"
 import { cn } from "@/lib/utils"
+
+/** 请求体类型 → 编辑器语法。JSON 用 jsonc：注释是被支持的写法，得高亮成注释而不是错误 */
+const editorLanguage: Record<string, CodeLanguage> = {
+  json: "jsonc",
+  xml: "xml",
+  text: "text",
+}
 
 /** 请求体类型选项 */
 const bodyTypeOptions = [
@@ -118,16 +127,25 @@ export function BodyEditor(props: BodyEditorProps) {
     reader.readAsDataURL(file)
   }
 
+  // 格式化：JSON 用 jsonc-parser（只改空白，注释与大整数原样保留），XML 用标签缩进
+  const canFormat = () => (props.bodyType === "json" || props.bodyType === "xml") && props.bodyContent.trim() !== ""
+  const formatContent = () => {
+    const formatted = props.bodyType === "json"
+      ? formatJSONC(props.bodyContent)
+      : formatBody(props.bodyContent, "xml")
+    if (formatted !== props.bodyContent) props.onChange({ bodyContent: formatted })
+  }
+
   return (
     <div class="p-3 h-full overflow-auto flex flex-col">
       {/* 请求体类型选择 */}
       <div class="flex items-center gap-2 mb-3">
-        <div class="flex gap-1">
+        <div class="flex flex-wrap gap-1">
           <For each={bodyTypeOptions}>
             {(opt) => (
               <button
                 class={cn(
-                  "px-2.5 py-1 text-xs rounded-md transition-colors",
+                  "shrink-0 whitespace-nowrap px-2.5 py-1 text-xs rounded-md transition-colors",
                   props.bodyType === opt.value
                     ? "bg-accent text-white"
                     : "bg-muted text-muted-foreground hover:text-foreground",
@@ -140,9 +158,17 @@ export function BodyEditor(props: BodyEditorProps) {
           </For>
         </div>
 
+        {/* 格式化：JSON 走 jsonc-parser（保留注释），XML 走标签缩进 */}
+        <Show when={canFormat()}>
+          <Button variant="ghost" size="sm" class="ml-auto shrink-0 whitespace-nowrap text-muted-foreground" onClick={formatContent}>
+            <Icon icon="lucide:wand-sparkles" class="h-3 w-3" />
+            {t("endpoint.body.format")}
+          </Button>
+        </Show>
+
         {/* JSON/Text/XML 的内容类型选择 */}
         <Show when={props.bodyType === "json" || props.bodyType === "text" || props.bodyType === "xml" || props.bodyType === "graphql"}>
-          <div class="ml-auto">
+          <div class={cn(!canFormat() && "ml-auto")}>
             <Input
               size="sm"
               value={props.contentType}
@@ -155,7 +181,7 @@ export function BodyEditor(props: BodyEditorProps) {
       </div>
 
       {/* 编辑区域 */}
-      <div class="flex-1">
+      <div class="flex-1 min-h-0">
         <Show when={props.bodyType === "none"}>
           <div class="text-sm text-muted-foreground text-center py-8">
             {t("endpoint.body.none")}
@@ -190,11 +216,11 @@ export function BodyEditor(props: BodyEditorProps) {
         </Show>
 
         <Show when={props.bodyType === "json" || props.bodyType === "text" || props.bodyType === "xml"}>
-          <Textarea
+          <CodeEditor
             value={props.bodyContent}
-            onInput={(e) => props.onChange({ bodyContent: e.currentTarget.value })}
+            onChange={(v) => props.onChange({ bodyContent: v })}
+            language={editorLanguage[props.bodyType] ?? "text"}
             placeholder={props.bodyType === "json" ? t("endpoint.placeholder.jsonBody") : t("endpoint.placeholder.requestBody")}
-            class="h-full font-mono text-sm"
           />
         </Show>
 

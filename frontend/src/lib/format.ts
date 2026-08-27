@@ -1,4 +1,5 @@
 // 响应体格式化与编码解码工具
+import { applyEdits, format as formatJSONCEdits } from "jsonc-parser"
 
 /** 根据响应的 Content-Type 推断格式化方案（json / xml / html）；无法识别时返回 null */
 export function formatFromContentType(contentType: string | undefined | null): string | null {
@@ -27,6 +28,22 @@ export function formatBody(body: string, format: string): string {
     return formatMarkup(body)
   }
   return body
+}
+
+/**
+ * 格式化 JSON 文本，并保留其中的注释与尾随逗号（JSONC）。
+ * 走 jsonc-parser 的 format：它只产出「空白与缩进」的编辑，注释原样留在原来的位置——
+ * 用 JSON.parse + JSON.stringify 重排会把注释连同大整数精度一起丢掉。
+ * 无法格式化时原样返回。
+ */
+export function formatJSONC(text: string): string {
+  if (!text.trim()) return text
+  try {
+    const edits = formatJSONCEdits(text, undefined, { tabSize: 2, insertSpaces: true, eol: "\n" })
+    return applyEdits(text, edits)
+  } catch {
+    return text
+  }
 }
 
 /** 简单的标签缩进美化，适用于 XML / HTML */

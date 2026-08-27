@@ -59,6 +59,7 @@
   "endpoint.body.formData": "form-data",
   "endpoint.body.urlencoded": "x-www-form-urlencoded",
   "endpoint.body.json": "JSON",
+  "endpoint.body.format": "Format",
   "endpoint.body.text": "Text",
   "endpoint.auth.none": "No Auth",
   "endpoint.auth.basic": "Basic Auth",

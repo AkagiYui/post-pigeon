@@ -44,6 +44,7 @@
     "clsx": "^2.1.1",
     "codemirror": "^6.0.2",
     "harmonyos-sans-sc-webfont-splitted": "^1.1.0",
+    "jsonc-parser": "^3.3.1",
     "solid-js": "^1.9.12",
     "tailwind-merge": "^3.5.0",
     "tailwindcss": "^4.1.18"

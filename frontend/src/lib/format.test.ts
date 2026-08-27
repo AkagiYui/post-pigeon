@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { decodeRawBody, formatBody, formatBuildTime, formatFromContentType } from "./format"
+import { decodeRawBody, formatBody, formatBuildTime, formatFromContentType, formatJSONC } from "./format"
 
 describe("formatFromContentType", () => {
   it("识别 JSON 及其结构化后缀", () => {
@@ -80,5 +80,30 @@ describe("formatBuildTime", () => {
     expect(formatBuildTime("dev")).toBeNull()
     expect(formatBuildTime("")).toBeNull()
     expect(formatBuildTime("not a timestamp")).toBeNull()
+  })
+})
+
+describe("formatJSONC", () => {
+  it("把压缩的 JSON 展开成带缩进的形式", () => {
+    expect(formatJSONC('{"a":1,"b":[1,2]}')).toBe("{\n  \"a\": 1,\n  \"b\": [\n    1,\n    2\n  ]\n}")
+  })
+
+  it("保留注释", () => {
+    const out = formatJSONC("{\n// 说明\n\"a\":1\n}")
+    expect(out).toContain("// 说明")
+    expect(out).toContain("\"a\": 1")
+  })
+
+  it("保留尾随逗号，不擅自改写内容", () => {
+    expect(formatJSONC('{"a":1,}')).toContain(",")
+  })
+
+  it("不改动大整数（不走 parse/stringify）", () => {
+    expect(formatJSONC('{"n":9007199254740993}')).toContain("9007199254740993")
+  })
+
+  it("空输入原样返回", () => {
+    expect(formatJSONC("")).toBe("")
+    expect(formatJSONC("   ")).toBe("   ")
   })
 })
