@@ -6,6 +6,7 @@ import { emptyAuth } from "./editor-types"
 import {
   authDataToState,
   authStateToData,
+  countParams,
   deriveScriptFromOps,
   fromAuthModel,
   fromBodyFieldModels,
@@ -216,5 +217,48 @@ describe("请求体字段转换", () => {
 
   it("过滤掉没有名字的字段", () => {
     expect(toBodyFieldModels([{ id: "1", name: "  ", value: "v", fieldType: "text", enabled: true }])).toHaveLength(0)
+  })
+})
+
+describe("参数 tab 的数字", () => {
+  const row = (type: string, name: string, enabled = true) => ({ type, name, enabled })
+
+  it("query + 路径参数 + 全局参数相加", () => {
+    expect(countParams({
+      params: [row("query", "a"), row("query", "b"), row("header", "X-Token")],
+      path: "/users/{id}/posts/{postId}",
+      globalQueryParams: [{ name: "trace" }],
+    })).toBe(2 + 2 + 1)
+  })
+
+  it("勾掉的 query 参数照样算进来", () => {
+    // 这里回答的是「定义了多少参数」，不是「这次会发几个」——与 Apifox 一致
+    expect(countParams({
+      params: [row("query", "a"), row("query", "b", false)],
+      path: "/x",
+    })).toBe(2)
+  })
+
+  it("没名字的行不算（参数表末尾常驻一行空草稿）", () => {
+    expect(countParams({
+      params: [row("query", "a"), row("query", "  ")],
+      path: "/x",
+    })).toBe(1)
+  })
+
+  it("本接口禁用掉的全局参数不算", () => {
+    expect(countParams({
+      params: [],
+      path: "/x",
+      globalQueryParams: [{ name: "trace" }, { name: "lang" }],
+      disabledGlobalParams: ["lang"],
+    })).toBe(1)
+  })
+
+  it("非 query 类型的参数不算", () => {
+    expect(countParams({
+      params: [row("header", "H"), row("cookie", "C"), row("path", "id")],
+      path: "/x",
+    })).toBe(0)
   })
 })

@@ -21,6 +21,7 @@ import {
   type TimingData,
 } from "@/components/endpoint/editor-types"
 import { type EndpointType, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
+import { extractPathParams } from "@/lib/utils"
 
 /** 端点默认字段（新字段的默认值集中在此，供各处构造 EndpointData 时展开使用） */
 export const endpointDefaults = {
@@ -141,6 +142,35 @@ export function operationToRow(o: Operation): OperationRow {
 
 export function fromOperationModels(arr?: Operation[] | null): OperationRow[] {
   return (arr || []).map(operationToRow)
+}
+
+/** 参数 tab 数字徽标的输入 */
+export interface ParamsCountInput {
+  /** 接口自己的参数行（含 query 与其它类型） */
+  params: { type: string, name: string, enabled: boolean }[]
+  /** 接口路径，用于识别 {id} 这类路径参数 */
+  path: string
+  /** 本接口禁用掉的全局参数名 */
+  disabledGlobalParams?: string[]
+  /** 从模块/文件夹继承下来的全局 query 参数 */
+  globalQueryParams?: { name: string }[]
+}
+
+/**
+ * 参数 tab 上的数字：所有 query 参数 + 路径参数 + 本接口启用的全局参数。
+ *
+ * query 参数不按勾选状态过滤——这里回答的是「这个接口定义了多少参数」，
+ * 而不是「这次会发出去几个」；勾掉一个参数不该让它从计数里消失。Apifox 也是这么算的
+ * （其参数编辑器里每段的 count 就是数组长度本身，不带 enable 过滤）。
+ *
+ * 全局参数则相反：它默认对所有接口生效，本接口显式禁用掉的就不该再计进来。
+ */
+export function countParams(input: ParamsCountInput): number {
+  const query = input.params.filter(p => p.type === "query" && p.name.trim()).length
+  const pathParams = extractPathParams(input.path).length
+  const disabled = new Set(input.disabledGlobalParams ?? [])
+  const global = (input.globalQueryParams ?? []).filter(g => !disabled.has(g.name)).length
+  return query + pathParams + global
 }
 
 /** 把一行文件字段打包成后端约定的 value */

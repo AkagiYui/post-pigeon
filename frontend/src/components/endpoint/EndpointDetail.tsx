@@ -6,6 +6,7 @@ import { Icon } from "@iconify-icon/solid"
 import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from "solid-js"
 
 import { HTTPService, WebSocketService } from "@/../bindings/PostPigeon/internal/services"
+import { countParams } from "@/components/endpoint/endpoint-data"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
@@ -17,7 +18,7 @@ import { t } from "@/hooks/useI18n"
 import { formatFromContentType } from "@/lib/format"
 import { getStatusInfo, statusClass } from "@/lib/http-status"
 import { formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS } from "@/lib/types"
-import { byteLength, cn, downloadTextFile, extensionForContentType, extractPathParams, hasURLScheme } from "@/lib/utils"
+import { byteLength, cn, downloadTextFile, extensionForContentType, hasURLScheme } from "@/lib/utils"
 import { responseLayout, setResponseLayout } from "@/stores/app"
 import { markConnecting, streamStatus } from "@/stores/stream"
 import { toastError } from "@/stores/toast"
@@ -273,14 +274,13 @@ export function EndpointDetail(props: EndpointDetailProps) {
     ep().operations.filter(o => o.stage === "post" && o.enabled).length
     + (ep().inheritOperations ? (props.inheritedOpCounts?.post ?? 0) : 0)
 
-  // 参数 tab 启用数量：接口独有的 query + 自动识别的 path + 启用的全局 query 参数
-  const paramsCount = () => {
-    const q = ep().params.filter(p => p.type === "query" && p.enabled && p.name.trim()).length
-    const path = extractPathParams(ep().path).length
-    const disabled = new Set(ep().disabledGlobalParams ?? [])
-    const g = (props.globalQueryParams ?? []).filter(gp => !disabled.has(gp.name)).length
-    return q + path + g
-  }
+  // 参数 tab 的数字：所有 query 参数 + 路径参数 + 本接口启用的全局参数（见 countParams）
+  const paramsCount = () => countParams({
+    params: ep().params,
+    path: ep().path,
+    disabledGlobalParams: ep().disabledGlobalParams,
+    globalQueryParams: props.globalQueryParams,
+  })
 
   // 请求设置标签（前置/后置操作作为顶级 tab，位于认证与设置之间）
   const requestTabs = createMemo(() => [
