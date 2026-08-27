@@ -242,10 +242,11 @@ func parseOpenAPI(jsonStr string) ([]parsedEndpoint, error) {
 	return doc.Endpoints, nil
 }
 
-// parseOpenAPIDoc 解析 OpenAPI/Swagger 文档，返回端点、模块名与服务器信息
+// parseOpenAPIDoc 解析 OpenAPI/Swagger 文档，返回端点、模块名与服务器信息。
+// 文档里带注释或尾随逗号（从别处的配置/文档里复制出来的常有）也能解析。
 func parseOpenAPIDoc(jsonStr string) (*parsedDoc, error) {
 	var doc openAPIDoc
-	if err := json.Unmarshal([]byte(jsonStr), &doc); err != nil {
+	if err := json.Unmarshal([]byte(normalizeJSONC(jsonStr)), &doc); err != nil {
 		return nil, fmt.Errorf("解析接口文档失败: %w", err)
 	}
 	if doc.Swagger == "" && doc.OpenAPI == "" {

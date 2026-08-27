@@ -529,10 +529,10 @@ func convertPostmanAuth(auth *postmanAuth) *models.EndpointAuth {
 	return nil
 }
 
-// parsePostman 解析并校验 Collection JSON。
+// parsePostman 解析并校验 Collection JSON；允许文件里带注释与尾随逗号。
 func parsePostman(jsonStr string) (*postmanCollection, error) {
 	var collection postmanCollection
-	if err := json.Unmarshal([]byte(jsonStr), &collection); err != nil {
+	if err := json.Unmarshal([]byte(normalizeJSONC(jsonStr)), &collection); err != nil {
 		return nil, apperr.Wrap(err, apperr.CodeImportParse)
 	}
 	// schema 里带 collection 才认为是 Postman Collection

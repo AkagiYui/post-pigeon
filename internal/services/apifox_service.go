@@ -370,11 +370,20 @@ func (ic *importCtx) ensureRootFolder(moduleID string) string {
 	return f.ID
 }
 
+// parseApifoxExport 解析 Apifox 导出文件；允许文件里带注释与尾随逗号。
+func parseApifoxExport(jsonStr string) (apifoxExport, error) {
+	var exp apifoxExport
+	if err := json.Unmarshal([]byte(normalizeJSONC(jsonStr)), &exp); err != nil {
+		return exp, fmt.Errorf("解析 Apifox 文件失败: %w", err)
+	}
+	return exp, nil
+}
+
 // PreviewApifox 解析并返回 Apifox 导出文件的内容概览。
 func (s *ApifoxService) PreviewApifox(jsonStr string) (*ApifoxPreview, error) {
-	var exp apifoxExport
-	if err := json.Unmarshal([]byte(jsonStr), &exp); err != nil {
-		return &ApifoxPreview{IsApifox: false}, fmt.Errorf("解析 Apifox 文件失败: %w", err)
+	exp, err := parseApifoxExport(jsonStr)
+	if err != nil {
+		return &ApifoxPreview{IsApifox: false}, err
 	}
 	if exp.ApifoxProject == "" && exp.Schema.App != "apifox" {
 		return &ApifoxPreview{IsApifox: false}, nil
@@ -549,9 +558,9 @@ func cloneFolders(folders []apifoxFolderRef) []apifoxFolderRef {
 // ImportApifox 将 Apifox 导出内容导入到指定项目。
 // selectedIndexes 为空时导入全部叶子，否则仅导入对应下标的叶子（对应预览列表 Item.Index）。
 func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedIndexes []int) (*ApifoxImportResult, error) {
-	var exp apifoxExport
-	if err := json.Unmarshal([]byte(jsonStr), &exp); err != nil {
-		return nil, fmt.Errorf("解析 Apifox 文件失败: %w", err)
+	exp, err := parseApifoxExport(jsonStr)
+	if err != nil {
+		return nil, err
 	}
 	if exp.ApifoxProject == "" && exp.Schema.App != "apifox" {
 		return nil, fmt.Errorf("该文件不是有效的 Apifox 导出文件")
@@ -564,7 +573,7 @@ func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedI
 	}
 
 	result := &ApifoxImportResult{}
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err = s.db.Transaction(func(tx *gorm.DB) error {
 		ic := &importCtx{
 			tx:          tx,
 			projectID:   projectID,

@@ -164,3 +164,54 @@ func TestToCurlStripsJSONComments(t *testing.T) {
 		t.Errorf("请求体丢了：%s", cmd)
 	}
 }
+
+// TestImportersAcceptJSONC 导入文件里带注释、尾随逗号也能解析：
+// 从文档或配置仓库里复制出来的 JSON 常常是这个样子。
+func TestImportersAcceptJSONC(t *testing.T) {
+	t.Run("OpenAPI", func(t *testing.T) {
+		doc, err := parseOpenAPIDoc(`{
+  "openapi": "3.0.0",
+  // 文档标题
+  "info": { "title": "订单服务", },
+  "paths": {
+    "/orders": { "get": { "summary": "订单列表" }, },
+  },
+}`)
+		if err != nil {
+			t.Fatalf("parseOpenAPIDoc err=%v", err)
+		}
+		if doc.ModuleName != "订单服务" || len(doc.Endpoints) != 1 {
+			t.Errorf("解析结果不对：name=%q endpoints=%d", doc.ModuleName, len(doc.Endpoints))
+		}
+	})
+
+	t.Run("Postman", func(t *testing.T) {
+		collection, err := parsePostman(`{
+  // 集合信息
+  "info": {
+    "name": "示例集合",
+    "schema": "https://schema.getpostman.com/json/collection/v2.1.0/collection.json",
+  },
+  "item": [],
+}`)
+		if err != nil {
+			t.Fatalf("parsePostman err=%v", err)
+		}
+		if collection.Info.Name != "示例集合" {
+			t.Errorf("name=%q", collection.Info.Name)
+		}
+	})
+
+	t.Run("Apifox", func(t *testing.T) {
+		exp, err := parseApifoxExport(`{
+  "apifoxProject": "1.0.0", // 版本
+  "info": { "name": "示例项目", },
+}`)
+		if err != nil {
+			t.Fatalf("parseApifoxExport err=%v", err)
+		}
+		if exp.Info.Name != "示例项目" {
+			t.Errorf("name=%q", exp.Info.Name)
+		}
+	})
+}
