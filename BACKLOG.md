@@ -51,22 +51,6 @@ Apifox 本地那份材料（`tmp/apifox/`）只有渲染层的部分 bundle 与�
 
 **工作量**　三天起，含选择器替换、迁移与导出格式变更。
 
-## P3 · 第二个实例只提示不聚焦
-
-**现状**　[instancelock](internal/instancelock/instancelock.go) 拦住了第二个实例，
-它会弹一句「已经在运行了」然后退出，但**不会把已有窗口叫到前面**。
-
-**风险**　很轻。macOS 上双击图标由 LaunchServices 处理，本来就不会起第二个；
-主要是 Windows / Linux 上从快捷方式或终端重复启动时，用户得自己去找窗口。
-
-**建议**　给 `application.Options` 配上 `SingleInstanceOptions`，在
-`OnSecondInstanceLaunch` 里把主窗口 Show + Focus。文件锁保留：它挡的是「碰数据库
-之前」那一段，Wails 的机制在 `application.New` 里才生效，两者不冲突。
-
-**工作量**　半天（三个平台各验一次）。
-
----
-
 ## P3 · 自己起的 goroutine 没有 recover
 
 **现状**　Wails 会接住 service 方法里的 panic（见下面「顺带确认过」），但我们自己
@@ -85,9 +69,13 @@ Apifox 本地那份材料（`tmp/apifox/`）只有渲染层的部分 bundle 与�
 
 ## 已处理
 
-- **项目导出前确认带不带凭据**（`89028fe`）：项目里确实有凭据时才弹确认，默认不带；
+- **项目导出前确认带不带凭据**（`fc73a64`）：项目里确实有凭据时才弹确认，默认不带；
   不带时秘密变量的值与鉴权凭据字段清空，变量名、tokenUrl、clientId、用户名这些配置
   保留，对方导入后自己填。
+- **第二个实例会把已有窗口叫到前面**（`c1bb63e`）：文件锁照旧挡住数据（它在
+  `database.Initialize` 之前就位），再叠一层 Wails 的单实例——第二个进程用一个最小的
+  application.New 把消息发给第一个实例，第一个实例 Show + Focus 主窗口。通知不成功时
+  退回原来的提示对话框。
 - **数据库迁移前自动备份**（`a38b6ad`）：`VACUUM INTO` 出
   `postpigeon.db.bak-<时间>-<版本>`，保留最近 3 份；只在确有待应用迁移时做；备份失败
   就不迁移。

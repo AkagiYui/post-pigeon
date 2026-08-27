@@ -6,6 +6,8 @@ import (
 	"os/exec"
 	"path/filepath"
 	"testing"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // TestAcquireRejectsSecondInstance 第二次加锁必须被拒绝，释放后又能重新拿到。
@@ -94,4 +96,28 @@ func holdLockForever() {
 	}
 	os.Stdout.WriteString("locked")
 	select {}
+}
+
+// TestWailsOptions 单实例选项要带上唯一 ID，并在第二个实例启动时回调。
+func TestWailsOptions(t *testing.T) {
+	called := 0
+	opts := WailsOptions("com.example.app", func() { called++ })
+
+	if opts.UniqueID != "com.example.app" {
+		t.Fatalf("UniqueID = %q", opts.UniqueID)
+	}
+	if opts.OnSecondInstanceLaunch == nil {
+		t.Fatal("必须挂上回调，否则第二个实例只会静悄悄退出")
+	}
+
+	opts.OnSecondInstanceLaunch(application.SecondInstanceData{Args: []string{"--foo"}})
+	if called != 1 {
+		t.Fatalf("回调执行了 %d 次，期望 1 次", called)
+	}
+}
+
+// TestWailsOptionsNilCallback 没给回调时不应 panic。
+func TestWailsOptionsNilCallback(t *testing.T) {
+	opts := WailsOptions("com.example.app", nil)
+	opts.OnSecondInstanceLaunch(application.SecondInstanceData{})
 }

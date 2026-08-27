@@ -58,7 +58,11 @@ func main() {
 	// 后关闭的那个赢；升级时更糟——两个进程会各自跑一遍迁移和迁移前备份。
 	lock, err := instancelock.Acquire(cfg.DataDir)
 	if errors.Is(err, instancelock.ErrAlreadyRunning) {
-		slog.Info("已有实例在运行，本次启动直接退出")
+		slog.Info("已有实例在运行，通知它把窗口叫到前面")
+		notifyRunningInstance()
+		// 正常情况下走不到这里：Wails 通知完第一个实例就会退出本进程。
+		// 能走到，说明没通知成功（比如第一个实例是不带单实例支持的旧版本），
+		// 那就退而求其次，至少告诉用户它已经在跑了。
 		platform.ShowInfoDialog(config.AppName, "PostPigeon 已经在运行了。\n\n请切换到已经打开的窗口。")
 		os.Exit(0)
 	}
@@ -134,6 +138,9 @@ func main() {
 	// 窗口状态持久化服务
 	windowStateService := services.NewWindowStateService(db)
 
+	// 主窗口在下面才创建，这里先声明：单实例回调要能拿到它
+	var mainWindow *application.WebviewWindow
+
 	// 创建 Wails 应用
 	app := application.New(application.Options{
 		Name:        config.AppName,
@@ -173,6 +180,15 @@ func main() {
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
 		},
+		// 有人又启动了一次：把窗口叫到前面，而不是让他对着一句「已经在运行了」
+		// 自己去找窗口。真正挡住第二个实例碰数据库的是上面的文件锁。
+		SingleInstance: instancelock.WailsOptions(config.AppIdentifier, func() {
+			if mainWindow == nil {
+				return
+			}
+			mainWindow.Show()
+			mainWindow.Focus()
+		}),
 	})
 
 	// 接上更新器。必须放在 application.New 之后：app.Updater 是在那里创建的。
@@ -317,7 +333,7 @@ func main() {
 	app.Menu.Set(appMenu)
 
 	// 创建主窗口
-	mainWindow := app.Window.NewWithOptions(windowOptions)
+	mainWindow = app.Window.NewWithOptions(windowOptions)
 
 	// 设置窗口状态持久化监听（保存位置和大小变化）
 	windowStateService.SetupWindowStatePersistence(mainWindow)
@@ -343,6 +359,23 @@ func main() {
 		slog.Warn("清除运行标记失败", "error", err)
 	}
 	slog.Info("PostPigeon 应用退出")
+}
+
+// notifyRunningInstance 让已经在跑的那个实例把窗口叫到前面。
+//
+// 做法是构造一个最小的 Wails 应用：application.New 里的单实例检查发现锁被占，
+// 会替我们把消息发给第一个实例，然后直接退出本进程——所以这个函数正常情况下不返回。
+// 这一步在 database.Initialize 之前，不碰数据库；只做到构造 assets handler 与消息通道
+// （HTTP transport 不监听端口，两个进程不会打架），既不开窗口也不起 webview。
+func notifyRunningInstance() {
+	application.New(application.Options{
+		Name:   config.AppName,
+		Logger: logger.ForWails(),
+		Assets: application.AssetOptions{
+			Handler: application.AssetFileServerFS(assets),
+		},
+		SingleInstance: instancelock.WailsOptions(config.AppIdentifier, nil),
+	})
 }
 
 // fatal 记录致命错误、弹出原生对话框，然后退出。

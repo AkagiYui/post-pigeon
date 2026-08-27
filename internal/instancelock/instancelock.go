@@ -5,6 +5,8 @@ import (
 	"fmt"
 	"os"
 	"path/filepath"
+
+	"github.com/wailsapp/wails/v3/pkg/application"
 )
 
 // lockFileName 是数据目录下的锁文件名。
@@ -43,4 +45,24 @@ func (l *Lock) Release() error {
 	err := l.file.Close()
 	l.file = nil
 	return err
+}
+
+// WailsOptions 构造 Wails 的单实例选项。
+//
+// 与上面的文件锁分工不同，两者都要有：
+//   - 文件锁挡的是**数据**。它在 database.Initialize 之前就位，第二个实例根本碰不到
+//     数据库；Wails 自己的检查在 application.New 里，那时迁移早就跑过了。
+//   - 这里挡的是**体验**。第二个实例通过它把「有人又启动了一次」告诉第一个实例，
+//     第一个实例把窗口叫到前面，而不是让用户对着一句「已经在运行了」自己去找窗口。
+//
+// onSecondInstance 为 nil 时只是把第二个实例挡掉，不做别的。
+func WailsOptions(uniqueID string, onSecondInstance func()) *application.SingleInstanceOptions {
+	return &application.SingleInstanceOptions{
+		UniqueID: uniqueID,
+		OnSecondInstanceLaunch: func(application.SecondInstanceData) {
+			if onSecondInstance != nil {
+				onSecondInstance()
+			}
+		},
+	}
 }
