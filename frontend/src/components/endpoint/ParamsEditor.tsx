@@ -4,12 +4,12 @@
 // 全局 Query 参数继承自模块，值只读（在设置页修改），开关仅对本接口生效。
 // Cookie 参数由独立的 CookiesEditor 编辑。三者共享同一份 ParamRow[]（按 type 区分），
 // 各编辑器改动时都会回传「完整」列表以保持彼此数据不丢失。
+// 录入交互（草稿行 / 悬停删除 / 批量编辑）统一由 KeyValueTable 提供。
 import { Icon } from "@iconify-icon/solid"
-import type { JSX } from "solid-js"
 import { Show } from "solid-js"
 
 import type { ParamRow } from "@/components/endpoint/EndpointDetail"
-import { Button } from "@/components/ui/button"
+import { KeyValueTable } from "@/components/endpoint/KeyValueTable"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { Table } from "@/components/ui/table"
@@ -76,38 +76,38 @@ export function ParamsEditor(props: ParamsEditorProps) {
   return (
     <div class="h-full overflow-auto p-3 space-y-5">
       {/* Query 参数 */}
-      <section>
-        <SectionTitle>{t("endpoint.param.queryParams")}</SectionTitle>
-        <ParamTable
-          rows={rowsOf("query")}
-          type="query"
-          onChange={(rows) => emit("query", rows)}
-        />
-      </section>
+      <KeyValueTable
+        title={t("endpoint.param.queryParams")}
+        rows={rowsOf("query")}
+        makeRow={() => makeRow("query")}
+        onChange={rows => emit("query", rows)}
+        showRequired
+        showExample
+      />
 
-      {/* Path 参数：仅当接口路径含 {name} 占位符时显示，名称只读、无添加按钮 */}
+      {/* Path 参数：仅当接口路径含 {name} 占位符时显示，名称只读、不能增删 */}
       <Show when={pathTokens().length > 0}>
-        <section>
-          <SectionTitle>{t("endpoint.param.pathParams")}</SectionTitle>
-          <ParamTable
-            rows={pathRows()}
-            type="path"
-            onChange={(rows) => emit("path", rows)}
-            nameReadOnly
-            hideAdd
-          />
-        </section>
+        <KeyValueTable
+          title={t("endpoint.param.pathParams")}
+          rows={pathRows()}
+          makeRow={() => makeRow("path")}
+          onChange={rows => emit("path", rows)}
+          nameReadOnly
+          fixedRows
+          showRequired
+          showExample
+        />
       </Show>
 
       {/* 全局 Query 参数（继承自模块，值只读、开关仅对本接口生效）：无全局参数时整块隐藏 */}
       <Show when={(props.globalQueryParams?.length ?? 0) > 0}>
         <section>
-          <SectionTitle>
+          <h3 class="text-sm font-medium text-foreground mb-2">
             <span class="inline-flex items-center gap-1.5">
               <Icon icon="lucide:globe" class="h-3.5 w-3.5 text-muted-foreground" />
               {t("endpoint.param.globalQueryParams")}
             </span>
-          </SectionTitle>
+          </h3>
           <p class="text-xs text-muted-foreground mb-2">{t("endpoint.param.globalQueryParamsHint")}</p>
           <Table
             columns={[
@@ -125,7 +125,7 @@ export function ParamsEditor(props: ParamsEditorProps) {
                     size="sm"
                     value={gp.name}
                     readOnly
-                    class={cn("font-mono", !isGlobalEnabled(gp.name) && "opacity-50")}
+                    class={cn("font-mono border-transparent bg-transparent", !isGlobalEnabled(gp.name) && "opacity-50")}
                   />
                 ),
               },
@@ -137,7 +137,7 @@ export function ParamsEditor(props: ParamsEditorProps) {
                       size="sm"
                       value={gp.value}
                       readOnly
-                      class={cn("font-mono w-full cursor-help", !isGlobalEnabled(gp.name) && "opacity-50")}
+                      class={cn("font-mono w-full cursor-help border-transparent bg-transparent", !isGlobalEnabled(gp.name) && "opacity-50")}
                     />
                   </Tooltip>
                 ),
@@ -165,96 +165,13 @@ export function CookiesEditor(props: { value: ParamRow[]; onChange: (rows: Param
 
   return (
     <div class="h-full overflow-auto p-3">
-      <ParamTable rows={cookieRows()} type="cookie" onChange={emit} />
-    </div>
-  )
-}
-
-/** 分区标题 */
-function SectionTitle(props: { children: JSX.Element }) {
-  return <h3 class="text-sm font-medium text-foreground mb-2">{props.children}</h3>
-}
-
-/**
- * ParamTable 单一位置的参数表（无"位置"列）。
- * onChange 回传的是本 type 的完整行列表，由上层与其它位置合并。
- * nameReadOnly：参数名只读（用于自动识别的 path 参数）；hideAdd：隐藏添加按钮。
- */
-function ParamTable(props: {
-  rows: ParamRow[]
-  type: ParamLocation
-  onChange: (rows: ParamRow[]) => void
-  nameReadOnly?: boolean
-  hideAdd?: boolean
-}) {
-  const addParam = () => props.onChange([...props.rows, makeRow(props.type)])
-  const removeParam = (id: string) => props.onChange(props.rows.filter(p => p.id !== id))
-  const updateParam = (id: string, field: keyof ParamRow, value: string | boolean) =>
-    props.onChange(props.rows.map(p => p.id === id ? { ...p, [field]: value } : p))
-
-  return (
-    <>
-      <Table
-        columns={[
-          {
-            header: "", width: "32px", render: (row) => (
-              <Checkbox
-                checked={row.enabled}
-                onChange={(e) => updateParam(row.id, "enabled", e.currentTarget.checked)}
-              />
-            ),
-          },
-          {
-            header: t("endpoint.param.name"), render: (row) => (
-              props.nameReadOnly
-                ? <Input size="sm" value={row.name} readOnly class="font-mono" />
-                : <Input size="sm" value={row.name} onInput={(e) => updateParam(row.id, "name", e.currentTarget.value)} />
-            ),
-          },
-          {
-            header: t("endpoint.param.value"), render: (row) => (
-              <Input size="sm" value={row.value} onInput={(e) => updateParam(row.id, "value", e.currentTarget.value)} />
-            ),
-          },
-          {
-            header: t("endpoint.param.required"), width: "56px", render: (row) => (
-              <Checkbox
-                checked={row.required}
-                onChange={(e) => updateParam(row.id, "required", e.currentTarget.checked)}
-              />
-            ),
-          },
-          {
-            header: t("endpoint.param.example"), render: (row) => (
-              <Input size="sm" value={row.example} onInput={(e) => updateParam(row.id, "example", e.currentTarget.value)} />
-            ),
-          },
-          {
-            header: t("endpoint.param.description"), render: (row) => (
-              <Input size="sm" value={row.description} onInput={(e) => updateParam(row.id, "description", e.currentTarget.value)} />
-            ),
-          },
-          {
-            header: "", width: "32px", render: (row) => (
-              // path 参数由路径自动识别，不提供逐行删除
-              <Show when={!props.nameReadOnly}>
-                <Button variant="ghost" size="icon-sm" onClick={() => removeParam(row.id)}>
-                  <Icon icon="lucide:trash-2" class="h-3 w-3" />
-                </Button>
-              </Show>
-            ),
-          },
-        ]}
-        data={props.rows}
-        compact
-        emptyText={t("endpoint.param.empty")}
+      <KeyValueTable
+        rows={cookieRows()}
+        makeRow={() => makeRow("cookie")}
+        onChange={emit}
+        showRequired
+        showExample
       />
-      <Show when={!props.hideAdd}>
-        <Button variant="outline" size="sm" class="mt-2" onClick={addParam}>
-          <Icon icon="lucide:plus" class="h-3 w-3" />
-          {t("endpoint.param.add")}
-        </Button>
-      </Show>
-    </>
+    </div>
   )
 }

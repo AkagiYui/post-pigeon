@@ -16,6 +16,9 @@ export default defineConfig({
   },
   test: {
     environment: "jsdom",
+    // @iconify-icon/solid 以未编译的 .jsx 发布，默认被当作外部依赖直接 import 会报
+    // "Unknown file extension .jsx"；内联后交给 solid 插件转换，组件测试才能渲染带图标的组件。
+    server: { deps: { inline: ["@iconify-icon/solid"] } },
     globals: true,
     setupFiles: ["./src/test/setup.ts"],
     include: ["src/**/*.{test,spec}.{ts,tsx}"],

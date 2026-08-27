@@ -27,6 +27,8 @@ export interface TableProps<T> {
   emptyText?: string
   /** 自定义类名 */
   class?: string
+  /** 每行的额外类名（如 group，用于行 hover 时显隐行内按钮） */
+  rowClass?: string
   /** 紧凑模式 */
   compact?: boolean
 }
@@ -41,7 +43,7 @@ export interface TableProps<T> {
  * 行带 id 时按 id 归并（新增/删除/重排仍正确）；无 id 的只读表回退为结构/索引归并。
  */
 export function Table<T extends object>(props: TableProps<T>) {
-  const [local] = splitProps(props, ["columns", "data", "onRowClick", "emptyText", "class", "compact"])
+  const [local] = splitProps(props, ["columns", "data", "onRowClick", "emptyText", "class", "rowClass", "compact"])
 
   const [state, setState] = createStore<{ rows: T[] }>({ rows: [] })
   createRenderEffect(() => {
@@ -96,6 +98,7 @@ export function Table<T extends object>(props: TableProps<T>) {
                   class={cn(
                     "border-b border-divider transition-colors hover:bg-hover-subtle",
                     local.onRowClick && "cursor-pointer focus-visible:outline-none focus-visible:bg-hover",
+                    local.rowClass,
                   )}
                   // 可点击的行必须能用键盘触达并激活，否则只有鼠标用户能用
                   role={local.onRowClick ? "button" : undefined}
