@@ -4,6 +4,8 @@ import (
 	"strings"
 	"testing"
 
+	"gorm.io/gorm"
+
 	"PostPigeon/internal/models"
 )
 
@@ -40,7 +42,7 @@ func TestImportExportRoundTrip(t *testing.T) {
 	_, _ = es.CreateEndpoint(m.ID, &folder.ID, "Detail", "GET", "/d/1")
 
 	// 导出
-	jsonStr, err := ie.ExportProject(p.ID)
+	jsonStr, err := ie.ExportProject(p.ID, true)
 	if err != nil {
 		t.Fatalf("ExportProject err=%v", err)
 	}
@@ -160,4 +162,138 @@ func folderNames(fs []FolderTree) []string {
 		out = append(out, f.Name)
 	}
 	return out
+}
+
+// buildSecretProject 造一个带各类凭据的项目：秘密变量、bearer、oauth2、basic。
+func buildSecretProject(t *testing.T, db *gorm.DB) *models.Project {
+	t.Helper()
+	p := mustCreateProject(t, db, "带凭据的项目")
+	m, err := NewModuleService(db).CreateModule(p.ID, "模块")
+	if err != nil {
+		t.Fatalf("建模块失败: %v", err)
+	}
+
+	envSvc := NewEnvironmentService(db)
+	env, err := envSvc.CreateEnvironment(p.ID, "生产")
+	if err != nil {
+		t.Fatalf("建环境失败: %v", err)
+	}
+	if err := envSvc.SaveEnvironmentVariables(env.ID, []models.EnvironmentVariable{
+		{Key: "API_TOKEN", Value: "super-secret-token", IsSecret: true},
+		{Key: "BASE_PATH", Value: "/api/v1", IsSecret: false},
+	}); err != nil {
+		t.Fatalf("保存变量失败: %v", err)
+	}
+
+	es := NewEndpointService(db)
+	bearer, _ := es.CreateEndpoint(m.ID, nil, "Bearer 接口", "GET", "/b")
+	if err := es.SaveEndpointData(EndpointSaveData{
+		ID: bearer.ID, Name: "Bearer 接口", Method: "GET", Path: "/b",
+		Auth: &models.EndpointAuth{Type: "bearer", Data: models.ToJSON(models.BearerAuthData{Token: "bearer-secret"})},
+	}); err != nil {
+		t.Fatalf("保存端点失败: %v", err)
+	}
+
+	oauth, _ := es.CreateEndpoint(m.ID, nil, "OAuth 接口", "GET", "/o")
+	if err := es.SaveEndpointData(EndpointSaveData{
+		ID: oauth.ID, Name: "OAuth 接口", Method: "GET", Path: "/o",
+		Auth: &models.EndpointAuth{Type: "oauth2", Data: models.ToJSON(models.OAuth2AuthData{
+			GrantType: "client_credentials", TokenURL: "https://auth.example.com/token",
+			ClientID: "public-client-id", ClientSecret: "oauth-secret",
+		})},
+	}); err != nil {
+		t.Fatalf("保存端点失败: %v", err)
+	}
+
+	basic, _ := es.CreateEndpoint(m.ID, nil, "Basic 接口", "GET", "/a")
+	if err := es.SaveEndpointData(EndpointSaveData{
+		ID: basic.ID, Name: "Basic 接口", Method: "GET", Path: "/a",
+		Auth: &models.EndpointAuth{Type: "basic", Data: models.ToJSON(models.BasicAuthData{
+			Username: "alice", Password: "basic-secret",
+		})},
+	}); err != nil {
+		t.Fatalf("保存端点失败: %v", err)
+	}
+	return p
+}
+
+// TestInspectExportSecrets 统计只算真的填了凭据的条目。
+func TestInspectExportSecrets(t *testing.T) {
+	db := newTestDB(t)
+	ie := NewImportExportService(db)
+	p := buildSecretProject(t, db)
+
+	summary, err := ie.InspectExportSecrets(p.ID)
+	if err != nil {
+		t.Fatalf("统计失败: %v", err)
+	}
+	if summary.SecretVariables != 1 {
+		t.Errorf("秘密变量 = %d，期望 1（非秘密的不算）", summary.SecretVariables)
+	}
+	if summary.AuthCredentials != 3 {
+		t.Errorf("带凭据的接口 = %d，期望 3", summary.AuthCredentials)
+	}
+	if summary.Total() != 4 {
+		t.Errorf("合计 = %d", summary.Total())
+	}
+
+	// 没有任何凭据的项目应当是 0，界面据此决定不打扰用户
+	clean := mustCreateProject(t, db, "干净项目")
+	cleanSummary, err := ie.InspectExportSecrets(clean.ID)
+	if err != nil {
+		t.Fatalf("统计失败: %v", err)
+	}
+	if cleanSummary.Total() != 0 {
+		t.Errorf("干净项目不该有凭据: %+v", cleanSummary)
+	}
+}
+
+// TestExportWithoutSecrets 不带凭据导出时，值必须消失、但配置要留着。
+func TestExportWithoutSecrets(t *testing.T) {
+	db := newTestDB(t)
+	ie := NewImportExportService(db)
+	p := buildSecretProject(t, db)
+
+	stripped, err := ie.ExportProject(p.ID, false)
+	if err != nil {
+		t.Fatalf("导出失败: %v", err)
+	}
+
+	for _, secret := range []string{"super-secret-token", "bearer-secret", "oauth-secret", "basic-secret"} {
+		if strings.Contains(stripped, secret) {
+			t.Errorf("导出文件里仍有凭据 %q", secret)
+		}
+	}
+	// 条目与非凭据配置必须保留，否则对方不知道该填什么
+	for _, keep := range []string{"API_TOKEN", "BASE_PATH", "/api/v1", "https://auth.example.com/token", "public-client-id", "alice"} {
+		if !strings.Contains(stripped, keep) {
+			t.Errorf("导出文件里丢了不该丢的 %q", keep)
+		}
+	}
+
+	// 去掉凭据之后仍是一份可导入的完整数据
+	imported, err := ie.ImportProject(stripped)
+	if err != nil {
+		t.Fatalf("导入去凭据的导出失败: %v", err)
+	}
+	if imported.ID == p.ID {
+		t.Error("导入应生成新项目")
+	}
+}
+
+// TestExportWithSecrets 明确选择「包含凭据」时才原样带出去。
+func TestExportWithSecrets(t *testing.T) {
+	db := newTestDB(t)
+	ie := NewImportExportService(db)
+	p := buildSecretProject(t, db)
+
+	full, err := ie.ExportProject(p.ID, true)
+	if err != nil {
+		t.Fatalf("导出失败: %v", err)
+	}
+	for _, secret := range []string{"super-secret-token", "bearer-secret", "oauth-secret", "basic-secret"} {
+		if !strings.Contains(full, secret) {
+			t.Errorf("选择包含凭据时应带上 %q", secret)
+		}
+	}
 }

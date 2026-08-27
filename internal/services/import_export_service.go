@@ -1,6 +1,7 @@
 package services
 
 import (
+	"PostPigeon/internal/apperr"
 	"PostPigeon/internal/models"
 	"encoding/json"
 	"fmt"
@@ -53,8 +54,166 @@ type EndpointExport struct {
 	Auth       *models.EndpointAuth       `json:"auth"`
 }
 
-// ExportProject 导出项目为 JSON
-func (s *ImportExportService) ExportProject(projectID string) (string, error) {
+// ExportSecretSummary 导出前的凭据统计，供界面决定要不要问一句。
+type ExportSecretSummary struct {
+	// SecretVariables 标记为「秘密」且有值的环境变量个数
+	SecretVariables int `json:"secretVariables"`
+	// AuthCredentials 填了凭据（密码 / token / client secret / API Key 值）的接口个数
+	AuthCredentials int `json:"authCredentials"`
+}
+
+// Total 返回两类之和，为 0 表示这个项目导出去不带任何凭据。
+func (s ExportSecretSummary) Total() int {
+	return s.SecretVariables + s.AuthCredentials
+}
+
+// InspectExportSecrets 统计导出这个项目会带出多少凭据。
+func (s *ImportExportService) InspectExportSecrets(projectID string) (ExportSecretSummary, error) {
+	var summary ExportSecretSummary
+
+	var environments []models.Environment
+	if err := s.db.Where("project_id = ?", projectID).Find(&environments).Error; err != nil {
+		return summary, apperr.Wrap(err, apperr.CodeDatabase)
+	}
+	for _, env := range environments {
+		var variables []models.EnvironmentVariable
+		s.db.Where("environment_id = ?", env.ID).Find(&variables)
+		for _, v := range variables {
+			if v.IsSecret && v.Value != "" {
+				summary.SecretVariables++
+			}
+		}
+	}
+
+	// 接口鉴权：只统计真的填了凭据的，空壳配置不必惊动用户
+	var auths []models.EndpointAuth
+	if err := s.db.Raw(`
+		SELECT endpoint_auths.* FROM endpoint_auths
+		JOIN endpoints ON endpoints.id = endpoint_auths.endpoint_id
+		JOIN modules ON modules.id = endpoints.module_id
+		WHERE modules.project_id = ?`, projectID).Scan(&auths).Error; err != nil {
+		return summary, apperr.Wrap(err, apperr.CodeDatabase)
+	}
+	for _, auth := range auths {
+		if hasAuthCredential(auth) {
+			summary.AuthCredentials++
+		}
+	}
+	return summary, nil
+}
+
+// secretAuthKeys 返回某种认证类型里属于凭据的字段名。
+//
+// 按类型精确剥离而不是整块清空：tokenUrl、clientId、用户名这些是配置不是凭据，
+// 留着对方才知道该往哪里填。
+func secretAuthKeys(authType string) []string {
+	switch authType {
+	case "basic", "digest":
+		return []string{"password"}
+	case "bearer":
+		return []string{"token"}
+	case "apikey":
+		return []string{"value"}
+	case "oauth2":
+		return []string{"clientSecret", "password"}
+	default:
+		return nil
+	}
+}
+
+// hasAuthCredential 判断这份鉴权配置里是否真的填了凭据。
+func hasAuthCredential(auth models.EndpointAuth) bool {
+	data := decodeAuthData(auth)
+	for _, key := range secretAuthKeys(auth.Type) {
+		if v, ok := data[key].(string); ok && v != "" {
+			return true
+		}
+	}
+	return false
+}
+
+// stripAuthCredentials 抹掉鉴权配置里的凭据字段，保留其余配置。
+func stripAuthCredentials(auth *models.EndpointAuth) {
+	keys := secretAuthKeys(auth.Type)
+	if len(keys) == 0 || auth.Data == "" {
+		return
+	}
+	data := decodeAuthData(*auth)
+	if data == nil {
+		// 解析不出来就宁可整块丢掉：留着可能就是把凭据原样带出去
+		auth.Data = ""
+		return
+	}
+	changed := false
+	for _, key := range keys {
+		if v, ok := data[key].(string); ok && v != "" {
+			data[key] = ""
+			changed = true
+		}
+	}
+	if !changed {
+		return
+	}
+	if encoded, err := json.Marshal(data); err == nil {
+		auth.Data = string(encoded)
+	} else {
+		auth.Data = ""
+	}
+}
+
+// decodeAuthData 把鉴权配置解成通用的键值表；解析失败返回 nil。
+func decodeAuthData(auth models.EndpointAuth) map[string]any {
+	if auth.Data == "" {
+		return map[string]any{}
+	}
+	var data map[string]any
+	if err := json.Unmarshal([]byte(auth.Data), &data); err != nil {
+		return nil
+	}
+	return data
+}
+
+// stripSecrets 把导出数据里的凭据抹掉：秘密变量的值清空、接口鉴权里的凭据字段清空。
+//
+// 条目本身保留（变量名还在、鉴权类型还在），导入的一方一眼能看出「这里要填什么」，
+// 只是填什么得自己来。
+func stripSecrets(data *ExportData) {
+	for i := range data.Environments {
+		for j := range data.Environments[i].Variables {
+			if data.Environments[i].Variables[j].IsSecret {
+				data.Environments[i].Variables[j].Value = ""
+			}
+		}
+	}
+	for i := range data.Modules {
+		stripEndpointSecrets(data.Modules[i].Endpoints)
+		stripFolderSecrets(data.Modules[i].Folders)
+	}
+}
+
+// stripFolderSecrets 递归处理文件夹树里的接口。
+func stripFolderSecrets(folders []FolderExport) {
+	for i := range folders {
+		stripEndpointSecrets(folders[i].Endpoints)
+		stripFolderSecrets(folders[i].Children)
+	}
+}
+
+// stripEndpointSecrets 抹掉一组接口的鉴权凭据。
+func stripEndpointSecrets(endpoints []EndpointExport) {
+	for i := range endpoints {
+		if endpoints[i].Auth != nil {
+			stripAuthCredentials(endpoints[i].Auth)
+		}
+	}
+}
+
+// ExportProject 导出项目为 JSON。
+//
+// includeSecrets 决定要不要带上凭据（秘密变量的值、接口鉴权里的密码 / token /
+// client secret / API Key 值）。导出文件是明文的，而「把接口集合发给同事」是这类
+// 工具的日常操作——默认不带，由界面在确实有凭据时问一句。
+func (s *ImportExportService) ExportProject(projectID string, includeSecrets bool) (string, error) {
 	// 获取项目
 	var project models.Project
 	if err := s.db.Where("id = ?", projectID).First(&project).Error; err != nil {
@@ -94,6 +253,10 @@ func (s *ImportExportService) ExportProject(projectID string) (string, error) {
 		Project:      project,
 		Environments: environments,
 		Modules:      moduleExports,
+	}
+
+	if !includeSecrets {
+		stripSecrets(&data)
 	}
 
 	jsonData, err := json.MarshalIndent(data, "", "  ")

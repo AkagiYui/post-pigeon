@@ -632,5 +632,10 @@
   "settings.about.releases": "Previous versions",
   "settings.about.releases.link": "All releases",
   "settings.about.releases.hint": "If a new version does not work for you, download any earlier one from here and install it back — your data stays put.",
-  "settings.about.repository": "Repository"
+  "settings.about.repository": "Repository",
+  "importexport.exportSecrets.title": "Before exporting",
+  "importexport.exportSecrets.body": "This project has {variables} secret variable(s) and {credentials} endpoint(s) with auth credentials.",
+  "importexport.exportSecrets.hint": "The export file is plain text. Without credentials, variable names and auth settings are still kept — only the values are left empty for the other side to fill in.",
+  "importexport.exportSecrets.exclude": "Without credentials",
+  "importexport.exportSecrets.include": "Include credentials"
 }
