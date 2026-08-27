@@ -184,3 +184,126 @@ func TestStatFile(t *testing.T) {
 		t.Fatalf("空路径不该判定为存在: %+v", empty)
 	}
 }
+
+// TestFormDataStreamsWithExactLength 流式发送时 multipart 仍然完整合法，
+// 且 Content-Length 与实际字节数一致——长度算错的话服务端会直接读挂。
+func TestFormDataStreamsWithExactLength(t *testing.T) {
+	db := newTestDB(t)
+	hs := newTestHTTPService(t, db)
+
+	type received struct {
+		declaredLength int64
+		bodyLength     int64
+		fileContent    string
+		fileName       string
+		textField      string
+	}
+	var got received
+
+	srv := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		got.declaredLength = r.ContentLength
+		counting := &countingReader{inner: r.Body}
+		r.Body = io.NopCloser(counting)
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		got.bodyLength = counting.n
+		got.textField = r.FormValue("note")
+		if fh, header, err := r.FormFile("attachment"); err == nil {
+			content, _ := io.ReadAll(fh)
+			fh.Close()
+			got.fileContent = string(content)
+			got.fileName = header.Filename
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+
+	content := strings.Repeat("流式内容", 5000) // 约 60 KB，跨多次 Read
+	path := writeTempFile(t, "大附件.txt", content)
+
+	if _, err := hs.SendRequest(SendRequestData{
+		Method: "POST", BaseURL: srv.URL, Path: "/upload",
+		BodyType: string(models.BodyTypeFormData),
+		BodyFields: []models.EndpointBodyField{
+			{Name: "note", FieldType: "text", Value: "hello", Enabled: true},
+			{Name: "attachment", FieldType: "file", Value: fileFieldJSON(path), Enabled: true},
+		},
+	}); err != nil {
+		t.Fatalf("发送失败: %v", err)
+	}
+
+	if got.fileContent != content {
+		t.Fatalf("附件内容不完整：收到 %d 字节，期望 %d", len(got.fileContent), len(content))
+	}
+	if got.fileName != "大附件.txt" {
+		t.Fatalf("文件名 = %q", got.fileName)
+	}
+	if got.textField != "hello" {
+		t.Fatalf("文本字段 = %q", got.textField)
+	}
+	if got.declaredLength <= 0 {
+		t.Fatal("应当带上 Content-Length（流式发送也要能算准长度）")
+	}
+	if got.declaredLength != got.bodyLength {
+		t.Fatalf("Content-Length = %d，实际读到 %d 字节", got.declaredLength, got.bodyLength)
+	}
+}
+
+// TestFormDataReplaysOnRedirect 307 会带着请求体重发一次，
+// 附件必须能从头再读一遍——这正是 GetBody 的用处。
+func TestFormDataReplaysOnRedirect(t *testing.T) {
+	db := newTestDB(t)
+	hs := newTestHTTPService(t, db)
+
+	var hits int
+	var lastFile string
+	srv := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		hits++
+		if r.URL.Path == "/upload" {
+			http.Redirect(w, r, "/final", http.StatusTemporaryRedirect)
+			return
+		}
+		if err := r.ParseMultipartForm(32 << 20); err != nil {
+			http.Error(w, err.Error(), http.StatusBadRequest)
+			return
+		}
+		if fh, _, err := r.FormFile("attachment"); err == nil {
+			content, _ := io.ReadAll(fh)
+			fh.Close()
+			lastFile = string(content)
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+
+	path := writeTempFile(t, "重定向.txt", "重发之后仍然完整")
+
+	if _, err := hs.SendRequest(SendRequestData{
+		Method: "POST", BaseURL: srv.URL, Path: "/upload",
+		BodyType: string(models.BodyTypeFormData),
+		BodyFields: []models.EndpointBodyField{
+			{Name: "attachment", FieldType: "file", Value: fileFieldJSON(path), Enabled: true},
+		},
+	}); err != nil {
+		t.Fatalf("发送失败: %v", err)
+	}
+
+	if hits < 2 {
+		t.Fatalf("应当发生了重定向重发，实际命中 %d 次", hits)
+	}
+	if lastFile != "重发之后仍然完整" {
+		t.Fatalf("重发后的附件内容 = %q", lastFile)
+	}
+}
+
+// countingReader 统计实际读到的字节数。
+type countingReader struct {
+	inner io.Reader
+	n     int64
+}
+
+func (c *countingReader) Read(p []byte) (int, error) {
+	n, err := c.inner.Read(p)
+	c.n += int64(n)
+	return n, err
+}

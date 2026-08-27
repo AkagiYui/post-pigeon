@@ -939,23 +939,19 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 		req.Header.Set("Content-Type", defaultStr(data.ContentType, "application/json"))
 
 	case string(models.BodyTypeBinary):
-		// 原始二进制：BodyContent 约定为 {"fileName":..,"path":..}
-		var content []byte
+		// 原始二进制：BodyContent 约定为 {"fileName":..,"path":..}，文件流式发出，不进内存
+		var segment bodySegment
 		if file, ok := parseFileField(data.BodyContent); ok {
-			read, err := file.read()
+			seg, err := file.segment()
 			if err != nil {
 				return err
 			}
-			content = read
+			segment = seg
 		} else {
 			// 兼容：直接把 BodyContent 当作原始文本发送
-			content = []byte(data.BodyContent)
+			segment = byteSegment([]byte(data.BodyContent))
 		}
-		req.Body = io.NopCloser(bytes.NewReader(content))
-		req.GetBody = func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(content)), nil
-		}
-		req.ContentLength = int64(len(content))
+		newBodyStream(segment).apply(req)
 		if data.ContentType != "" {
 			req.Header.Set("Content-Type", data.ContentType)
 		} else {
@@ -963,32 +959,46 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 		}
 
 	case string(models.BodyTypeFormData):
-		// multipart/form-data：用标准库 multipart.Writer 正确处理文本字段与文件字段（含二进制内容）
-		var buf bytes.Buffer
-		writer := multipart.NewWriter(&buf)
+		// multipart/form-data：分隔符与各段的头仍交给标准库的 multipart.Writer 生成
+		// （边界、文件名转义这些细节不值得自己重写一遍），但它只能往 Writer 里写，
+		// 附件内容一旦交给它就整个进了内存。
+		//
+		// 所以这里只让 writer 写「框架」：文本字段照常写进缓冲区；遇到文件字段，
+		// 在 CreateFormFile 写完该段的头之后把缓冲区切一刀作为一段，紧跟着插入文件段，
+		// 内容并不流经 writer。writer 不关心每段内容有多长，从中间切开不会破坏分隔符。
+		var head bytes.Buffer
+		writer := multipart.NewWriter(&head)
+		var segments []bodySegment
+		// flushHead 把目前攒下的框架字节切成独立的一段
+		flushHead := func() {
+			if head.Len() == 0 {
+				return
+			}
+			segments = append(segments, byteSegment(bytes.Clone(head.Bytes())))
+			head.Reset()
+		}
+
 		for _, field := range data.BodyFields {
 			if !field.Enabled {
 				continue
 			}
 			if field.FieldType == "file" {
 				// 文件字段：value 约定为 {"fileName":..,"path":..}，发送时才读盘
-				var content []byte
 				fileName := field.Value
+				segment := byteSegment(nil)
 				if file, ok := parseFileField(field.Value); ok {
 					fileName = file.displayName()
-					read, err := file.read()
+					seg, err := file.segment()
 					if err != nil {
 						return err
 					}
-					content = read
+					segment = seg
 				}
-				part, err := writer.CreateFormFile(field.Name, fileName)
-				if err != nil {
+				if _, err := writer.CreateFormFile(field.Name, fileName); err != nil {
 					return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
 				}
-				if _, err := part.Write(content); err != nil {
-					return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
-				}
+				flushHead()
+				segments = append(segments, segment)
 			} else {
 				if err := writer.WriteField(field.Name, resolveVars(field.Value, vars)); err != nil {
 					return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
@@ -998,12 +1008,9 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 		if err := writer.Close(); err != nil {
 			return apperr.Wrap(err, apperr.CodeBuildBody)
 		}
-		body := buf.Bytes()
-		req.Body = io.NopCloser(bytes.NewReader(body))
-		req.GetBody = func() (io.ReadCloser, error) {
-			return io.NopCloser(bytes.NewReader(body)), nil
-		}
-		req.ContentLength = int64(len(body))
+		flushHead()
+
+		newBodyStream(segments...).apply(req)
 		req.Header.Set("Content-Type", writer.FormDataContentType())
 
 	case string(models.BodyTypeURLEncoded):
@@ -1319,25 +1326,31 @@ func (f fileFieldValue) displayName() string {
 	return "file"
 }
 
-// read 读出要发送的内容：优先按路径读盘，没有路径才回退到历史数据里的内联内容。
-func (f fileFieldValue) read() ([]byte, error) {
+// segment 把文件字段变成请求体的一段。
+//
+// 有路径就只记下路径与大小，内容留在磁盘上等发送时边读边发；只有历史数据里内联的
+// base64 才会落回内存——那本来就已经在内存里了。
+func (f fileFieldValue) segment() (bodySegment, error) {
 	if f.Path != "" {
-		content, err := os.ReadFile(f.Path)
+		stat, err := os.Stat(f.Path)
 		if err != nil {
 			// 文件被移走 / 删掉 / 换了台机器——这是存路径必然要面对的失败，
 			// 给一个能看懂的错误，而不是发出去一个空文件
-			return nil, apperr.Wrap(err, apperr.CodeRequestFileMissing, apperr.P("name", f.displayName()))
+			return bodySegment{}, apperr.Wrap(err, apperr.CodeRequestFileMissing, apperr.P("name", f.displayName()))
 		}
-		return content, nil
+		if stat.IsDir() {
+			return bodySegment{}, apperr.New(apperr.CodeRequestFileMissing, apperr.P("name", f.displayName()))
+		}
+		return fileSegment(f.Path, stat.Size()), nil
 	}
 	if f.Content != "" {
 		decoded, err := base64.StdEncoding.DecodeString(f.Content)
 		if err != nil {
-			return nil, apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("name", f.displayName()))
+			return bodySegment{}, apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("name", f.displayName()))
 		}
-		return decoded, nil
+		return byteSegment(decoded), nil
 	}
-	return nil, apperr.New(apperr.CodeRequestFileMissing, apperr.P("name", f.displayName()))
+	return bodySegment{}, apperr.New(apperr.CodeRequestFileMissing, apperr.P("name", f.displayName()))
 }
 
 // parseNameSet 将 JSON 字符串数组解析为名称集合（用于禁用全局参数名匹配）。
