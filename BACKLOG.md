@@ -60,7 +60,7 @@ Apifox 本地那份材料（`tmp/apifox/`）只有渲染层的部分 bundle 与�
   `database.Initialize` 之前就位），再叠一层 Wails 的单实例——第二个进程用一个最小的
   application.New 把消息发给第一个实例，第一个实例 Show + Focus 主窗口。通知不成功时
   退回原来的提示对话框。
-- **后台协程加 panic 兜底**（`__HASH__`）：新增 `internal/safego`，`Go` / `Run` /
+- **后台协程加 panic 兜底**（`b3618bc`）：新增 `internal/safego`，`Go` / `Run` /
   `Recover` 三个入口，panic 记日志（含堆栈）而不是杀掉进程。WebSocket 读写、流式响应
   推送、脚本发请求、更新检查、历史清理、入库 worker 全部接上。
 - **数据库迁移前自动备份**（`a38b6ad`）：`VACUUM INTO` 出
