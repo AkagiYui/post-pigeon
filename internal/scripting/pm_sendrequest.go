@@ -10,6 +10,8 @@ import (
 
 	"github.com/dop251/goja"
 	"github.com/dop251/goja_nodejs/eventloop"
+
+	"PostPigeon/internal/safego"
 )
 
 // sendClient 是 pm.sendRequest 使用的 HTTP 客户端（独立于主请求流程）。
@@ -31,7 +33,7 @@ func buildSendRequest(vm *goja.Runtime, loop *eventloop.EventLoop, res *Result) 
 
 		keepalive := loop.SetTimeout(func(*goja.Runtime) {}, time.Hour)
 		start := time.Now()
-		go func() {
+		safego.Go("script.sendRequest", func() {
 			respData, err := doSendRequest(method, rawURL, headers, body)
 			elapsed := time.Since(start).Milliseconds()
 			loop.RunOnLoop(func(rt *goja.Runtime) {
@@ -46,7 +48,7 @@ func buildSendRequest(vm *goja.Runtime, loop *eventloop.EventLoop, res *Result) 
 				respData.ResponseTime = elapsed
 				_, _ = cb(goja.Undefined(), goja.Null(), buildResponseObject(rt, respData, false))
 			})
-		}()
+		})
 		return goja.Undefined()
 	}
 }

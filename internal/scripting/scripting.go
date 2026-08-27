@@ -22,6 +22,8 @@ import (
 	"github.com/dop251/goja_nodejs/require"
 	nodeurl "github.com/dop251/goja_nodejs/url"
 	"github.com/google/uuid"
+
+	"PostPigeon/internal/safego"
 )
 
 //go:embed libs/*.js libs/manifest.json runtime/*.js
@@ -231,6 +233,9 @@ func (e *Engine) Run(script string, opts Options) *Result {
 	done := make(chan struct{})
 	go func() {
 		defer close(done)
+		// 里层的 recover 只覆盖 loop.Run 的回调，事件循环本身（定时器、异步回调）
+		// 出问题仍会掀掉整个进程，这里兜住
+		defer safego.Recover("script.eventLoop")
 		loop.Run(func(vm *goja.Runtime) {
 			vmMu.Lock()
 			vmRef = vm

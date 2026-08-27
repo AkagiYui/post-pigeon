@@ -27,6 +27,8 @@ import (
 
 	"github.com/wailsapp/wails/v3/pkg/updater"
 	"github.com/wailsapp/wails/v3/pkg/updater/providers/github"
+
+	"PostPigeon/internal/safego"
 )
 
 // ErrDisabled 表示更新器没有启用（开发构建、或 Attach 尚未调用）。
@@ -237,6 +239,7 @@ func (m *Manager) StartPeriodicCheck(delay, interval time.Duration) {
 
 	go func() {
 		defer close(done)
+		defer safego.Recover("updates.delayedCheck")
 
 		timer := time.NewTimer(delay)
 		defer timer.Stop()

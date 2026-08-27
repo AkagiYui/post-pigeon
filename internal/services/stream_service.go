@@ -14,6 +14,8 @@ import (
 	"github.com/coder/websocket"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"gorm.io/gorm"
+
+	"PostPigeon/internal/safego"
 )
 
 // StreamEvent 是推送给前端的流式事件（WebSocket / SSE 通用）。
@@ -138,8 +140,8 @@ func (s *WebSocketService) Connect(connID, urlStr string, headers map[string]str
 
 	emitStream(WSEventName, StreamEvent{ConnID: connID, Kind: "open", Timestamp: nowMillis()})
 
-	go s.readLoop(ctx, connID, conn)
-	go s.keepAlive(ctx, conn)
+	safego.Go("ws.readLoop", func() { s.readLoop(ctx, connID, conn) })
+	safego.Go("ws.keepAlive", func() { s.keepAlive(ctx, conn) })
 	return nil
 }
 

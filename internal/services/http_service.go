@@ -28,6 +28,8 @@ import (
 	"github.com/google/uuid"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"gorm.io/gorm"
+
+	"PostPigeon/internal/safego"
 )
 
 // HTTPStreamEventName 是前端监听的 HTTP 流式响应事件名。
@@ -93,16 +95,11 @@ func NewHTTPService(db *gorm.DB) *HTTPService {
 
 // ServiceStartup 在应用启动时按保留策略清理历史，避免旧数据无限堆积。
 func (s *HTTPService) ServiceStartup(_ context.Context, _ application.ServiceOptions) error {
-	go func() {
-		defer func() {
-			if r := recover(); r != nil {
-				slog.Error("启动时清理请求历史发生 panic", "panic", r)
-			}
-		}()
+	safego.Go("history.retentionOnStartup", func() {
 		if err := NewRequestHistoryService(s.db).ApplyRetentionPolicy(); err != nil {
 			slog.Warn("启动时清理请求历史失败", "error", err)
 		}
-	}()
+	})
 	return nil
 }
 
@@ -141,6 +138,8 @@ func (s *HTTPService) startPersistWorkers() {
 		s.persistWG.Add(1)
 		go func() {
 			defer s.persistWG.Done()
+			// runPersist 里层有 recover，这里再兜一道：循环本身出问题不该掀掉进程
+			defer safego.Recover("http.persistWorker")
 			for job := range s.persistCh {
 				s.runPersist(job)
 			}
@@ -574,7 +573,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			_ = envService.ApplyVariableChanges(data.EnvironmentID, up, rm)
 		}
 		// 后台读取事件流并推送，读到 EOF/停止后清理连接
-		go s.streamResponse(resp, streamID, cancel)
+		safego.Go("http.streamResponse", func() { s.streamResponse(resp, streamID, cancel) })
 
 		out := &HTTPResponseData{
 			StatusCode:    resp.StatusCode,

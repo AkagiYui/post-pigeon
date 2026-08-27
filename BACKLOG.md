@@ -51,31 +51,18 @@ Apifox 本地那份材料（`tmp/apifox/`）只有渲染层的部分 bundle 与�
 
 **工作量**　三天起，含选择器替换、迁移与导出格式变更。
 
-## P3 · 自己起的 goroutine 没有 recover
-
-**现状**　Wails 会接住 service 方法里的 panic（见下面「顺带确认过」），但我们自己
-`go func()` 起的协程不在它的保护范围内：
-[updates/manager.go](internal/updates/manager.go) 的延时检查协程没有 recover
-（[http_service.go](internal/services/http_service.go) 的两处流式协程有）。
-
-**风险**　低但真实：这类协程里 panic 会直接杀掉整个进程。好在现在崩溃会被运行标记
-记下来，堆栈也会写进日志。
-
-**建议**　给长期存活的协程统一加一层 recover + 记日志。
-
-**工作量**　一小时。
-
----
-
 ## 已处理
 
 - **项目导出前确认带不带凭据**（`fc73a64`）：项目里确实有凭据时才弹确认，默认不带；
   不带时秘密变量的值与鉴权凭据字段清空，变量名、tokenUrl、clientId、用户名这些配置
   保留，对方导入后自己填。
-- **第二个实例会把已有窗口叫到前面**（`c1bb63e`）：文件锁照旧挡住数据（它在
+- **第二个实例会把已有窗口叫到前面**（`10e72d7`）：文件锁照旧挡住数据（它在
   `database.Initialize` 之前就位），再叠一层 Wails 的单实例——第二个进程用一个最小的
   application.New 把消息发给第一个实例，第一个实例 Show + Focus 主窗口。通知不成功时
   退回原来的提示对话框。
+- **后台协程加 panic 兜底**（`__HASH__`）：新增 `internal/safego`，`Go` / `Run` /
+  `Recover` 三个入口，panic 记日志（含堆栈）而不是杀掉进程。WebSocket 读写、流式响应
+  推送、脚本发请求、更新检查、历史清理、入库 worker 全部接上。
 - **数据库迁移前自动备份**（`a38b6ad`）：`VACUUM INTO` 出
   `postpigeon.db.bak-<时间>-<版本>`，保留最近 3 份；只在确有待应用迁移时做；备份失败
   就不迁移。

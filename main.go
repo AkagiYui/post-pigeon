@@ -16,6 +16,7 @@ import (
 	"PostPigeon/internal/logger"
 	"PostPigeon/internal/models"
 	"PostPigeon/internal/platform"
+	"PostPigeon/internal/safego"
 	"PostPigeon/internal/services"
 	"PostPigeon/internal/updates"
 
@@ -340,11 +341,11 @@ func main() {
 
 	// 开发模式下自动打开开发者工具
 	if config.BuildHash == "dev" {
-		go func() {
+		safego.Go("dev.openDevTools", func() {
 			// 等待窗口加载完成
 			time.Sleep(500 * time.Millisecond)
 			mainWindow.OpenDevTools()
-		}()
+		})
 	}
 
 	// 运行应用
