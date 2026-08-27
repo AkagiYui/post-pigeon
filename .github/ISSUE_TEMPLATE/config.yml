@@ -1,0 +1,10 @@
+# 不允许开空白 issue：缺少版本、系统与日志的问题基本无法定位，
+# 与其来回追问，不如让模板把该填的一次问清。
+blank_issues_enabled: false
+contact_links:
+  - name: 安全问题
+    url: mailto:akagiyui@yeah.net
+    about: 涉及安全的问题请直接邮件联系，不要开公开 issue
+  - name: 先看看文档
+    url: https://github.com/AkagiYui/post-pigeon#readme
+    about: 数据存在哪、怎么备份恢复、怎么彻底删除，README 的「数据与隐私」里都有

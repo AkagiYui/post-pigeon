@@ -1,0 +1,40 @@
+name: 功能建议
+description: 提一个希望有的能力，或者一处可以更好用的地方
+labels: ["enhancement"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        描述「你想解决的问题」通常比描述「你想要的功能」更有用——前者往往有不止一种解法。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我搜索过已有 issue，没有找到相同的建议
+          required: true
+
+  - type: textarea
+    id: problem
+    attributes:
+      label: 你在什么场景下遇到了麻烦
+      description: 现在你是怎么绕过去的？绕不过去的话，卡在哪一步？
+      placeholder: |
+        例如：一个项目里有二十多个接口要按顺序跑，每次都得手动一个个点，
+        中间某个失败了还得自己记住跑到哪儿了。
+    validations:
+      required: true
+
+  - type: textarea
+    id: proposal
+    attributes:
+      label: 你期望它怎么工作（可选）
+      description: 有具体想法就写，没有也没关系——把问题说清楚就够了。
+
+  - type: input
+    id: app-version
+    attributes:
+      label: 当前使用的版本（可选）
+      description: 在设置 →「关于」里可以看到。
+      placeholder: 例如：0.0.4-beta.1

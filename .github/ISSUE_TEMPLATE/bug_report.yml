@@ -1,0 +1,145 @@
+name: 缺陷报告
+description: 报告一个用起来不对劲的地方
+labels: ["bug"]
+body:
+  - type: markdown
+    attributes:
+      value: |
+        感谢反馈。PostPigeon 是纯本地应用，我们看不到你那边发生了什么——
+        **版本、系统、复现步骤、日志**这四样决定了这个问题能不能被修掉，请尽量填全。
+
+        最省事的做法：打开 **设置 →「数据」→「导出诊断信息」**，把生成的 zip 拖进下面的
+        「日志与诊断信息」。里面已经包含版本、系统、数据库体积和最近几天的日志，
+        **不含数据库文件**（数据库里有明文的 token 与密码，不会被带出去）。
+
+  - type: checkboxes
+    id: preflight
+    attributes:
+      label: 提交前确认
+      options:
+        - label: 我搜索过已有 issue，没有找到相同的问题
+          required: true
+        - label: 我用的是[最新版本](https://github.com/AkagiYui/post-pigeon/releases)，或者已确认最新版仍有此问题
+          required: true
+
+  - type: input
+    id: app-version
+    attributes:
+      label: 软件版本
+      description: 在设置 →「关于」里可以看到；构建哈希点一下就能复制。请连构建哈希一起贴上。
+      placeholder: 例如：0.0.4-beta.1（构建 a1b2c3d）
+    validations:
+      required: true
+
+  - type: dropdown
+    id: os
+    attributes:
+      label: 操作系统
+      options:
+        - macOS
+        - Windows
+        - Linux
+    validations:
+      required: true
+
+  - type: input
+    id: os-version
+    attributes:
+      label: 系统版本
+      description: 具体到小版本，架构（Intel / Apple 芯片 / x64 / ARM）也一并写上。Linux 请写发行版与桌面环境。
+      placeholder: 例如：macOS 15.1（Apple 芯片） / Windows 11 23H2（x64） / Ubuntu 24.04 + GNOME Wayland
+    validations:
+      required: true
+
+  - type: dropdown
+    id: install-source
+    attributes:
+      label: 安装方式
+      options:
+        - 官方 Release 的安装包
+        - AppImage
+        - 从源码构建
+        - 其它 / 记不清了
+    validations:
+      required: true
+
+  - type: textarea
+    id: what-happened
+    attributes:
+      label: 问题描述
+      description: 出了什么事？如果是从某个版本开始才有的，也请说明升级前后的版本号。
+      placeholder: |
+        例如：发送任何带 form-data 附件的请求都会失败，界面提示「构建请求体失败」。
+        0.0.3 上是正常的，升到 0.0.4-beta.1 之后才出现。
+    validations:
+      required: true
+
+  - type: textarea
+    id: reproduce
+    attributes:
+      label: 复现步骤
+      description: 一步一步写，尽量从「新建一个项目」这种干净状态开始。
+      placeholder: |
+        1. 新建项目 → 新建模块 → 新建接口
+        2. 请求体选 form-data，添加一个文件字段并选一个 1MB 的图片
+        3. 点击发送
+    validations:
+      required: true
+
+  - type: textarea
+    id: expected-actual
+    attributes:
+      label: 期望结果 / 实际结果
+      placeholder: |
+        期望：请求正常发出，返回 200
+        实际：立刻弹出错误提示，请求没有发出去
+    validations:
+      required: true
+
+  - type: dropdown
+    id: frequency
+    attributes:
+      label: 复现频率
+      options:
+        - 每次都能复现
+        - 偶尔出现
+        - 只遇到过一次
+    validations:
+      required: true
+
+  - type: textarea
+    id: logs
+    attributes:
+      label: 日志与诊断信息
+      description: |
+        **推荐**：设置 →「数据」→「导出诊断信息」，把生成的 zip 拖到这里。
+
+        想手动取日志的话，设置 →「数据」→「打开数据目录」，进 `logs` 文件夹；
+        或者直接去这些位置：
+
+        | 系统 | 日志目录 |
+        | --- | --- |
+        | macOS | `~/Library/Application Support/com.akagiyui.postpigeon/logs/` |
+        | Windows | `%AppData%\com.akagiyui.postpigeon\logs\`（在地址栏粘贴即可打开） |
+        | Linux | `~/.config/com.akagiyui.postpigeon/logs/`（若设了 `XDG_CONFIG_HOME` 则在它下面） |
+
+        日志按天切分，文件名形如 `postpigeon-2026-08-27.log`；单个文件超过 8 MiB 会滚动出
+        `postpigeon-2026-08-27.1.log` 这样的分片，出问题当天的**全部**分片都请带上。
+        如果应用连启动都启动不了，日志目录里仍然会有内容，直接从上面的路径去取。
+
+        日志里主要是运行状态与错误信息，一般不含请求头或响应体，但发出来之前建议自己扫一眼。
+      placeholder: 把诊断 zip 或日志文件拖进这个输入框即可上传；内容不多的话也可以直接粘贴。
+    validations:
+      required: true
+
+  - type: textarea
+    id: screenshots
+    attributes:
+      label: 截图或录屏（可选）
+      description: 界面类问题贴张图往往比一段描述管用。
+
+  - type: textarea
+    id: extra
+    attributes:
+      label: 补充信息（可选）
+      description: 比如是否用了代理、自定义 TLS 设置、前置/后置脚本，或者数据量特别大（几千个接口）。
