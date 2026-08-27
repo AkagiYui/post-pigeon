@@ -4,6 +4,7 @@ import { createSignal, onMount } from "solid-js"
 import { AppInfo, AppService } from "@/bindings/PostPigeon/internal/services"
 import { ExternalLink } from "@/components/ui/external-link"
 import { t } from "@/hooks/useI18n"
+import { copyText } from "@/lib/clipboard"
 import { formatBuildTime } from "@/lib/format"
 import { toastError } from "@/stores/toast"
 
@@ -93,7 +94,7 @@ function BuildHashValue(props: { hash: string }) {
   // 复制到剪贴板
   const handleCopy = async () => {
     try {
-      await navigator.clipboard.writeText(props.hash)
+      await copyText(props.hash)
       setCopied(true)
       // 2秒后重置状态
       setTimeout(() => setCopied(false), 2000)

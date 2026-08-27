@@ -55,6 +55,7 @@ import { Tabs } from "@/components/ui/tabs"
 import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
+import { copyText } from "@/lib/clipboard"
 import { errorMessage } from "@/lib/errors"
 import { type BodyType, type EndpointType, type HTTPMethod, type ParamLocation } from "@/lib/types"
 import { cn, downloadTextFile } from "@/lib/utils"
@@ -787,7 +788,7 @@ export function ApiManagement(props: ApiManagementProps) {
     const ep = endpointData
     try {
       const command = await CurlService.ToCurl(buildSendRequestData(ep))
-      await navigator.clipboard.writeText(command)
+      await copyText(command)
       toastSuccess(t("curl.copied"))
     } catch (e) {
       toastError(e, "error.op.copyFailed")
