@@ -205,9 +205,21 @@ jobs:
             -s -k "${KEYCHAIN_PASSWORD}" "${KEYCHAIN}" > /dev/null
 
           # 放进搜索列表，codesign 才找得到这个钥匙串里的身份；
-          # 同时保留原有钥匙串，否则后续步骤取不到系统证书
+          # 同时保留原有钥匙串，否则后续步骤取不到系统证书。
+          # 逐行读进数组，而不是让命令替换自己分词：security 的输出是带引号且缩进的
+          # 一行一个路径，靠分词的话路径里有空格就会被拆成两个参数
+          EXISTING_KEYCHAINS=()
+          while IFS= read -r line; do
+            line="${line#"${line%%[![:space:]]*}"}"   # 去掉行首缩进
+            line="${line%\"}"                          # 去掉两端引号
+            line="${line#\"}"
+            if [ -n "${line}" ]; then
+              EXISTING_KEYCHAINS+=("${line}")
+            fi
+          done < <(security list-keychains -d user)
+          # macOS runner 上是 bash 3.2，set -u 下展开空数组会报未绑定变量
           security list-keychains -d user -s "${KEYCHAIN}" \
-            $(security list-keychains -d user | tr -d '"')
+            ${EXISTING_KEYCHAINS[@]+"${EXISTING_KEYCHAINS[@]}"}
 
           # 身份串（"Developer ID Application: 某某 (TEAMID)"）不是秘密，
           # 从证书里现取即可，不必再多配一个 secret
@@ -274,7 +286,15 @@ jobs:
               ;;
             windows)
               cp "bin/${NAME}.exe" "dist/${NAME}-windows-${GOARCH}.exe"
-              installer=$(ls bin/*installer*.exe 2>/dev/null | head -1 || true)
+              # 用通配符直接遍历而不是解析 ls 的输出：文件名里有空格或换行时
+              # ls 的结果没法可靠地切成一个个路径
+              installer=""
+              for candidate in bin/*installer*.exe; do
+                if [ -f "${candidate}" ]; then
+                  installer="${candidate}"
+                  break
+                fi
+              done
               if [ -n "${installer}" ]; then
                 cp "${installer}" "dist/${NAME}-windows-${GOARCH}-installer.exe"
               else
@@ -342,7 +362,9 @@ jobs:
         run: |
           set -euo pipefail
           cd artifacts
-          sha256sum * > ../SHA256SUMS
+          # 用 -- 而不是 ./*：SHA256SUMS 里的文件名必须与 Release 资产名逐字相同，
+          # 更新器要靠它对上号，写成 ./PostPigeon-... 就匹配不上了
+          sha256sum -- * > ../SHA256SUMS
           cat ../SHA256SUMS
 
       # 发布说明以 CHANGELOG.md 为准（人工润色、面向使用者），
