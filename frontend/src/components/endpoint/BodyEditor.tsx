@@ -10,10 +10,12 @@ import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"
+import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
-import { formatBody, formatJSONC } from "@/lib/format"
+import { convertJSON5ToJSON, formatBody, formatJSONC } from "@/lib/format"
 import { type BodyType } from "@/lib/types"
 import { cn } from "@/lib/utils"
+import { toastError } from "@/stores/toast"
 
 /** 请求体类型 → 编辑器语法。JSON 用 jsonc：注释是被支持的写法，得高亮成注释而不是错误 */
 const editorLanguage: Record<string, CodeLanguage> = {
@@ -136,6 +138,18 @@ export function BodyEditor(props: BodyEditorProps) {
     if (formatted !== props.bodyContent) props.onChange({ bodyContent: formatted })
   }
 
+  // JSON5 → 标准 JSON：从浏览器控制台、JS 代码里复制来的对象字面量（单引号、无引号键名、
+  // 十六进制数字）一键转成能发出去的 JSON。这一步会重新序列化，注释与大整数精度都留不住，
+  // 所以做成显式命令而不是发送时自动转换；转错了可以直接在编辑器里撤销。
+  const fromJSON5 = () => {
+    try {
+      const converted = convertJSON5ToJSON(props.bodyContent)
+      if (converted !== props.bodyContent) props.onChange({ bodyContent: converted })
+    } catch (e) {
+      toastError(e, "endpoint.body.fromJSON5.failed")
+    }
+  }
+
   return (
     <div class="p-3 h-full overflow-auto flex flex-col">
       {/* 请求体类型选择 */}
@@ -160,10 +174,20 @@ export function BodyEditor(props: BodyEditorProps) {
 
         {/* 格式化：JSON 走 jsonc-parser（保留注释），XML 走标签缩进 */}
         <Show when={canFormat()}>
-          <Button variant="ghost" size="sm" class="ml-auto shrink-0 whitespace-nowrap text-muted-foreground" onClick={formatContent}>
-            <Icon icon="lucide:wand-sparkles" class="h-3 w-3" />
-            {t("endpoint.body.format")}
-          </Button>
+          <div class="ml-auto flex shrink-0 items-center gap-1">
+            <Show when={props.bodyType === "json"}>
+              <Tooltip content={t("endpoint.body.fromJSON5.hint")} placement="top">
+                <Button variant="ghost" size="sm" class="whitespace-nowrap text-muted-foreground" onClick={fromJSON5}>
+                  <Icon icon="lucide:braces" class="h-3 w-3" />
+                  {t("endpoint.body.fromJSON5")}
+                </Button>
+              </Tooltip>
+            </Show>
+            <Button variant="ghost" size="sm" class="whitespace-nowrap text-muted-foreground" onClick={formatContent}>
+              <Icon icon="lucide:wand-sparkles" class="h-3 w-3" />
+              {t("endpoint.body.format")}
+            </Button>
+          </div>
         </Show>
 
         {/* JSON/Text/XML 的内容类型选择 */}

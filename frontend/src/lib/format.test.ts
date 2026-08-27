@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { decodeRawBody, formatBody, formatBuildTime, formatFromContentType, formatJSONC } from "./format"
+import { convertJSON5ToJSON, decodeRawBody, formatBody, formatBuildTime, formatFromContentType, formatJSONC } from "./format"
 
 describe("formatFromContentType", () => {
   it("识别 JSON 及其结构化后缀", () => {
@@ -105,5 +105,23 @@ describe("formatJSONC", () => {
   it("空输入原样返回", () => {
     expect(formatJSONC("")).toBe("")
     expect(formatJSONC("   ")).toBe("   ")
+  })
+})
+
+describe("convertJSON5ToJSON", () => {
+  it("单引号与无引号键名转成标准 JSON", () => {
+    expect(convertJSON5ToJSON("{a: 'x'}")).toBe("{\n  \"a\": \"x\"\n}")
+  })
+
+  it("尾随逗号与十六进制数字", () => {
+    expect(convertJSON5ToJSON("{n: 0xFF, list: [1,2,],}")).toBe("{\n  \"n\": 255,\n  \"list\": [\n    1,\n    2\n  ]\n}")
+  })
+
+  it("注释会被丢掉（这一步是解析后重新序列化）", () => {
+    expect(convertJSON5ToJSON("{// 说明\na: 1}")).toBe("{\n  \"a\": 1\n}")
+  })
+
+  it("语法错误抛出，由调用方提示", () => {
+    expect(() => convertJSON5ToJSON("{a: }")).toThrow()
   })
 })

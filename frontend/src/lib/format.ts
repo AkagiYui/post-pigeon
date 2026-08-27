@@ -1,4 +1,5 @@
-// 响应体格式化与编码解码工具
+// 请求体与响应体的格式化、编码解码工具
+import JSON5 from "json5"
 import { applyEdits, format as formatJSONCEdits } from "jsonc-parser"
 
 /** 根据响应的 Content-Type 推断格式化方案（json / xml / html）；无法识别时返回 null */
@@ -44,6 +45,17 @@ export function formatJSONC(text: string): string {
   } catch {
     return text
   }
+}
+
+/**
+ * 把 JSON5 文本转成标准 JSON（单引号、无引号键名、十六进制数字等都会被改写）。
+ *
+ * 与 JSONC 兼容不同，这一步必须解析后重新序列化，注释会丢失、超出 double 精度的整数
+ * 会被改写——所以它只作为用户显式触发的一次性转换命令，不进发送链路。
+ * 解析失败时抛出 JSON5 的语法错误，由调用方提示。
+ */
+export function convertJSON5ToJSON(text: string): string {
+  return JSON.stringify(JSON5.parse(text), null, 2)
 }
 
 /** 简单的标签缩进美化，适用于 XML / HTML */
