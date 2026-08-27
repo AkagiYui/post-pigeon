@@ -57,12 +57,10 @@ export interface EndpointTreeProps {
   onMove?: (node: TreeNode) => void
   /** 导入 OpenAPI 文档回调（仅模块节点提供） */
   onImportOpenAPI?: (node: TreeNode) => void
-  /** 导入 Apifox 导出文件回调（项目级） */
-  onImportApifox?: () => void
+  /** 打开「导入接口」向导（项目级，Postman / Apifox 等格式在向导里选） */
+  onImportAPIs?: () => void
   /** 从 cURL 命令新建请求 */
   onImportCurl?: () => void
-  /** 导入 Postman Collection */
-  onImportPostman?: () => void
   /** 把模块导出为 OpenAPI 文档 */
   onExportOpenAPI?: (node: TreeNode) => void
   /** 批量运行该模块/文件夹下的接口 */
@@ -271,16 +269,10 @@ export function EndpointTree(props: EndpointTreeProps) {
               onClick: () => props.onImportCurl?.(),
             },
             {
-              key: "import-postman",
-              label: t("postman.import"),
+              key: "import-apis",
+              label: t("import.entry"),
               icon: <Icon icon="lucide:file-down" class="h-4 w-4 text-amber-600 shrink-0" />,
-              onClick: () => props.onImportPostman?.(),
-            },
-            {
-              key: "import-apifox",
-              label: t("apifox.import"),
-              icon: <Icon icon="lucide:file-down" class="h-4 w-4 text-orange-500 shrink-0" />,
-              onClick: () => props.onImportApifox?.(),
+              onClick: () => props.onImportAPIs?.(),
             },
           ]}
         >

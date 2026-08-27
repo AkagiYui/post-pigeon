@@ -45,6 +45,7 @@ import {
   OpenAPIImportDialog,
   PostmanImportDialog,
 } from "@/components/endpoint/ImportDialogs"
+import { type ImportKind, ImportWizardDialog } from "@/components/endpoint/ImportWizard"
 import { ScopeSettingsDialog } from "@/components/endpoint/ScopeSettingsDialog"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
@@ -558,11 +559,19 @@ export function ApiManagement(props: ApiManagementProps) {
     })
   }
 
-  // ---- Postman Collection 导入 ----
-  const handleImportPostman = () => pickJSONFile(async (text) => {
-    setPostmanJson(text)
-    setPostmanOpen(true)
-  })
+  // ---- 「导入接口」向导：选格式与来源，拿到文档后转交对应的预览对话框 ----
+  const [wizardOpen, setWizardOpen] = createSignal(false)
+
+  const handleWizardLoaded = (kind: ImportKind, text: string) => {
+    setWizardOpen(false)
+    if (kind === "postman") {
+      setPostmanJson(text)
+      setPostmanOpen(true)
+    } else {
+      setApifoxJson(text)
+      setApifoxOpen(true)
+    }
+  }
 
   /** 导入完成后的统一收尾：模块名/环境/前置 URL 都可能变化 */
   const refreshAfterImport = async () => {
@@ -1061,11 +1070,6 @@ export function ApiManagement(props: ApiManagementProps) {
     })
   }
 
-  const handleImportApifox = () => pickJSONFile(async (text) => {
-    setApifoxJson(text)
-    setApifoxOpen(true)
-  })
-
   // ---- 新建文档（doc 类型端点，作为叶子与接口同级） ----
   const handleCreateDocument = async (parentNodeId: string | undefined, _type?: "module" | "folder") => {
     const location = parentNodeId && findNodeInTree(treeData(), parentNodeId) ? parentNodeId : getEffectiveSaveLocation()
@@ -1152,9 +1156,8 @@ export function ApiManagement(props: ApiManagementProps) {
             onRename={handleTreeRename} onCopy={handleTreeCopy}
             onDelete={handleTreeDelete} onMove={handleTreeMove}
             onImportOpenAPI={handleImportOpenAPI}
-            onImportApifox={handleImportApifox}
+            onImportAPIs={() => setWizardOpen(true)}
             onImportCurl={handleImportCurl}
-            onImportPostman={handleImportPostman}
             onExportOpenAPI={handleExportOpenAPI}
             onRunCollection={handleRunCollection}
             onCreateDocument={handleCreateDocument}
@@ -1346,6 +1349,10 @@ export function ApiManagement(props: ApiManagementProps) {
       </Dialog>
 
       {/* 导入向导（各自持有预览与勾选状态） */}
+      <ImportWizardDialog
+        open={wizardOpen()} onClose={() => setWizardOpen(false)}
+        onLoaded={handleWizardLoaded}
+      />
       <OpenAPIImportDialog
         open={openApiOpen()} onClose={() => setOpenApiOpen(false)}
         moduleId={openApiModuleId()} json={openApiJson()}

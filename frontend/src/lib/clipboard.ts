@@ -1,4 +1,4 @@
-// 剪贴板写入。
+// 剪贴板读写。
 //
 // WKWebView 对 navigator.clipboard.writeText 有「用户手势」限制：手势一旦过期
 // （例如复制 cURL 需要先 await 一次后端调用），写入就会抛 NotAllowedError。
@@ -15,4 +15,14 @@ export async function copyText(text: string): Promise<void> {
     // 原生剪贴板不可用，尝试浏览器 API
   }
   await navigator.clipboard.writeText(text)
+}
+
+/** 读取系统剪贴板文本，失败时抛出错误交由调用方提示 */
+export async function readText(): Promise<string> {
+  try {
+    return await Clipboard.Text()
+  } catch {
+    // 原生剪贴板不可用，尝试浏览器 API
+  }
+  return await navigator.clipboard.readText()
 }

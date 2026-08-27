@@ -33,6 +33,8 @@ const (
 	CodeImportFailed      = "importexport.import_failed"
 	CodeExportFailed      = "importexport.export_failed"
 	CodeUnsupportedFormat = "importexport.unsupported_format"
+	// CodeImportFetch 从 URL 拉取待导入文档失败（网络不通 / 非 2xx 响应）
+	CodeImportFetch = "importexport.fetch_failed"
 
 	// ---- 领域对象 ----
 	CodeProjectNotFound     = "project.not_found"
