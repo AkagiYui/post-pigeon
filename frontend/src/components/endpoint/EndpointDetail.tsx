@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
 import { HoverCard } from "@/components/ui/hover-card"
 import { Input } from "@/components/ui/input"
+import { dragDisplaySize, resolveDragEnd, willCollapse } from "@/components/ui/split-pane-drag"
 import { Tabs } from "@/components/ui/tabs"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
@@ -316,10 +317,12 @@ export function EndpointDetail(props: EndpointDetailProps) {
   // ---- 响应区尺寸调整 / 收起（上下布局调高度，左右布局调宽度） ----
   const MIN_RESPONSE_H = 140 // 上下布局最低高度
   const MIN_RESPONSE_W = 280 // 左右布局最低宽度
-  const COLLAPSE_DRAG = 48 // 拖到最低尺寸后再往下/右拖这么多则收起
+  const COLLAPSE_DRAG = 48 // 拖到最低尺寸后再往下/右拖这么多，松手即收起
   const [responseHeight, setResponseHeight] = createSignal(300)
   const [responseWidth, setResponseWidth] = createSignal(480)
   const [responseCollapsed, setResponseCollapsed] = createSignal(false)
+  // 拖拽已越过「松手即收起」的距离，用来提前给出视觉预告
+  const [responseCollapseArmed, setResponseCollapseArmed] = createSignal(false)
   let containerRef: HTMLDivElement | undefined
 
   const startResponseResize = (e: MouseEvent) => {
@@ -333,23 +336,29 @@ export function EndpointDetail(props: EndpointDetailProps) {
     const extent = horizontal
       ? (containerRef ? containerRef.clientWidth : window.innerWidth)
       : (containerRef ? containerRef.clientHeight : window.innerHeight)
-    const max = extent - 180
+    const max = Math.max(min, extent - 180)
+    // raw 是不受最小尺寸约束的「意图尺寸」：面板停在最小尺寸不动，但仍要知道
+    // 拖过头多少，才能在松手时判断是弹回还是收起（与侧栏同一套手感）
+    let raw = startSize
+
     const onMove = (ev: MouseEvent) => {
       const cur = horizontal ? ev.clientX : ev.clientY
-      const next = startSize + (start - cur) // 手柄向左/上移动增大响应区
-      if (next < min - COLLAPSE_DRAG) {
-        // 拖到最低尺寸以下一段距离：收起，仅保留展开手柄
-        setResponseCollapsed(true)
-        cleanup()
-        return
-      }
-      setSize(Math.max(min, Math.min(next, Math.max(min, max))))
+      raw = startSize + (start - cur) // 手柄向左/上移动增大响应区
+      setSize(dragDisplaySize(raw, min, max))
+      setResponseCollapseArmed(willCollapse(raw, min, COLLAPSE_DRAG))
     }
+
     const cleanup = () => {
       document.removeEventListener("mousemove", onMove)
       document.removeEventListener("mouseup", cleanup)
       document.body.classList.remove("dragging")
+      setResponseCollapseArmed(false)
+
+      const outcome = resolveDragEnd(raw, min, max, COLLAPSE_DRAG)
+      setSize(outcome.size)
+      if (outcome.collapsed) setResponseCollapsed(true)
     }
+
     document.body.classList.add("dragging")
     document.addEventListener("mousemove", onMove)
     document.addEventListener("mouseup", cleanup)
@@ -597,6 +606,17 @@ export function EndpointDetail(props: EndpointDetailProps) {
               >
                 <Icon icon={responseLayout() === "right" ? "lucide:chevron-left" : "lucide:chevron-up"} class="h-3.5 w-3.5" />
                 <span class={responseLayout() === "right" ? "[writing-mode:vertical-rl]" : ""}>{t("response.expandPanel")}</span>
+                {/* 收起不该把结果一起藏掉：状态码、耗时、大小留在手柄上，
+                    要看正文再展开 */}
+                <Show when={props.response && responseLayout() === "bottom"}>
+                  <span class="ml-2 flex items-center gap-2">
+                    <Badge class={getStatusColor(props.response!.statusCode)}>
+                      {props.response!.statusCode}
+                    </Badge>
+                    <span class="tabular-nums">{formatTiming(props.response!.timing?.total || 0)}</span>
+                    <span class="tabular-nums">{formatSize(props.response!.size || 0)}</span>
+                  </span>
+                </Show>
               </button>
             }
           >
@@ -605,6 +625,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
               class={cn(
                 "shrink-0 bg-border hover:bg-accent/40 relative group",
                 responseLayout() === "right" ? "w-px cursor-col-resize" : "h-px cursor-row-resize",
+                responseCollapseArmed() && "bg-accent",
               )}
               onMouseDown={startResponseResize}
             >
@@ -614,7 +635,14 @@ export function EndpointDetail(props: EndpointDetailProps) {
                 responseLayout() === "right" ? "top-1/2 -translate-y-1/2 -left-[3px] w-[6px] h-8" : "left-1/2 -translate-x-1/2 -top-[3px] h-[6px] w-8",
               )} />
             </div>
-            <div class="shrink-0 overflow-hidden" style={responseLayout() === "right" ? { width: `${responseWidth()}px` } : { height: `${responseHeight()}px` }}>
+            <div
+              class={cn(
+                "shrink-0 overflow-hidden",
+                // 松手就会收起时先淡出，给一个「再拖就没了」的预告
+                responseCollapseArmed() && "opacity-50 transition-opacity",
+              )}
+              style={responseLayout() === "right" ? { width: `${responseWidth()}px` } : { height: `${responseHeight()}px` }}
+            >
               <Show when={isWs()} fallback={
                 <Show
                   when={props.response}
