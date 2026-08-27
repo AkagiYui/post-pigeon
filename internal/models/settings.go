@@ -53,6 +53,10 @@ type RequestSettings struct {
 	// SendNoCacheHeaders 为每个请求补上 Cache-Control: no-cache，默认关闭。
 	// 请求自己显式带了 Cache-Control 时不覆盖。
 	SendNoCacheHeaders bool `json:"sendNoCacheHeaders"`
+	// AllowJSONComments 兼容带注释的 JSON（JSONC）：JSON 请求体里的 `//`、`/* */` 注释
+	// 与尾随逗号在发送、导出 cURL 之前自动去掉，默认开启。
+	// 只有「原文不是合法 JSON、去掉之后是合法 JSON」时才会改写，正确的请求体不受影响。
+	AllowJSONComments bool `json:"allowJsonComments"`
 }
 
 // DefaultRequestTimeoutMs 请求超时的默认值（毫秒），对应设置项未设置（留空）的情况。
@@ -90,6 +94,7 @@ var (
 		MaxWebSocketMessageBytes: 32 << 20,
 		FollowRedirects:          true,
 		SendNoCacheHeaders:       false,
+		AllowJSONComments:        true,
 	}
 	DefaultHistorySettings = HistorySettings{
 		RetentionDays:    30,

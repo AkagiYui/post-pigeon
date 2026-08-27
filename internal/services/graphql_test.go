@@ -16,7 +16,7 @@ func TestBuildGraphQLBody(t *testing.T) {
 		OperationName: "Q",
 	})
 
-	payload, err := buildGraphQLBody(stored)
+	payload, err := buildGraphQLBody(stored, true)
 	if err != nil {
 		t.Fatalf("buildGraphQLBody err=%v", err)
 	}
@@ -39,7 +39,7 @@ func TestBuildGraphQLBody(t *testing.T) {
 }
 
 func TestBuildGraphQLBodyWithoutVariables(t *testing.T) {
-	payload, err := buildGraphQLBody(models.ToJSON(models.GraphQLBody{Query: "{ ping }"}))
+	payload, err := buildGraphQLBody(models.ToJSON(models.GraphQLBody{Query: "{ ping }"}), true)
 	if err != nil {
 		t.Fatalf("buildGraphQLBody err=%v", err)
 	}
@@ -55,7 +55,7 @@ func TestBuildGraphQLBodyWithoutVariables(t *testing.T) {
 
 func TestBuildGraphQLBodyToleratesBadVariables(t *testing.T) {
 	// 变量写错不应拦下整条请求：查询本身通常仍然有效
-	payload, err := buildGraphQLBody(models.ToJSON(models.GraphQLBody{Query: "{ ping }", Variables: "{oops"}))
+	payload, err := buildGraphQLBody(models.ToJSON(models.GraphQLBody{Query: "{ ping }", Variables: "{oops"}), true)
 	if err != nil {
 		t.Fatalf("buildGraphQLBody err=%v", err)
 	}
@@ -67,7 +67,7 @@ func TestBuildGraphQLBodyToleratesBadVariables(t *testing.T) {
 }
 
 func TestBuildGraphQLBodyRejectsBadStorage(t *testing.T) {
-	if _, err := buildGraphQLBody("{oops"); err == nil {
+	if _, err := buildGraphQLBody("{oops", true); err == nil {
 		t.Errorf("存储形态非法时应报错")
 	}
 }

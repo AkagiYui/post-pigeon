@@ -475,6 +475,8 @@
   "request.followRedirects.hint": "Follow 3xx redirects automatically. When off, no request follows them, even if an endpoint enables it.",
   "request.noCache": "Send no-cache header",
   "request.noCache.hint": "Add Cache-Control: no-cache to every request. A request that already sets this header is left untouched.",
+  "request.jsonComments": "JSON with comments (JSONC)",
+  "request.jsonComments.hint": "Allow // and /* */ comments and trailing commas in JSON bodies; they are stripped before the request is sent or exported as cURL. Only applies when stripping yields valid JSON — otherwise the body is sent as-is.",
   "request.maxResponse": "Max response body",
   "request.maxResponse.hint": "Bytes beyond the limit are not read and the response is marked as truncated. 0 means unlimited (a download endpoint will be read fully into memory).",
   "request.maxStored": "Max stored response body",

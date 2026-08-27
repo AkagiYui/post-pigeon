@@ -433,7 +433,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	}
 
 	// 设置请求体
-	if err := s.setRequestBody(req, data, vars); err != nil {
+	if err := s.setRequestBody(req, data, vars, limits); err != nil {
 		return nil, err
 	}
 
@@ -892,7 +892,7 @@ func (s *HTTPService) streamResponse(resp *http.Response, connID string, cancel 
 }
 
 // setRequestBody 设置请求体
-func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, vars map[string]string) error {
+func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, vars map[string]string, limits models.RequestSettings) error {
 	switch data.BodyType {
 	case string(models.BodyTypeNone):
 		// 无请求体
@@ -901,6 +901,11 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 	case string(models.BodyTypeJSON), string(models.BodyTypeText), string(models.BodyTypeXML):
 		// JSON / 纯文本 / XML
 		resolvedContent := resolveVars(data.BodyContent, vars)
+		// JSONC 兼容只对 JSON 生效，且必须在变量解析之后：先把 {{var}} 换成实际值，
+		// 拿到的才是一段能判断合不合法的 JSON
+		if data.BodyType == string(models.BodyTypeJSON) {
+			resolvedContent = normalizeJSONCIf(limits.AllowJSONComments, resolvedContent)
+		}
 		req.Body = io.NopCloser(strings.NewReader(resolvedContent))
 		req.GetBody = func() (io.ReadCloser, error) {
 			return io.NopCloser(strings.NewReader(resolvedContent)), nil
@@ -920,7 +925,7 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 		// GraphQL over HTTP：把「查询 + 变量」组装成标准的 JSON 请求体。
 		// 变量在界面上是一段 JSON 文本，这里解析后作为对象嵌入；
 		// 解析失败时按「无变量」发送，避免整条请求因为一处笔误发不出去。
-		payload, err := buildGraphQLBody(resolveVars(data.BodyContent, vars))
+		payload, err := buildGraphQLBody(resolveVars(data.BodyContent, vars), limits.AllowJSONComments)
 		if err != nil {
 			return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", "graphql"))
 		}
@@ -1238,7 +1243,8 @@ func truncateForStorage(body string, limit int64) string {
 }
 
 // buildGraphQLBody 把存储形态的 GraphQL 请求体转成实际发送的 JSON。
-func buildGraphQLBody(stored string) ([]byte, error) {
+// allowJSONComments 为真时，变量文本按 JSONC 处理（注释与尾随逗号会被去掉）。
+func buildGraphQLBody(stored string, allowJSONComments bool) ([]byte, error) {
 	var body models.GraphQLBody
 	if strings.TrimSpace(stored) != "" {
 		if err := models.FromJSON(stored, &body); err != nil {
@@ -1251,6 +1257,7 @@ func buildGraphQLBody(stored string) ([]byte, error) {
 		payload["operationName"] = body.OperationName
 	}
 	if trimmed := strings.TrimSpace(body.Variables); trimmed != "" {
+		trimmed = normalizeJSONCIf(allowJSONComments, trimmed)
 		var variables any
 		if err := json.Unmarshal([]byte(trimmed), &variables); err == nil {
 			payload["variables"] = variables

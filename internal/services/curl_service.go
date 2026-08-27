@@ -143,7 +143,7 @@ func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
 	}
 
 	// 请求体
-	lines = append(lines, curlBodyArgs(data, vars)...)
+	lines = append(lines, curlBodyArgs(data, vars, limits)...)
 
 	return strings.Join(lines, " \\\n  "), nil
 }
@@ -171,10 +171,10 @@ func (s *CurlService) requestVars(data SendRequestData) map[string]string {
 }
 
 // curlBodyArgs 把请求体转成对应的 curl 参数。
-func curlBodyArgs(data SendRequestData, vars map[string]string) []string {
+func curlBodyArgs(data SendRequestData, vars map[string]string, limits models.RequestSettings) []string {
 	switch data.BodyType {
 	case string(models.BodyTypeGraphQL):
-		payload, err := buildGraphQLBody(resolveVars(data.BodyContent, vars))
+		payload, err := buildGraphQLBody(resolveVars(data.BodyContent, vars), limits.AllowJSONComments)
 		if err != nil {
 			return nil
 		}
@@ -186,6 +186,10 @@ func curlBodyArgs(data SendRequestData, vars map[string]string) []string {
 
 	case string(models.BodyTypeJSON), string(models.BodyTypeText), string(models.BodyTypeXML):
 		body := resolveVars(data.BodyContent, vars)
+		if data.BodyType == string(models.BodyTypeJSON) {
+			// 导出的命令要能直接跑，注释得和真正发送时一样去掉
+			body = normalizeJSONCIf(limits.AllowJSONComments, body)
+		}
 		if body == "" {
 			return nil
 		}

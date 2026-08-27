@@ -101,6 +101,7 @@ export function RequestLimitsSettings() {
   const [timeoutMs, setTimeoutMs] = createSignal("")
   const [followRedirects, setFollowRedirects] = createSignal(true)
   const [sendNoCache, setSendNoCache] = createSignal(false)
+  const [allowJsonComments, setAllowJsonComments] = createSignal(true)
   const [maxResponseMiB, setMaxResponseMiB] = createSignal(32)
   const [maxStoredMiB, setMaxStoredMiB] = createSignal(1)
   const [maxWSMiB, setMaxWSMiB] = createSignal(32)
@@ -122,6 +123,7 @@ export function RequestLimitsSettings() {
         setTimeoutMs(request.timeoutMs == null ? "" : String(request.timeoutMs))
         setFollowRedirects(request.followRedirects)
         setSendNoCache(request.sendNoCacheHeaders)
+        setAllowJsonComments(request.allowJsonComments)
         setMaxResponseMiB(toMiB(request.maxResponseBytes))
         setMaxStoredMiB(toMiB(request.maxStoredBodyBytes))
         setMaxWSMiB(toMiB(request.maxWebSocketMessageBytes))
@@ -146,6 +148,7 @@ export function RequestLimitsSettings() {
         timeoutMs: timeoutMs().trim() === "" ? null : Math.max(0, Math.round(Number(timeoutMs()))),
         followRedirects: followRedirects(),
         sendNoCacheHeaders: sendNoCache(),
+        allowJsonComments: allowJsonComments(),
         maxResponseBytes: fromMiB(maxResponseMiB()),
         maxStoredBodyBytes: fromMiB(maxStoredMiB()),
         maxWebSocketMessageBytes: fromMiB(maxWSMiB()),
@@ -215,6 +218,12 @@ export function RequestLimitsSettings() {
           hint={t("request.noCache.hint")}
           checked={sendNoCache()}
           onChange={setSendNoCache}
+        />
+        <ToggleField
+          label={t("request.jsonComments")}
+          hint={t("request.jsonComments.hint")}
+          checked={allowJsonComments()}
+          onChange={setAllowJsonComments}
         />
 
         <NumberField

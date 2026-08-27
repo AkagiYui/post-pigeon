@@ -10,6 +10,7 @@ require (
 	github.com/glebarez/sqlite v1.11.0
 	github.com/google/uuid v1.6.0
 	github.com/pressly/goose/v3 v3.27.1
+	github.com/tailscale/hujson v0.0.0-20260727124030-b80ff77dac4f
 	github.com/wailsapp/wails/v3 v3.0.0-beta.13
 	golang.org/x/sys v0.46.0
 	gorm.io/gorm v1.31.2
