@@ -12,6 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ExternalLink } from "@/components/ui/external-link"
 import { t } from "@/hooks/useI18n"
+import { renderMarkdownInline } from "@/lib/markdown"
 import { toastError, toastSuccess } from "@/stores/toast"
 import {
   checkForUpdate,
@@ -381,7 +382,12 @@ function ChangelogList(props: { entries: Entry[] }) {
                       </div>
                     </Show>
                     <ul class="ml-4 list-disc space-y-0.5 text-xs text-foreground marker:text-muted-foreground">
-                      <For each={section.items}>{(item) => <li>{item}</li>}</For>
+                      {/* 条目本身是 Markdown（加粗、行内代码、链接），渲染前统一走
+                          renderMarkdownInline：它会转义 HTML 并把 javascript: 这类
+                          协议挡掉——这段内容是从网络上下载的 CHANGELOG.md 来的 */}
+                      <For each={section.items}>
+                        {(item) => <li innerHTML={renderMarkdownInline(item)} />}
+                      </For>
                     </ul>
                   </div>
                 )}

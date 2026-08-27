@@ -40,7 +40,7 @@ content-length 用 `os.Stat` 的大小算，`req.GetBody` 重新构造一份 rea
 - **后台协程加 panic 兜底**（`b3618bc`）：新增 `internal/safego`，`Go` / `Run` /
   `Recover` 三个入口，panic 记日志（含堆栈）而不是杀掉进程。WebSocket 读写、流式响应
   推送、脚本发请求、更新检查、历史清理、入库 worker 全部接上。
-- **附件改存路径**（`__HASH__`）：文件字段与 Binary 请求体的 value 改成
+- **附件改存路径**（`42f2503`）：文件字段与 Binary 请求体的 value 改成
   `{fileName, path}`，发送时才读盘；选择器换成 Wails 原生对话框（浏览器的
   `<input type="file">` 拿不到路径）。历史数据里内联的 base64 仍然认，也不会因为
   打开老接口按下保存而丢失；文件被移走时报 `http.file_missing`。
