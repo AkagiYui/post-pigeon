@@ -99,19 +99,16 @@ export function ParamsEditor(props: ParamsEditorProps) {
         </section>
       </Show>
 
-      {/* 全局 Query 参数（继承自模块，值只读、开关仅对本接口生效） */}
-      <section>
-        <SectionTitle>
-          <span class="inline-flex items-center gap-1.5">
-            <Icon icon="lucide:globe" class="h-3.5 w-3.5 text-muted-foreground" />
-            {t("endpoint.param.globalQueryParams")}
-          </span>
-        </SectionTitle>
-        <p class="text-xs text-muted-foreground mb-2">{t("endpoint.param.globalQueryParamsHint")}</p>
-        <Show
-          when={(props.globalQueryParams?.length ?? 0) > 0}
-          fallback={<p class="text-sm text-muted-foreground py-2">{t("endpoint.param.noGlobalParams")}</p>}
-        >
+      {/* 全局 Query 参数（继承自模块，值只读、开关仅对本接口生效）：无全局参数时整块隐藏 */}
+      <Show when={(props.globalQueryParams?.length ?? 0) > 0}>
+        <section>
+          <SectionTitle>
+            <span class="inline-flex items-center gap-1.5">
+              <Icon icon="lucide:globe" class="h-3.5 w-3.5 text-muted-foreground" />
+              {t("endpoint.param.globalQueryParams")}
+            </span>
+          </SectionTitle>
+          <p class="text-xs text-muted-foreground mb-2">{t("endpoint.param.globalQueryParamsHint")}</p>
           <Table
             columns={[
               {
@@ -149,8 +146,8 @@ export function ParamsEditor(props: ParamsEditorProps) {
             data={props.globalQueryParams ?? []}
             compact
           />
-        </Show>
-      </section>
+        </section>
+      </Show>
     </div>
   )
 }

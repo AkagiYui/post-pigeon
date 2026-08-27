@@ -82,7 +82,6 @@
   "endpoint.param.pathParams": "Path 参数",
   "endpoint.param.globalQueryParams": "全局 Query 参数",
   "endpoint.param.globalQueryParamsHint": "继承自模块的全局参数，此处开关仅对本接口生效，不影响模块（项目全局）设置。",
-  "endpoint.param.noGlobalParams": "暂无全局参数",
   "endpoint.baseUrl.notSet": "未设置",
   "response.body": "响应体",
   "response.headers": "响应头",

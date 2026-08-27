@@ -82,7 +82,6 @@
   "endpoint.param.pathParams": "Path Params",
   "endpoint.param.globalQueryParams": "Global Query Params",
   "endpoint.param.globalQueryParamsHint": "Global params inherited from the module. This toggle affects only this endpoint, not the module (project-wide) settings.",
-  "endpoint.param.noGlobalParams": "No global params",
   "endpoint.baseUrl.notSet": "Not set",
   "response.body": "Body",
   "response.headers": "Headers",
