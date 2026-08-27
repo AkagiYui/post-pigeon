@@ -2,7 +2,7 @@
 //
 // 它们各自持有自己的预览、勾选与导入状态——留在 ApiManagement 里时，这些状态
 // 一共占了主组件近三十个信号，把「接口管理」淹没在「导入向导」里。
-// 主组件现在只需要知道「哪个框开着、要导进哪个模块」。
+// 主组件现在只需要知道「哪个框开着、内容是什么」。
 import { createEffect, createSignal, For, on, Show } from "solid-js"
 
 import type { ApifoxPreview, CurlRequest, OpenAPIPreview, PostmanPreview } from "@/../bindings/PostPigeon/internal/services"
@@ -15,7 +15,8 @@ import {
 import { Button } from "@/components/ui/button"
 import { Checkbox, Radio } from "@/components/ui/checkbox"
 import { Dialog } from "@/components/ui/dialog"
-import { Textarea } from "@/components/ui/input"
+import { Input, Textarea } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 import { t } from "@/hooks/useI18n"
 import { toastError, toastSuccess } from "@/stores/toast"
 
@@ -57,8 +58,12 @@ function toggleIndex(current: Set<number>, index: number, checked: boolean): Set
 export interface OpenAPIImportDialogProps {
   open: boolean
   onClose: () => void
-  /** 导入目标模块 */
-  moduleId: string
+  /** 所属项目 */
+  projectId: string
+  /** 固定的导入目标模块（从模块菜单进入时）；不传则在对话框内选 */
+  moduleId?: string
+  /** 可选的已有模块（moduleId 未固定时用于「并入某个模块」） */
+  modules?: { id: string; name: string }[]
   /** 已读取的文档内容 */
   json: string
   /** 导入成功后的回调（刷新树、环境等） */
@@ -73,33 +78,59 @@ export function OpenAPIImportDialog(props: OpenAPIImportDialogProps) {
   const [importServers, setImportServers] = createSignal(true)
   const [importing, setImporting] = createSignal(false)
   const [error, setError] = createSignal("")
+  /** 导入目标模块；空串表示「新建模块」 */
+  const [targetModuleId, setTargetModuleId] = createSignal("")
+  const [newModuleName, setNewModuleName] = createSignal("")
 
-  // 每次打开都重新解析：文档内容由父组件在选文件时传入
-  createEffect(on(() => [props.open, props.json] as const, async ([open, json]) => {
+  /** 目标模块可选时才显示选择器 */
+  const canChooseModule = () => !props.moduleId
+
+  const moduleOptions = () => [
+    { value: "", label: t("openapi.target.newModule") },
+    ...(props.modules ?? []).map(m => ({ value: m.id, label: m.name })),
+  ]
+
+  // 每次打开都回到干净状态；目标模块由调用方固定或默认「新建模块」
+  createEffect(on(() => [props.open, props.json] as const, ([open, json]) => {
     if (!open || !json) return
-    setError("")
-    setPreview(null)
     setOverwrite(false)
     setOverwriteModuleName(true)
     setImportServers(true)
+    setNewModuleName("")
+    setTargetModuleId(props.moduleId ?? "")
+  }))
+
+  // 换目标模块要重新预览：重复项是相对目标模块算出来的
+  let previewSeq = 0
+  createEffect(on(() => [props.open, props.json, targetModuleId()] as const, async ([open, json, moduleId]) => {
+    if (!open || !json) return
+    const seq = ++previewSeq
+    setError("")
+    setPreview(null)
     try {
-      const result = await ImportExportService.PreviewOpenAPIImport(props.moduleId, json)
+      const result = await ImportExportService.PreviewOpenAPIForProject(props.projectId, moduleId, json)
+      // 期间又换了一次目标模块，这次的结果已经过期
+      if (seq !== previewSeq) return
       setPreview(result)
       // 默认全选
       setSelected(new Set((result?.items ?? []).map(item => item.index)))
     } catch (e) {
+      if (seq !== previewSeq) return
       toastError(e, "error.op.previewFailed")
       setError(t("openapi.parseFailed"))
     }
   }))
 
   const confirm = async () => {
-    if (!props.moduleId || !props.json) return
+    if (!props.json) return
     setImporting(true)
     try {
-      await ImportExportService.ImportOpenAPIToModule(props.moduleId, props.json, {
+      await ImportExportService.ImportOpenAPIToProject(props.projectId, props.json, {
+        moduleId: targetModuleId(),
+        newModuleName: newModuleName().trim(),
         overwrite: overwrite(),
-        overwriteModuleName: overwriteModuleName(),
+        // 新建模块时名称已经定下来了，不该再被文档标题覆盖
+        overwriteModuleName: !!targetModuleId() && overwriteModuleName(),
         importServers: importServers(),
         selectedIndexes: Array.from(selected()),
       })
@@ -117,6 +148,26 @@ export function OpenAPIImportDialog(props: OpenAPIImportDialogProps) {
   return (
     <Dialog open={props.open} onClose={props.onClose} title={t("openapi.importTitle")} closeOnEsc closeOnOverlayClick width="560px">
       <div class="px-6 py-4 flex flex-col h-[70vh] gap-3">
+        {/* 导入到哪儿：并入已有模块，还是新建一个 */}
+        <Show when={canChooseModule()}>
+          <div class="shrink-0 flex flex-col gap-2">
+            <span class="text-xs font-medium text-muted-foreground">{t("openapi.target.label")}</span>
+            <Select
+              options={moduleOptions()}
+              value={targetModuleId()}
+              onChange={setTargetModuleId}
+              size="sm"
+            />
+            <Show when={!targetModuleId()}>
+              <Input
+                size="sm"
+                value={newModuleName()}
+                onInput={(e) => setNewModuleName(e.currentTarget.value)}
+                placeholder={preview()?.moduleName || t("openapi.target.newModuleName")}
+              />
+            </Show>
+          </div>
+        </Show>
         <Show when={error()}>
           <div class="text-sm text-red-500 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded-md shrink-0">{error()}</div>
         </Show>
@@ -131,7 +182,7 @@ export function OpenAPIImportDialog(props: OpenAPIImportDialogProps) {
               </div>
               {/* 导入选项：模块名称、环境与前置 URL */}
               <div class="shrink-0 flex flex-col gap-2 border border-border rounded-md p-3">
-                <Show when={data().moduleName && data().moduleName !== data().currentModuleName}>
+                <Show when={!!targetModuleId() && data().moduleName && data().moduleName !== data().currentModuleName}>
                   <label class="flex items-center gap-2 text-sm cursor-pointer">
                     <Checkbox checked={overwriteModuleName()} onChange={(e) => setOverwriteModuleName(e.currentTarget.checked)} />
                     <span>{t("openapi.overwriteModuleName", { name: data().moduleName })}</span>

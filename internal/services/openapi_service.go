@@ -493,23 +493,39 @@ func dupKey(method, name string) string {
 // PreviewOpenAPIImport 预览 OpenAPI 导入，标记与目标模块中已有接口重名重方法的项，
 // 并返回文档标题、服务器/环境信息，供前端选择是否覆盖模块名、导入环境与前置 URL
 func (s *ImportExportService) PreviewOpenAPIImport(moduleID string, jsonStr string) (*OpenAPIPreview, error) {
-	doc, err := parseOpenAPIDoc(jsonStr)
-	if err != nil {
-		return nil, err
-	}
-
 	// 目标模块（获取当前名称与所属项目）
 	var module models.Module
 	if err := s.db.Where("id = ?", moduleID).First(&module).Error; err != nil {
 		return nil, fmt.Errorf("目标模块不存在: %w", err)
 	}
+	return s.previewOpenAPI(module.ProjectID, moduleID, module.Name, jsonStr)
+}
 
-	existing := s.existingEndpointKeys(moduleID)
+// PreviewOpenAPIForProject 项目级预览：导入目标还没定下来时用。
+// moduleID 为空表示「新建模块」——没有可比对的已有接口，预览里也就不会有重复项。
+func (s *ImportExportService) PreviewOpenAPIForProject(projectID string, moduleID string, jsonStr string) (*OpenAPIPreview, error) {
+	if moduleID != "" {
+		return s.PreviewOpenAPIImport(moduleID, jsonStr)
+	}
+	return s.previewOpenAPI(projectID, "", "", jsonStr)
+}
+
+// previewOpenAPI 生成预览。moduleID 为空时跳过重复检测（目标模块尚不存在）。
+func (s *ImportExportService) previewOpenAPI(projectID string, moduleID string, moduleName string, jsonStr string) (*OpenAPIPreview, error) {
+	doc, err := parseOpenAPIDoc(jsonStr)
+	if err != nil {
+		return nil, err
+	}
+
+	existing := map[string]bool{}
+	if moduleID != "" {
+		existing = s.existingEndpointKeys(moduleID)
+	}
 
 	preview := &OpenAPIPreview{
 		Items:             make([]OpenAPIPreviewItem, 0, len(doc.Endpoints)),
 		ModuleName:        doc.ModuleName,
-		CurrentModuleName: module.Name,
+		CurrentModuleName: moduleName,
 	}
 	for i, ep := range doc.Endpoints {
 		dup := existing[dupKey(ep.Method, ep.Name)]
@@ -527,7 +543,7 @@ func (s *ImportExportService) PreviewOpenAPIImport(moduleID string, jsonStr stri
 	preview.Total = len(preview.Items)
 
 	// 服务器/环境预览：标记项目中是否已存在同名环境
-	existingEnvNames := s.existingEnvNames(module.ProjectID)
+	existingEnvNames := s.existingEnvNames(projectID)
 	for _, srv := range doc.Servers {
 		preview.Servers = append(preview.Servers, OpenAPIServerInfo{
 			Name:            srv.Name,
@@ -559,6 +575,54 @@ func (s *ImportExportService) existingEndpointKeys(moduleID string) map[string]b
 		keys[dupKey(e.Method, e.Name)] = true
 	}
 	return keys
+}
+
+// OpenAPIProjectImportOptions 项目级 OpenAPI 导入选项。
+// 比模块级多出「导入到哪儿」：ModuleID 非空表示并入该模块，为空表示新建一个模块。
+type OpenAPIProjectImportOptions struct {
+	ModuleID            string `json:"moduleId"`            // 并入的已有模块；为空表示新建模块
+	NewModuleName       string `json:"newModuleName"`       // 新建模块的名称，为空时取文档标题
+	Overwrite           bool   `json:"overwrite"`           // 覆盖重名重方法的接口（false 时跳过）
+	OverwriteModuleName bool   `json:"overwriteModuleName"` // 用文档标题覆盖模块名（仅并入已有模块时有意义）
+	ImportServers       bool   `json:"importServers"`       // 创建/复用环境并设置模块前置 URL
+	SelectedIndexes     []int  `json:"selectedIndexes"`     // 勾选导入的接口序号；为 nil 时导入全部
+}
+
+// defaultOpenAPIModuleName 是文档没有标题、用户也没填名称时新建模块的兜底名称。
+const defaultOpenAPIModuleName = "OpenAPI"
+
+// ImportOpenAPIToProject 项目级导入 OpenAPI/Swagger 文档：
+// opts.ModuleID 非空时并入该模块，为空时先建一个模块再按模块级流程导入。
+func (s *ImportExportService) ImportOpenAPIToProject(projectID string, jsonStr string, opts OpenAPIProjectImportOptions) (*OpenAPIImportResult, error) {
+	moduleOpts := OpenAPIImportOptions{
+		Overwrite:           opts.Overwrite,
+		OverwriteModuleName: opts.OverwriteModuleName,
+		ImportServers:       opts.ImportServers,
+		SelectedIndexes:     opts.SelectedIndexes,
+	}
+	if opts.ModuleID != "" {
+		return s.ImportOpenAPIToModule(opts.ModuleID, jsonStr, moduleOpts)
+	}
+
+	// 新建模块：先解析一次拿文档标题当默认名，解析失败就不要留下一个空模块
+	doc, err := parseOpenAPIDoc(jsonStr)
+	if err != nil {
+		return nil, err
+	}
+	name := strings.TrimSpace(opts.NewModuleName)
+	if name == "" {
+		name = doc.ModuleName
+	}
+	if name == "" {
+		name = defaultOpenAPIModuleName
+	}
+	module, err := NewModuleService(s.db).CreateModule(projectID, name)
+	if err != nil {
+		return nil, err
+	}
+	// 模块名刚按用户的选择定下来，不要再被文档标题覆盖一次
+	moduleOpts.OverwriteModuleName = false
+	return s.ImportOpenAPIToModule(module.ID, jsonStr, moduleOpts)
 }
 
 // ImportOpenAPIToModule 将 OpenAPI/Swagger 文档导入到指定模块（导入到模块根级）

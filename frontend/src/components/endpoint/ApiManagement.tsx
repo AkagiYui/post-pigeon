@@ -508,23 +508,6 @@ export function ApiManagement(props: ApiManagementProps) {
   }
 
 
-  /** 弹出文件选择器读取一个 JSON 文件；三个导入入口共用 */
-  const pickJSONFile = (onPicked: (text: string) => void | Promise<void>) => {
-    const input = document.createElement("input")
-    input.type = "file"
-    input.accept = "application/json,.json"
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return
-      try {
-        await onPicked(await file.text())
-      } catch (e) {
-        toastError(e, "error.op.loadFailed")
-      }
-    }
-    input.click()
-  }
-
   // ---- cURL 导入 ----
   const handleImportCurl = () => setCurlOpen(true)
 
@@ -561,16 +544,33 @@ export function ApiManagement(props: ApiManagementProps) {
 
   // ---- 「导入接口」向导：选格式与来源，拿到文档后转交对应的预览对话框 ----
   const [wizardOpen, setWizardOpen] = createSignal(false)
+  /** 从模块菜单进入时锁定为 OpenAPI；项目级入口不锁 */
+  const [wizardKind, setWizardKind] = createSignal<ImportKind | undefined>()
 
   const handleWizardLoaded = (kind: ImportKind, text: string) => {
     setWizardOpen(false)
     if (kind === "postman") {
       setPostmanJson(text)
       setPostmanOpen(true)
-    } else {
+    } else if (kind === "apifox") {
       setApifoxJson(text)
       setApifoxOpen(true)
+    } else {
+      setOpenApiJson(text)
+      setOpenApiOpen(true)
     }
+  }
+
+  /** 供 OpenAPI 导入选择「并入哪个模块」 */
+  const moduleChoices = () => treeData()
+    .filter(node => node.type === "module")
+    .map(node => ({ id: node.id, name: node.name }))
+
+  /** 项目级导入：格式与目标模块都在弹窗里选 */
+  const handleImportAPIs = () => {
+    setOpenApiModuleId("")
+    setWizardKind(undefined)
+    setWizardOpen(true)
   }
 
   /** 导入完成后的统一收尾：模块名/环境/前置 URL 都可能变化 */
@@ -1060,14 +1060,12 @@ export function ApiManagement(props: ApiManagementProps) {
     return n ? collectSubtreeIds(n) : new Set<string>()
   }
 
-  // ---- OpenAPI / Apifox 导入：选文件，其余交给各自的对话框 ----
+  // ---- 模块菜单的「导入接口文档」：格式锁定为 OpenAPI，目标模块锁定为该模块 ----
   const handleImportOpenAPI = (node: TreeNode) => {
     if (node.type !== "module") return
-    pickJSONFile(async (text) => {
-      setOpenApiModuleId(node.id)
-      setOpenApiJson(text)
-      setOpenApiOpen(true)
-    })
+    setOpenApiModuleId(node.id)
+    setWizardKind("openapi")
+    setWizardOpen(true)
   }
 
   // ---- 新建文档（doc 类型端点，作为叶子与接口同级） ----
@@ -1156,7 +1154,7 @@ export function ApiManagement(props: ApiManagementProps) {
             onRename={handleTreeRename} onCopy={handleTreeCopy}
             onDelete={handleTreeDelete} onMove={handleTreeMove}
             onImportOpenAPI={handleImportOpenAPI}
-            onImportAPIs={() => setWizardOpen(true)}
+            onImportAPIs={handleImportAPIs}
             onImportCurl={handleImportCurl}
             onExportOpenAPI={handleExportOpenAPI}
             onRunCollection={handleRunCollection}
@@ -1351,11 +1349,15 @@ export function ApiManagement(props: ApiManagementProps) {
       {/* 导入向导（各自持有预览与勾选状态） */}
       <ImportWizardDialog
         open={wizardOpen()} onClose={() => setWizardOpen(false)}
+        fixedKind={wizardKind()}
         onLoaded={handleWizardLoaded}
       />
       <OpenAPIImportDialog
         open={openApiOpen()} onClose={() => setOpenApiOpen(false)}
-        moduleId={openApiModuleId()} json={openApiJson()}
+        projectId={props.projectId}
+        moduleId={openApiModuleId() || undefined}
+        modules={moduleChoices()}
+        json={openApiJson()}
         onImported={refreshAfterImport}
       />
       <ApifoxImportDialog

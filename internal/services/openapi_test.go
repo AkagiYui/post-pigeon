@@ -2,6 +2,8 @@ package services
 
 import (
 	"testing"
+
+	"PostPigeon/internal/models"
 )
 
 const swagger2Doc = `{
@@ -403,4 +405,110 @@ func indexOf(s, sub string) int {
 		}
 	}
 	return -1
+}
+
+// 项目级导入：新建模块时应按文档标题命名，并带上根文件夹
+func TestImportOpenAPIToProjectNewModule(t *testing.T) {
+	db := newTestDB(t)
+	ie := NewImportExportService(db)
+	p := mustCreateProject(t, db, "导入项目")
+
+	// 目标模块还不存在时也能预览，且不会有重复项
+	preview, err := ie.PreviewOpenAPIForProject(p.ID, "", openapi3Doc)
+	if err != nil {
+		t.Fatalf("PreviewOpenAPIForProject err=%v", err)
+	}
+	if preview.Total != 2 || preview.DuplicateCount != 0 {
+		t.Fatalf("预览 total=%d dup=%d，期望 2/0", preview.Total, preview.DuplicateCount)
+	}
+	if preview.CurrentModuleName != "" {
+		t.Errorf("新建模块时不该有当前模块名，实际 %q", preview.CurrentModuleName)
+	}
+	// 环境比对仍按项目走：「测试环境」是项目默认环境
+	found := false
+	for _, srv := range preview.Servers {
+		if srv.Name == "测试环境" && srv.EnvironmentSame {
+			found = true
+		}
+	}
+	if !found {
+		t.Errorf("测试环境应标记为已存在")
+	}
+
+	res, err := ie.ImportOpenAPIToProject(p.ID, openapi3Doc, OpenAPIProjectImportOptions{})
+	if err != nil {
+		t.Fatalf("ImportOpenAPIToProject err=%v", err)
+	}
+	if res.Created != 2 {
+		t.Fatalf("创建接口数 = %d，期望 2", res.Created)
+	}
+
+	var modules []models.Module
+	db.Where("project_id = ? AND name = ?", p.ID, "订单服务").Find(&modules)
+	if len(modules) != 1 {
+		t.Fatalf("按文档标题新建的模块数 = %d，期望 1", len(modules))
+	}
+	// 项目约定：每个模块都要有一个 __root 根文件夹，否则树会把一级文件夹当根容器
+	var root models.Folder
+	if err := db.Where("module_id = ? AND parent_id IS NULL", modules[0].ID).First(&root).Error; err != nil {
+		t.Fatalf("新建模块缺少根文件夹: %v", err)
+	}
+}
+
+// 项目级导入指定了模块名时以该名称为准，不被文档标题覆盖
+func TestImportOpenAPIToProjectCustomModuleName(t *testing.T) {
+	db := newTestDB(t)
+	ie := NewImportExportService(db)
+	p := mustCreateProject(t, db, "导入项目")
+
+	if _, err := ie.ImportOpenAPIToProject(p.ID, openapi3Doc, OpenAPIProjectImportOptions{
+		NewModuleName: "我的模块", OverwriteModuleName: true,
+	}); err != nil {
+		t.Fatalf("ImportOpenAPIToProject err=%v", err)
+	}
+	var module models.Module
+	if err := db.Where("project_id = ? AND name = ?", p.ID, "我的模块").First(&module).Error; err != nil {
+		t.Fatalf("未按指定名称建模块: %v", err)
+	}
+}
+
+// 项目级导入指定已有模块时并入该模块，不新建
+func TestImportOpenAPIToProjectExistingModule(t *testing.T) {
+	db := newTestDB(t)
+	ie := NewImportExportService(db)
+	p := mustCreateProject(t, db, "导入项目")
+	m := defaultModule(t, db, p.ID)
+
+	if _, err := ie.ImportOpenAPIToProject(p.ID, openapi3Doc, OpenAPIProjectImportOptions{
+		ModuleID: m.ID,
+	}); err != nil {
+		t.Fatalf("ImportOpenAPIToProject err=%v", err)
+	}
+	var count int64
+	db.Model(&models.Module{}).Where("project_id = ?", p.ID).Count(&count)
+	if count != 1 {
+		t.Fatalf("模块数 = %d，期望 1（并入已有模块，不新建）", count)
+	}
+	var endpoints int64
+	db.Model(&models.Endpoint{}).Where("module_id = ?", m.ID).Count(&endpoints)
+	if endpoints != 2 {
+		t.Fatalf("模块内接口数 = %d，期望 2", endpoints)
+	}
+}
+
+// Swagger 2.0 文档同样可以走项目级导入
+func TestImportOpenAPIToProjectSwagger2(t *testing.T) {
+	db := newTestDB(t)
+	ie := NewImportExportService(db)
+	p := mustCreateProject(t, db, "导入项目")
+
+	res, err := ie.ImportOpenAPIToProject(p.ID, swagger2Doc, OpenAPIProjectImportOptions{
+		NewModuleName: "V2 文档",
+	})
+	if err != nil {
+		t.Fatalf("ImportOpenAPIToProject err=%v", err)
+	}
+	if res.Created != 2 {
+		t.Fatalf("创建接口数 = %d，期望 2", res.Created)
+	}
 }
