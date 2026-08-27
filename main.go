@@ -138,6 +138,10 @@ func main() {
 	app := application.New(application.Options{
 		Name:        config.AppName,
 		Description: "A lightweight API testing tool",
+		// 必须显式传日志器：Wails 自带的 DefaultLogger 在 production 构建下写的是
+		// io.Discard。service 方法里的 panic 会被 Wails 接住转成前端错误，其信息与
+		// 堆栈正是经由这个 logger 输出——不传就等于正式包里这类崩溃毫无痕迹。
+		Logger: logger.ForWails(),
 		Services: []application.Service{
 			application.NewService(appService),
 			application.NewService(projectService),
