@@ -11,166 +11,74 @@
 
 ---
 
-## P0 · 两个实例可以同时打开同一个数据库
+## P2 · 项目导出会带上秘密变量的值
 
-**现状**　[main.go](main.go) 里 `application.Options` 没有配 `SingleInstance`
-（Wails v3 beta.13 原生支持 `SingleInstanceOptions`）。双击两次、或从终端再起一个，
-就是两个进程同时操作同一个 `postpigeon.db`。
+**现状**　导出项目的 JSON 里含环境变量，且是原样的值
+（[import_export_service.go](internal/services/import_export_service.go) 的
+`IsSecret` 只是跟着一起导出，不影响导出内容）。`IsSecret` 从头到尾只决定界面上要不要
+打码，没有任何一层会把值挡下来。
 
-**风险**　WAL + `busy_timeout(5000)` 让它**不会立刻报错**，所以问题是静默的：
+**风险**　「把接口集合发给同事」是这类工具的日常操作，而发出去的文件里可能带着自己
+的 token 与密码。用户没有理由预期到这一点。
 
-- `window.state`、settings、cookie 互相覆盖，后关的那个赢；
-- 自动更新替换二进制时另一个实例还在跑；
-- 两个进程会同时跑迁移与迁移前备份。
+**判断**　这不是 bug，是个**没做过的决定**。三个选项：(a) 维持现状，只靠文档说明
+（已经在 [README 的「数据与隐私」](README.md#数据与隐私)里写了）；(b) 导出时把秘密
+变量的值留空，导入方自己填；(c) 导出时弹一次确认，让用户选带不带。
 
-**建议**　加单实例锁。注意顺序：Wails 的单实例检查在 `application.New` 里，而
-`database.Initialize` 在它**之前**——直接加 `SingleInstance` 并不能阻止第二个实例
-先跑一遍迁移。要么在 `Initialize` 之前自己在数据目录上拿一个文件锁，要么把
-`Initialize` 挪到 `application.New` 之后。
+倾向 (c) + 默认不带：既不破坏「导出即完整备份」的场景，又不会让人不知不觉泄漏。
+需要先定，再动手。
 
-**工作量**　半天（含各平台验证）。
-
----
-
-## P1 · 数据库只增不减
-
-**现状**
-
-- 历史清理（[request_history_service.go](internal/services/request_history_service.go)）
-  只 `DELETE`。SQLite 默认 `auto_vacuum=NONE`，全库也没有任何地方调过 `VACUUM`，
-  **删完文件大小一点不回落**。
-- form-data 的文件字段是 **base64 存进库**的
-  （[http_service.go](internal/services/http_service.go) 的 `parseFileField`，
-  约定 `{"fileName":..,"content":<base64>}`），一个 10 MB 附件在库里约 13 MB，
-  且跟着接口永久存在。
-
-**风险**　用久了就是「我明明清了历史，怎么还是几百 MB」。备份、同步、导出都跟着变慢。
-
-**建议**　设置里显示数据库大小 + 一个「压缩数据库」按钮（`VACUUM`）。或者建库时开
-`auto_vacuum=INCREMENTAL` 再定期 `incremental_vacuum`——注意这个只能在建库时或
-`VACUUM` 时改，对存量库要走一次全量 `VACUUM`。附件是否该改成外部文件 + 引用，可以
-再单独评估。
-
-**工作量**　按钮版一天以内；附件外置是另一个话题。
+**工作量**　定下来之后一天以内。
 
 ---
 
-## P1 · 用户拿不到自己的数据
+## P3 · form-data 附件以 base64 存在库里
 
-**现状**
+**现状**　文件字段的 value 是 `{"fileName":..,"content":<base64>}`
+（[http_service.go](internal/services/http_service.go) 的 `parseFileField`），
+整个附件内容存进 `endpoint_body_fields`。一个 10 MB 附件在库里约 13 MB，
+且跟着接口永久存在。
 
-- 全库只有一个文件（`<UserConfigDir>/com.akagiyui.postpigeon/postpigeon.db`），
-  界面里**没有任何入口**指向它。
-- 导入导出只到模块粒度（OpenAPI / Postman），没有「导出全部数据」。
-- 迁移前自动备份已经在做了，但用户既看不见也不知道怎么用——只有启动失败的对话框里
-  提了一句。
+**风险**　库体积、备份耗时、导出体积都被附件放大。压缩数据库能回收删除后的空间，
+但存量附件本身不会变小。
 
-**风险**　换电脑、重装、想手动备份，都得让用户自己去 Finder / 资源管理器里翻。出事
-的时候没有自救路径，只能来问作者。
+**建议**　改成「附件存数据目录下的独立文件 + 库里只存引用」。要一并处理的有：删接口
+时清理孤儿文件、导出/恢复要带上附件目录、跨机器恢复后引用要还有效。是个独立话题，
+不要顺手做。
 
-**建议**　设置里加三个入口：「打开数据目录」「导出全部数据」「从备份恢复」。第三个
-可以就是列出 `postpigeon.db.bak-*` 让用户选一份，确认后替换并重启。
-
-**工作量**　一到两天，收益/成本比最高的一项。
+**工作量**　三天起，含迁移与导出格式变更。
 
 ---
 
-## P1 · localStorage 是第二个「数据库」，但没有任何版本管理
+## P3 · 第二个实例只提示不聚焦
 
-**现状**　[stores/app.ts](frontend/src/stores/app.ts) 的 `loadFromStorage`：
+**现状**　[instancelock](internal/instancelock/instancelock.go) 拦住了第二个实例，
+它会弹一句「已经在运行了」然后退出，但**不会把已有窗口叫到前面**。
 
-```ts
-return JSON.parse(raw) as T
-```
+**风险**　很轻。macOS 上双击图标由 LaunchServices 处理，本来就不会起第二个；
+主要是 Windows / Linux 上从快捷方式或终端重复启动时，用户得自己去找窗口。
 
-`as T` 是断言不是校验。键没有版本号，也没有形状校验。
+**建议**　给 `application.Options` 配上 `SingleInstanceOptions`，在
+`OnSecondInstanceLaunch` 里把主窗口 Show + Focus。文件锁保留：它挡的是「碰数据库
+之前」那一段，Wails 的机制在 `application.New` 里才生效，两者不冲突。
 
-**风险**　跨版本改了结构（比如 `openProjectIds` 从 `string[]` 变成对象数组），旧数据
-会被当成新类型一路用下去，然后在某个组件里炸掉。这和数据库降级**是同一个问题**：
-状态跨版本存活，而读它的代码变了。虽然有
-[AppErrorBoundary](frontend/src/components/AppErrorBoundary.tsx)，但 store 是模块
-初始化时读的，抛在边界之前就是白屏。
-
-**建议**　每个键存成 `{ v: 1, data: ... }`，读时校验版本与基本形状，对不上就回退默认
-值（而不是抛错）。比后端那套 goose 机制简单得多，几十行的事。
-
-**工作量**　半天。
+**工作量**　半天（三个平台各验一次）。
 
 ---
 
-## P2 · 你永远看不到用户的崩溃
+## P3 · 自己起的 goroutine 没有 recover
 
-**现状**　`recover()` 只有两处（[http_service.go](internal/services/http_service.go)
-的请求执行路径、[scripting.go](internal/scripting/scripting.go) 的脚本执行）。其它
-service 方法 panic 就是整个应用消失。也没有「上次异常退出」的检测。
+**现状**　Wails 会接住 service 方法里的 panic（见下面「顺带确认过」），但我们自己
+`go func()` 起的协程不在它的保护范围内：
+[updates/manager.go](internal/updates/manager.go) 的延时检查协程没有 recover
+（[http_service.go](internal/services/http_service.go) 的两处流式协程有）。
 
-**风险**　用户看到的是「用着用着突然没了」，反馈给你的信息量为零。
+**风险**　低但真实：这类协程里 panic 会直接杀掉整个进程。好在现在崩溃会被运行标记
+记下来，堆栈也会写进日志。
 
-**建议**
+**建议**　给长期存活的协程统一加一层 recover + 记日志。
 
-- 启动时写 `running.lock`、正常退出删掉；下次启动发现它还在就提示「上次异常退出，
-  日志在这里 [打开]」。
-- 加一个「导出诊断信息」：日志 + 版本 + 构建哈希 + 数据库大小，脱敏后打成 zip。
-  用户反馈问题的质量会完全不一样。
-
-**工作量**　一天。
-
----
-
-## P2 · 日志按天切，但没有大小上限
-
-**现状**　[logger.go](internal/logger/logger.go) 每天一个文件、保留 30 天，单个文件
-不封顶。
-
-**风险**　集合运行器跑几千个请求、或者流式响应刷屏，单日日志可以很大。
-
-**建议**　加单文件大小上限，超了滚到 `-1`、`-2`。
-
-**工作量**　两小时。
-
----
-
-## P2 · 数据库文件即凭据
-
-**现状**　`IsSecret`（[environment.go](internal/models/environment.go)）按注释只是
-**前端显示成密码**，库里是明文；接口上的 Bearer token、Basic 密码、OAuth
-`ClientSecret` 同样明文。历史记录有 `MaskSensitive` 兜底，但那只管历史。
-
-**风险**　数据库文件被拷走 = 凭据泄漏。
-
-**判断**　同类工具（Postman、Insomnia 早期）都是这样，现阶段**不建议**上系统钥匙串
-——那会带来跨平台一致性、导出、备份恢复一连串新问题。但这是个**预期管理**问题：
-README / 文档里要明说，并且想清楚导出与分享功能要不要带上 secret 的值。
-
-**工作量**　文档半小时；真要做钥匙串是另一个量级。
-
----
-
-## P2 · 版本降级的已知语义坑
-
-**现状**　00006 迁移把 `endpoints.follow_redirects` 从二态改成三态（历史行的 `1`
-收敛为 `NULL`）。schema 没变，所以
-`TestMigrationsAreAdditive` 抓不到——它只看 schema。
-
-**风险**　0.0.5 发布后降级回 0.0.4：旧模型是 `bool`，读到 `NULL` 得到 `false`，
-原本跟随重定向的接口显示成关闭；在旧版本里编辑保存一次，就把「继承」固化成
-「显式关闭」，回到新版本也回不来了。
-
-**建议**　已发布版本之间不受影响（现有四个 tag 的迁移集完全相同），所以这条只是
-**待沟通**：0.0.5 的 CHANGELOG 里明写一句「降级回旧版本会看到什么」。以后避免这类
-改动，见 [CONTRIBUTING.md 的「数据库迁移」](CONTRIBUTING.md#数据库迁移)。
-
-**工作量**　写一句话。
-
----
-
-## P3 · 零散项
-
-- **包管理器安装的版本要不要禁用自更新**：AppImage / Homebrew / 未来的 winget 装的
-  版本，自更新会和包管理器打架。
-- **「关于」里给历史版本下载链接**：既然用户会退版本，比让他们自己翻 GitHub Release
-  友好。
-- **卸载不清数据是对的**，但应该在文档里说清楚数据在哪、怎么彻底删掉。
+**工作量**　一小时。
 
 ---
 
@@ -185,12 +93,49 @@ README / 文档里要明说，并且想清楚导出与分享功能要不要带�
   拦下删表删列、以及给已有表加无默认值的 `NOT NULL` 列。
 - **迁移准则写进 CONTRIBUTING**（`3c05a56`）：见
   [CONTRIBUTING.md 的「数据库迁移」](CONTRIBUTING.md#数据库迁移)。
+- **单实例锁**（`ed30b9a`）：数据目录上的 `instance.lock`（unix flock / Windows 独占
+  打开），在 `database.Initialize` 之前拿，第二个实例碰不到数据库。崩溃时由内核释放，
+  不留僵尸锁。残留的「聚焦已有窗口」另立一条。
+- **数据库体积可见并可压缩**（`e8cb38a`）：「设置 → 数据」显示磁盘占用与可回收空间，
+  一键 `VACUUM` + `wal_checkpoint(TRUNCATE)`。
+- **数据目录、整库导出与从备份恢复**（`8d82b56`）：三个入口都在「设置 → 数据」。
+  恢复分两步——暂存时当场校验，下次启动在打开数据库之前替换，被覆盖的库连同
+  `-wal`/`-shm` 一起改名保留。
+- **localStorage 加版本与形状校验**（`23b0d85`）：写入带版本信封，读取过类型守卫，
+  对不上回退默认值；信封之前的裸值形状对就继续接受。
+- **异常退出可被察觉 + 诊断导出**（`be51c13`）：`running.marker` 判定上次是否崩溃，
+  `debug.SetCrashOutput` 把进程级崩溃的堆栈写进日志，诊断 zip 含摘要与最近日志、
+  不含数据库。
+- **日志单文件大小上限**（`7ea0ddc`）：8 MiB 滚动成 `postpigeon-<日期>.N.log`，
+  仍保留 30 天。
+- **凭据明文的预期管理**（`307cc88`）：README 新增「数据与隐私」，说清楚数据库、备份、
+  整库导出都含明文凭据，历史默认脱敏，诊断包不含数据库。剩下的「导出要不要带 secret」
+  是个待定的决定，已另立一条。
+- **「关于」里给历史版本入口**（`bb910bf`）：`AppInfo` 带上仓库与 releases 地址，
+  退回旧版本不必自己翻 GitHub。
+- **Wails 侧日志接进应用日志**（`eda6cc5`）：不传 `Options.Logger` 的话，production
+  构建下 Wails 用的是写向 `io.Discard` 的默认 logger——被它接住的 service panic
+  连堆栈一起蒸发。现在和应用日志写在一起。
+- **降级语义坑写进 CHANGELOG**（`49d26d1`）：说明退回 0.0.4 及更早版本时
+  「跟随重定向」会看到什么、以及怎么改回来。
+- **彻底删除数据的说明**（`09a0ab5`）：README 里写明卸载不会删数据目录、怎么清干净、
+  删之前可以先导出。
 
 ### 顺带确认过、当前没问题的
 
+- **service 方法里的 panic 不会杀掉应用**。Wails v3 的
+  `BoundMethod.Call`（bindings.go）会 recover 并转成前端的调用错误。此前本文件写的
+  「其它 service 方法 panic 就是整个应用消失」是错的。真正会杀进程的是我们自己起的
+  协程，已另立一条。
+- **包管理器 / AppImage 安装的版本已经禁用了自更新**：
+  [updates/manager.go](internal/updates/manager.go) 的 `SelfUpdateBlockedReason`
+  查 `APPIMAGE` 环境变量，再用「能否在目录里建临时文件」判断可写性，覆盖 deb/rpm 的
+  `/usr/bin`、NSIS 的 Program Files 与只读挂载，这些情况下只提示新版本并引导去下载页。
 - 索引覆盖完整（[00001_baseline.sql](internal/database/migrations/00001_baseline.sql)），
   大数据量下的列表查询不用担心。
 - 资源上限齐全：响应体 32 MB、入库 1 MB、WebSocket 单帧 32 MB。
 - 更新链路有 `SHA256SUMS` 校验和「跳过版本」持久化
   （[updates/manager.go](internal/updates/manager.go)），比多数同类规矩。
 - 向前跨版本升级（0.0.1 直接跳 0.0.9）是安全的：goose 按序补跑未登记的迁移。
+- 向后降级不会执行 goose 的 Down：旧二进制不认识库里更高的版本号，`goose.Up` 空转。
+  所以降级等于「旧代码跑在新 schema 上」，靠 `TestMigrationsAreAdditive` 守住。
