@@ -246,7 +246,22 @@ jobs:
         run: |
           set -euo pipefail
           printf '%s' "${APPLE_API_KEY_P8}" | base64 --decode > "${APPLE_API_KEY_PATH}"
-          wails3 task darwin:notarize
+
+          # 公证要把整个包传给苹果的公证服务，上传中途被掐是已知的偶发故障：
+          # notarytool 走 S3 分片上传，submission ID 都拿到了才报 abortedUpload。
+          # 不重试的话，每次发版都得有人盯着手动重跑。
+          # 重复提交同一个包对苹果侧是安全的，代价只是多等一轮。
+          max_attempts=3
+          attempt=1
+          until wails3 task darwin:notarize; do
+            if [ "${attempt}" -ge "${max_attempts}" ]; then
+              echo "::error::公证连续 ${max_attempts} 次失败，本次发布中止"
+              exit 1
+            fi
+            echo "::warning::公证第 ${attempt}/${max_attempts} 次失败，30 秒后重试"
+            attempt=$((attempt + 1))
+            sleep 30
+          done
 
       - name: 检查签名状态
         if: runner.os == 'macOS'
