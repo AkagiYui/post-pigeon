@@ -1,6 +1,7 @@
 // SplitPane 分割面板组件，支持拖拽调整大小
 import { createSignal, type JSX, onCleanup, Show, splitProps } from "solid-js"
 
+import { dragDisplaySize, resolveDragEnd, willCollapse } from "@/components/ui/split-pane-drag"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
 
@@ -19,6 +20,8 @@ export interface SplitPaneProps {
   collapsed?: boolean
   /** 折叠变更回调 */
   onCollapsedChange?: (collapsed: boolean) => void
+  /** 从最小宽度再往里拖多少像素，松手即收起 */
+  collapseThreshold?: number
   /** 自定义类名 */
   class?: string
 }
@@ -28,9 +31,15 @@ export interface SplitPaneProps {
  * 支持拖拽调整左右面板宽度
  */
 export function SplitPane(props: SplitPaneProps) {
-  const [local] = splitProps(props, ["left", "right", "defaultSize", "minSize", "maxSize", "collapsed", "onCollapsedChange", "class"])
+  const [local] = splitProps(props, ["left", "right", "defaultSize", "minSize", "maxSize", "collapsed", "onCollapsedChange", "collapseThreshold", "class"])
   const [size, setSize] = createSignal(local.defaultSize || 280)
   const [dragging, setDragging] = createSignal(false)
+  // 已经拖过「松手即收起」的距离：松手之前先把结果预告出来
+  const [collapseArmed, setCollapseArmed] = createSignal(false)
+
+  const minSize = () => local.minSize || 150
+  const maxSize = () => local.maxSize || 600
+  const threshold = () => local.collapseThreshold ?? 60
 
   const handleMouseDown = (e: MouseEvent) => {
     if (local.collapsed) return
@@ -39,20 +48,25 @@ export function SplitPane(props: SplitPaneProps) {
 
     const startX = e.clientX
     const startSize = size()
+    // raw 是不受最小宽度约束的「意图宽度」：面板停在最小宽度不动，但还得知道
+    // 用户往里拖了多远，才能判断松手时是弹回还是收起
+    let raw = startSize
 
     const handleMouseMove = (e: MouseEvent) => {
-      const diff = e.clientX - startX
-      const newSize = Math.max(
-        local.minSize || 150,
-        Math.min(local.maxSize || 600, startSize + diff),
-      )
-      setSize(newSize)
+      raw = startSize + (e.clientX - startX)
+      setSize(dragDisplaySize(raw, minSize(), maxSize()))
+      setCollapseArmed(willCollapse(raw, minSize(), threshold()))
     }
 
     const handleMouseUp = () => {
       setDragging(false)
+      setCollapseArmed(false)
       document.removeEventListener("mousemove", handleMouseMove)
       document.removeEventListener("mouseup", handleMouseUp)
+
+      const outcome = resolveDragEnd(raw, minSize(), maxSize(), threshold())
+      setSize(outcome.size)
+      if (outcome.collapsed) local.onCollapsedChange?.(true)
     }
 
     document.addEventListener("mousemove", handleMouseMove)
@@ -62,12 +76,16 @@ export function SplitPane(props: SplitPaneProps) {
   /** 键盘调整：方向键按步进移动，Home/End 直接到最小/最大 */
   const handleKeyDown = (e: KeyboardEvent) => {
     if (local.collapsed) return
-    const min = local.minSize || 150
-    const max = local.maxSize || 600
+    const min = minSize()
+    const max = maxSize()
     const step = e.shiftKey ? 50 : 10
     let next: number | null = null
     switch (e.key) {
-      case "ArrowLeft": next = size() - step; break
+      // 已经贴着最小宽度还继续往左，等价于拖过头：直接收起
+      case "ArrowLeft":
+        if (size() <= min) { local.onCollapsedChange?.(true); e.preventDefault(); return }
+        next = size() - step
+        break
       case "ArrowRight": next = size() + step; break
       case "Home": next = min; break
       case "End": next = max; break
@@ -87,7 +105,11 @@ export function SplitPane(props: SplitPaneProps) {
       {/* 左侧面板 */}
       <Show when={!local.collapsed}>
         <div
-          class="shrink-0 overflow-hidden"
+          class={cn(
+            "shrink-0 overflow-hidden",
+            // 松手就会收起时先淡出，给一个「再拖就没了」的预告
+            collapseArmed() && "opacity-50 transition-opacity",
+          )}
           style={{ width: `${size()}px` }}
         >
           {local.left}
@@ -101,12 +123,13 @@ export function SplitPane(props: SplitPaneProps) {
           aria-orientation="vertical"
           aria-label={t("splitPane.resize")}
           aria-valuenow={Math.round(size())}
-          aria-valuemin={local.minSize || 150}
-          aria-valuemax={local.maxSize || 600}
+          aria-valuemin={minSize()}
+          aria-valuemax={maxSize()}
           class={cn(
             "w-px shrink-0 cursor-col-resize bg-border hover:bg-accent/30 transition-colors relative",
             "focus-visible:outline-none focus-visible:bg-accent",
             dragging() && "bg-accent/50",
+            collapseArmed() && "bg-accent",
           )}
           onMouseDown={handleMouseDown}
           onKeyDown={handleKeyDown}
