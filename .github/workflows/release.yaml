@@ -26,7 +26,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 检出 tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
@@ -76,7 +76,7 @@ jobs:
       # workflow_dispatch 时默认检出的是工作流所在分支而不是要发布的 tag，
       # 不显式指定 ref 的话会拿 master 的代码打上 tag 的版本号发出去
       - name: 检出 tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
 
@@ -102,7 +102,7 @@ jobs:
       # Windows 沿用 setup-go 自带缓存：那边打包才 30 秒，另存一份 Go 缓存
       # 的解压耗时比省下来的编译时间还长。
       - name: 安装 Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           cache: ${{ runner.os == 'Windows' }}
           go-version-file: 'go.mod'
@@ -127,7 +127,7 @@ jobs:
       # 于是不常跑的 Release 能直接吃到热缓存。
       - name: 缓存 Go 构建产物
         if: runner.os != 'Windows'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ steps.gocache.outputs.build }}
@@ -142,7 +142,7 @@ jobs:
           package_json_file: 'frontend/package.json'
 
       - name: 安装 Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version-file: 'frontend/package.json'
           cache: 'pnpm'
@@ -168,7 +168,7 @@ jobs:
       # 省掉一次编译（macOS Intel 上要 25 秒）
       - name: 缓存 Wails CLI
         if: runner.os != 'Windows'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ steps.gocache.outputs.bin }}/wails3
           key: wails3-${{ runner.os }}-${{ runner.arch }}-${{ env.WAILS_VERSION }}
@@ -316,7 +316,7 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 检出 tag
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
         with:
           ref: ${{ github.event.inputs.tag || github.ref }}
           fetch-depth: 0
@@ -329,7 +329,7 @@ jobs:
           echo "version=${TAG#v}" >> "$GITHUB_OUTPUT"
 
       - name: 下载全部发布产物
-        uses: actions/download-artifact@v7
+        uses: actions/download-artifact@v8
         with:
           pattern: release-*
           path: artifacts
@@ -365,7 +365,7 @@ jobs:
           cat RELEASE_NOTES.md
 
       - name: 创建 Release
-        uses: softprops/action-gh-release@v2
+        uses: softprops/action-gh-release@v3
         with:
           tag_name: ${{ steps.version.outputs.tag }}
           body_path: RELEASE_NOTES.md

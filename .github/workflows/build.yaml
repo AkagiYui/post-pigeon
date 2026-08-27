@@ -26,7 +26,7 @@ jobs:
 
     steps:
       - name: 检出代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 检查是否需要构建
         id: check
@@ -73,7 +73,7 @@ jobs:
 
     steps:
       - name: 检出代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # wails3 generate appimage 的 findGTKFiles 会 filepath.Walk 整个 /usr/ 去找
       # 三个 WebKit 文件，而 runner 的 /usr 里预装了 Android SDK、ghcup、dotnet 等
@@ -92,7 +92,7 @@ jobs:
       # Windows 沿用 setup-go 自带缓存：那边打包才 30 秒，另存一份 Go 缓存
       # 的解压耗时比省下来的编译时间还长。
       - name: 安装 Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           cache: ${{ runner.os == 'Windows' }}
           go-version-file: 'go.mod'
@@ -117,7 +117,7 @@ jobs:
       # 于是不常跑的 Release 能直接吃到热缓存。
       - name: 缓存 Go 构建产物
         if: runner.os != 'Windows'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ steps.gocache.outputs.build }}
@@ -132,7 +132,7 @@ jobs:
           package_json_file: 'frontend/package.json'
 
       - name: 安装 Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version-file: 'frontend/package.json'
           cache: 'pnpm'
@@ -158,7 +158,7 @@ jobs:
       # 省掉一次编译（macOS Intel 上要 25 秒）
       - name: 缓存 Wails CLI
         if: runner.os != 'Windows'
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ steps.gocache.outputs.bin }}/wails3
           key: wails3-${{ runner.os }}-${{ runner.arch }}-${{ env.WAILS_VERSION }}
@@ -188,7 +188,7 @@ jobs:
 
     steps:
       - name: 检出代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       - name: 生成 Action Summary
         env:

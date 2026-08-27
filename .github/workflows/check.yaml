@@ -21,13 +21,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # 不用 setup-go 自带缓存：它的 key 只含 hash(go.sum)，仓库里几个
       # 构建负载（普通 build、-race 测试、-trimpath 生产打包）会抢同一个条目，
       # 而且只在 miss 时写入、之后永不更新。独立 key + restore-keys 才能滚动前进。
       - name: 安装 Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           cache: false
           go-version-file: 'go.mod'
@@ -42,7 +42,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: 缓存 Go 构建产物
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ steps.gocache.outputs.build }}
@@ -105,13 +105,13 @@ jobs:
     runs-on: ubuntu-latest
     steps:
       - name: 检出代码
-        uses: actions/checkout@v6
+        uses: actions/checkout@v7
 
       # 不用 setup-go 自带缓存：它的 key 只含 hash(go.sum)，仓库里几个
       # 构建负载（普通 build、-race 测试、-trimpath 生产打包）会抢同一个条目，
       # 而且只在 miss 时写入、之后永不更新。独立 key + restore-keys 才能滚动前进。
       - name: 安装 Go
-        uses: actions/setup-go@v6
+        uses: actions/setup-go@v7
         with:
           cache: false
           go-version-file: 'go.mod'
@@ -126,7 +126,7 @@ jobs:
           } >> "$GITHUB_OUTPUT"
 
       - name: 缓存 Go 构建产物
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: |
             ${{ steps.gocache.outputs.build }}
@@ -155,7 +155,7 @@ jobs:
           package_json_file: 'frontend/package.json'
 
       - name: 安装 Node.js
-        uses: actions/setup-node@v6
+        uses: actions/setup-node@v7
         with:
           node-version-file: 'frontend/package.json'
           cache: 'pnpm'
@@ -167,7 +167,7 @@ jobs:
 
       # tsconfig 覆盖 bindings/ 目录，类型检查前需要先生成绑定
       - name: 缓存 Wails CLI
-        uses: actions/cache@v4
+        uses: actions/cache@v6
         with:
           path: ${{ steps.gocache.outputs.bin }}/wails3
           key: wails3-${{ runner.os }}-${{ runner.arch }}-${{ env.WAILS_VERSION }}
