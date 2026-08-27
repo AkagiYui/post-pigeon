@@ -124,7 +124,9 @@ export interface BodyFieldRow {
   enabled: boolean
   /** 文件名（fieldType=file 时有效） */
   fileName?: string
-  /** 文件内容 base64（fieldType=file 时有效，不含 data: 前缀） */
+  /** 本机文件路径（fieldType=file 时有效）。库里存的是它，发送时后端才读盘 */
+  filePath?: string
+  /** 文件内容 base64（历史数据里内联的附件，不再产生新的） */
   fileContent?: string
 }
 

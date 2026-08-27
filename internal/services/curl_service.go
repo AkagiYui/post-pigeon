@@ -215,12 +215,16 @@ func curlBodyArgs(data SendRequestData, vars map[string]string, limits models.Re
 				continue
 			}
 			if field.FieldType == "file" {
-				// 文件内容不进命令行：curl 用 @路径 引用本地文件，这里给出文件名占位
-				fileName, _, ok := parseFileField(field.Value)
-				if !ok {
-					fileName = field.Value
+				// curl 用 @路径 引用本地文件。现在库里存的就是路径，导出的命令可以直接跑；
+				// 历史数据只有内联内容时退回文件名占位，让用户自己补上路径
+				ref := field.Value
+				if file, ok := parseFileField(field.Value); ok {
+					ref = file.Path
+					if ref == "" {
+						ref = file.displayName()
+					}
 				}
-				args = append(args, fmt.Sprintf("-F %s", shellQuote(field.Name+"=@"+fileName)))
+				args = append(args, fmt.Sprintf("-F %s", shellQuote(field.Name+"=@"+ref)))
 			} else {
 				args = append(args, fmt.Sprintf("-F %s", shellQuote(field.Name+"="+resolveVars(field.Value, vars))))
 			}
@@ -228,11 +232,15 @@ func curlBodyArgs(data SendRequestData, vars map[string]string, limits models.Re
 		return args
 
 	case string(models.BodyTypeBinary):
-		fileName, _, ok := parseFileField(data.BodyContent)
+		file, ok := parseFileField(data.BodyContent)
 		if !ok {
 			return nil
 		}
-		return []string{fmt.Sprintf("--data-binary %s", shellQuote("@"+fileName))}
+		ref := file.Path
+		if ref == "" {
+			ref = file.displayName()
+		}
+		return []string{fmt.Sprintf("--data-binary %s", shellQuote("@"+ref))}
 	}
 	return nil
 }

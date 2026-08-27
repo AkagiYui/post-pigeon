@@ -637,5 +637,6 @@
   "importexport.exportSecrets.body": "This project has {variables} secret variable(s) and {credentials} endpoint(s) with auth credentials.",
   "importexport.exportSecrets.hint": "The export file is plain text. Without credentials, variable names and auth settings are still kept — only the values are left empty for the other side to fill in.",
   "importexport.exportSecrets.exclude": "Without credentials",
-  "importexport.exportSecrets.include": "Include credentials"
+  "importexport.exportSecrets.include": "Include credentials",
+  "error.http.file_missing": "Cannot read file “{name}” — it may have been moved or deleted; please pick it again"
 }

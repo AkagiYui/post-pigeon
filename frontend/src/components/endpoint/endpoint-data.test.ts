@@ -180,7 +180,24 @@ describe("deriveScriptFromOps", () => {
 })
 
 describe("请求体字段转换", () => {
-  it("文件字段打包/解包文件名与内容", () => {
+  it("文件字段存的是路径而不是内容", () => {
+    const models = toBodyFieldModels([
+      { id: "1", name: "f", value: "", fieldType: "file", enabled: true, fileName: "a.png", filePath: "/tmp/a.png" },
+    ])
+    expect(JSON.parse(models[0].value)).toEqual({ fileName: "a.png", path: "/tmp/a.png" })
+
+    const rows = fromBodyFieldModels(models)
+    expect(rows[0]).toMatchObject({ fieldType: "file", fileName: "a.png", filePath: "/tmp/a.png", value: "" })
+  })
+
+  it("重新选过文件后不再带上历史内容", () => {
+    const models = toBodyFieldModels([
+      { id: "1", name: "f", value: "", fieldType: "file", enabled: true, fileName: "new.png", filePath: "/tmp/new.png", fileContent: "AAA" },
+    ])
+    expect(JSON.parse(models[0].value)).toEqual({ fileName: "new.png", path: "/tmp/new.png" })
+  })
+
+  it("历史数据里内联的内容原样保留（打开老接口按下保存不该弄丢附件）", () => {
     const models = toBodyFieldModels([
       { id: "1", name: "f", value: "", fieldType: "file", enabled: true, fileName: "a.png", fileContent: "AAA" },
     ])

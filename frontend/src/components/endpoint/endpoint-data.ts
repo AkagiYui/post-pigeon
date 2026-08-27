@@ -143,15 +143,26 @@ export function fromOperationModels(arr?: Operation[] | null): OperationRow[] {
   return (arr || []).map(operationToRow)
 }
 
+/** 把一行文件字段打包成后端约定的 value */
+function fileFieldValue(row: BodyFieldRow): string {
+  if (row.filePath) {
+    return JSON.stringify({ fileName: row.fileName || "", path: row.filePath })
+  }
+  if (row.fileContent) {
+    return JSON.stringify({ fileName: row.fileName || "", content: row.fileContent })
+  }
+  return JSON.stringify({ fileName: row.fileName || "" })
+}
+
 export function toBodyFieldModels(rows: BodyFieldRow[]): EndpointBodyField[] {
   return rows.filter(r => r.name.trim()).map(r => new EndpointBodyField({
     name: r.name,
     fieldType: r.fieldType,
     enabled: r.enabled,
-    // 文件字段把文件名与 base64 内容打包进 value，后端按约定解析
-    value: r.fieldType === "file"
-      ? JSON.stringify({ fileName: r.fileName || "", content: r.fileContent || "" })
-      : r.value,
+    // 文件字段存的是「本机文件的引用」：{fileName, path}，发送时后端才读盘。
+    // 历史数据里内联的 base64 原样保留——重新选过文件才会换成路径，
+    // 否则打开一个老接口按下保存就会把附件弄丢
+    value: r.fieldType === "file" ? fileFieldValue(r) : r.value,
   }))
 }
 
@@ -226,6 +237,7 @@ export function fromBodyFieldModels(arr?: EndpointBodyField[] | null): BodyField
       try {
         const parsed = JSON.parse(f.value)
         row.fileName = parsed.fileName || ""
+        row.filePath = parsed.path || ""
         row.fileContent = parsed.content || ""
         row.value = ""
       } catch {

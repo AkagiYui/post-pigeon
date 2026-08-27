@@ -11,45 +11,22 @@
 
 ---
 
-## P3 · 附件以 base64 存在库里（同类产品都存路径）
+## P3 · 大附件仍会整个读进内存
 
-**现状**　文件字段的 value 是 `{"fileName":..,"content":<base64>}`
-（[http_service.go](internal/services/http_service.go) 的 `parseFileField`），
-整个附件内容存进 `endpoint_body_fields`。Binary 请求体是同一套做法，存在
-`endpoints.body_content` 里。一个 10 MB 附件在库里约 13 MB，且跟着接口永久存在。
+**现状**　附件改存路径之后，发送时仍是 `os.ReadFile` 读进内存再拼进 multipart 缓冲区
+（[http_service.go](internal/services/http_service.go)）。
 
-**同类产品怎么做**（2026-08 在 `tmp/` 下的参考实现里逐个查过）：
+**风险**　几百 MB 的附件会把内存顶起来。此前存 base64 时更糟（库里存一份、内存里两份），
+所以这不是新问题，只是没顺手解决。
 
-| 客户端 | 存法 |
-| --- | --- |
-| Yaak（Tauri + SQLite，架构最接近本项目） | 存路径。发送时 `tokio::fs` 流式读，靠 metadata 算 content-length，文件不在就报 `File not found`（`crates/yaak-http/src/types.rs` 的 `build_multipart_body`） |
-| Insomnia（Electron） | 存路径。`RequestBodyParameter.fileName` 是绝对路径，发送时才读盘 |
-| Bruno（文件式集合） | 存路径。`.bru` 里写成 `@file(<path>)` |
-| Hoppscotch（浏览器） | 存内容——但它是网页，拿不到路径，别无选择 |
+**建议**　照 Yaak 的做法改成流式：把各段拼成 `io.MultiReader`，文件段惰性打开，
+content-length 用 `os.Stat` 的大小算，`req.GetBody` 重新构造一份 reader 供重定向重放。
+需要手写 multipart 分隔与 Content-Disposition 转义（Go 标准库的 `multipart.Writer`
+只能往 buffer 里写）。
 
-Apifox 本地那份材料（`tmp/apifox/`）只有渲染层的部分 bundle 与设计探测笔记，
-不含请求体构造的代码，**无法据此证实它存的是路径**；不过从上面三个开源桌面客户端
-看，存路径是这类产品的通行做法。我们现在这套是「网页做法用在桌面应用上」。
+**工作量**　一天。
 
-**风险**　库体积、备份耗时、导出体积都被附件放大，而且是永久的：压缩数据库只能回收
-删除后的空间，存量附件本身不会变小。
-
-**真正的拦路虎不是存储格式，是选择器**：
-[BodyEditor.tsx](frontend/src/components/endpoint/BodyEditor.tsx) 用的是
-`<input type="file">` + `FileReader.readAsDataURL`，浏览器出于安全根本不给路径——
-所以要改存路径，先得把选择器换成 Wails 的原生
-`Dialog.OpenFile()`（`DataService` 里已经在用同一套 API）。
-
-**建议**　改成「库里只存路径 + 发送时流式读盘」，但要一并想清楚这几件事：
-
-- **自包含性会丢**：现在导出/备份天然带着附件，改完之后换台机器路径就失效了。
-  Yaak 的选择是直接报错。可以考虑「小文件仍内联、大文件存路径」，或者把附件复制进
-  数据目录再存相对路径——后者能同时解决体积与自包含。
-- 删接口时要清理孤儿附件；
-- 导出/恢复要带上附件目录；
-- 存量数据要迁移（base64 → 落盘），且迁移得满足降级兼容的约定。
-
-**工作量**　三天起，含选择器替换、迁移与导出格式变更。
+---
 
 ## 已处理
 
@@ -63,6 +40,11 @@ Apifox 本地那份材料（`tmp/apifox/`）只有渲染层的部分 bundle 与�
 - **后台协程加 panic 兜底**（`b3618bc`）：新增 `internal/safego`，`Go` / `Run` /
   `Recover` 三个入口，panic 记日志（含堆栈）而不是杀掉进程。WebSocket 读写、流式响应
   推送、脚本发请求、更新检查、历史清理、入库 worker 全部接上。
+- **附件改存路径**（`__HASH__`）：文件字段与 Binary 请求体的 value 改成
+  `{fileName, path}`，发送时才读盘；选择器换成 Wails 原生对话框（浏览器的
+  `<input type="file">` 拿不到路径）。历史数据里内联的 base64 仍然认，也不会因为
+  打开老接口按下保存而丢失；文件被移走时报 `http.file_missing`。
+  代价是不再自包含：换台机器路径就失效——这是明确接受的取舍。
 - **数据库迁移前自动备份**（`a38b6ad`）：`VACUUM INTO` 出
   `postpigeon.db.bak-<时间>-<版本>`，保留最近 3 份；只在确有待应用迁移时做；备份失败
   就不迁移。

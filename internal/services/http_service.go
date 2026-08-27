@@ -30,6 +30,9 @@ import (
 	"gorm.io/gorm"
 
 	"PostPigeon/internal/safego"
+
+	"os"
+	"path/filepath"
 )
 
 // HTTPStreamEventName 是前端监听的 HTTP 流式响应事件名。
@@ -936,9 +939,15 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 		req.Header.Set("Content-Type", defaultStr(data.ContentType, "application/json"))
 
 	case string(models.BodyTypeBinary):
-		// 原始二进制：BodyContent 约定为 {"fileName":..,"content":<base64>}
-		_, content, ok := parseFileField(data.BodyContent)
-		if !ok {
+		// 原始二进制：BodyContent 约定为 {"fileName":..,"path":..}
+		var content []byte
+		if file, ok := parseFileField(data.BodyContent); ok {
+			read, err := file.read()
+			if err != nil {
+				return err
+			}
+			content = read
+		} else {
 			// 兼容：直接把 BodyContent 当作原始文本发送
 			content = []byte(data.BodyContent)
 		}
@@ -962,11 +971,16 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 				continue
 			}
 			if field.FieldType == "file" {
-				// 文件字段：value 约定为 {"fileName":..,"content":<base64>}
-				fileName, content, ok := parseFileField(field.Value)
-				if !ok {
-					// 兼容旧数据：value 当作文件名，无内容
-					fileName = field.Value
+				// 文件字段：value 约定为 {"fileName":..,"path":..}，发送时才读盘
+				var content []byte
+				fileName := field.Value
+				if file, ok := parseFileField(field.Value); ok {
+					fileName = file.displayName()
+					read, err := file.read()
+					if err != nil {
+						return err
+					}
+					content = read
 				}
 				part, err := writer.CreateFormFile(field.Name, fileName)
 				if err != nil {
@@ -1267,20 +1281,63 @@ func buildGraphQLBody(stored string, allowJSONComments bool) ([]byte, error) {
 	return json.Marshal(payload)
 }
 
-// parseFileField 解析文件字段的 value（前端约定为 {"fileName":..,"content":<base64>} JSON）
-func parseFileField(value string) (fileName string, content []byte, ok bool) {
-	var payload struct {
-		FileName string `json:"fileName"`
-		Content  string `json:"content"`
-	}
+// fileFieldValue 是文件字段与 Binary 请求体的 value 约定。
+//
+// 库里只存引用（path），发送时才去读盘——这也是 Yaak / Insomnia / Bruno 这些桌面
+// 客户端的做法。此前存的是整个文件的 base64，一个 10 MB 附件在库里约 13 MB，
+// 备份、导出、同步全被放大，而且跟着接口永久存在。
+//
+// 代价是不再自包含：文件被移走或换台机器，路径就失效了，发送时会明确报错。
+type fileFieldValue struct {
+	FileName string `json:"fileName"`
+	// Path 本机上的文件路径，新数据一律用它
+	Path string `json:"path,omitempty"`
+	// Content 历史数据里内联的 base64。仍然认，但不再产生新的
+	Content string `json:"content,omitempty"`
+}
+
+// parseFileField 解析文件字段的 value。
+func parseFileField(value string) (fileFieldValue, bool) {
+	var payload fileFieldValue
 	if err := json.Unmarshal([]byte(value), &payload); err != nil {
-		return "", nil, false
+		return fileFieldValue{}, false
 	}
-	decoded, err := base64.StdEncoding.DecodeString(payload.Content)
-	if err != nil {
-		return "", nil, false
+	if payload.Path == "" && payload.Content == "" && payload.FileName == "" {
+		return fileFieldValue{}, false
 	}
-	return payload.FileName, decoded, true
+	return payload, true
+}
+
+// displayName 返回上传时用的文件名：优先用记下来的名字，否则退回路径的最后一段。
+func (f fileFieldValue) displayName() string {
+	if f.FileName != "" {
+		return f.FileName
+	}
+	if f.Path != "" {
+		return filepath.Base(f.Path)
+	}
+	return "file"
+}
+
+// read 读出要发送的内容：优先按路径读盘，没有路径才回退到历史数据里的内联内容。
+func (f fileFieldValue) read() ([]byte, error) {
+	if f.Path != "" {
+		content, err := os.ReadFile(f.Path)
+		if err != nil {
+			// 文件被移走 / 删掉 / 换了台机器——这是存路径必然要面对的失败，
+			// 给一个能看懂的错误，而不是发出去一个空文件
+			return nil, apperr.Wrap(err, apperr.CodeRequestFileMissing, apperr.P("name", f.displayName()))
+		}
+		return content, nil
+	}
+	if f.Content != "" {
+		decoded, err := base64.StdEncoding.DecodeString(f.Content)
+		if err != nil {
+			return nil, apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("name", f.displayName()))
+		}
+		return decoded, nil
+	}
+	return nil, apperr.New(apperr.CodeRequestFileMissing, apperr.P("name", f.displayName()))
 }
 
 // parseNameSet 将 JSON 字符串数组解析为名称集合（用于禁用全局参数名匹配）。
@@ -1480,4 +1537,14 @@ func DumpRequest(req *http.Request) (string, error) {
 		return "", err
 	}
 	return string(dump), nil
+}
+
+// fileFieldJSON 把一个本地文件路径打包成文件字段的 value。
+func fileFieldJSON(path string) string {
+	payload := fileFieldValue{FileName: filepath.Base(path), Path: path}
+	encoded, err := json.Marshal(payload)
+	if err != nil {
+		return path
+	}
+	return string(encoded)
 }

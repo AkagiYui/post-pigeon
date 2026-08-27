@@ -20,6 +20,8 @@ const (
 	CodeBuildBody         = "http.build_body"
 	CodeAuthConfigInvalid = "http.auth_config_invalid"
 	CodeTLSConfigInvalid  = "http.tls_config_invalid"
+	// CodeRequestFileMissing 请求体引用的本地文件读不到（被移走、删掉或换了台机器）
+	CodeRequestFileMissing = "http.file_missing"
 
 	// ---- WebSocket ----
 	CodeWSConnect      = "ws.connect"

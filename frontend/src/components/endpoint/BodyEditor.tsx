@@ -2,6 +2,7 @@
 import { Icon } from "@iconify-icon/solid"
 import { createMemo, For, Show } from "solid-js"
 
+import { FileService } from "@/../bindings/PostPigeon/internal/services"
 import type { BodyFieldRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -92,17 +93,15 @@ export function BodyEditor(props: BodyEditorProps) {
     props.onChange({ bodyFields: props.fields.map(f => f.id === id ? { ...f, ...patch } : f) })
   }
 
-  // 读取所选文件为 base64（去掉 data: 前缀），存入该行
-  const pickFile = (id: string, input: HTMLInputElement) => {
-    const file = input.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = String(reader.result || "")
-      const base64 = result.includes(",") ? result.slice(result.indexOf(",") + 1) : result
-      updateField(id, { fileName: file.name, fileContent: base64 })
+  // 选文件走原生对话框：库里存的是路径，而浏览器的 <input type="file"> 只给内容不给路径
+  const pickFile = async (id: string) => {
+    try {
+      const picked = await FileService.PickFile()
+      if (!picked?.path) return // 用户取消
+      updateField(id, { fileName: picked.name, filePath: picked.path, fileContent: "" })
+    } catch (e) {
+      toastError(e, "error.op.loadFailed")
     }
-    reader.readAsDataURL(file)
   }
 
   // GraphQL 请求体：查询与变量分开编辑，合并存进 bodyContent
@@ -111,22 +110,22 @@ export function BodyEditor(props: BodyEditorProps) {
     props.onChange({ bodyContent: JSON.stringify({ ...graphql(), ...patch }) })
   }
 
-  // Binary 请求体的当前文件名（从 bodyContent 的 JSON 解析）
-  const binaryFileName = createMemo(() => {
-    try { return JSON.parse(props.bodyContent || "{}").fileName || "" } catch { return "" }
+  // Binary 请求体当前引用的文件（从 bodyContent 的 JSON 解析）
+  const binaryFile = createMemo<{ fileName?: string, path?: string }>(() => {
+    try { return JSON.parse(props.bodyContent || "{}") } catch { return {} }
   })
+  const binaryFileName = () => binaryFile().fileName || ""
+  const binaryFilePath = () => binaryFile().path || ""
 
-  // 选择 Binary 请求体文件：打包为 {fileName, content(base64)} 存入 bodyContent
-  const pickBinaryFile = (input: HTMLInputElement) => {
-    const file = input.files?.[0]
-    if (!file) return
-    const reader = new FileReader()
-    reader.onload = () => {
-      const result = String(reader.result || "")
-      const base64 = result.includes(",") ? result.slice(result.indexOf(",") + 1) : result
-      props.onChange({ bodyContent: JSON.stringify({ fileName: file.name, content: base64 }) })
+  // 选择 Binary 请求体文件：打包为 {fileName, path} 存入 bodyContent
+  const pickBinaryFile = async () => {
+    try {
+      const picked = await FileService.PickFile()
+      if (!picked?.path) return // 用户取消
+      props.onChange({ bodyContent: JSON.stringify({ fileName: picked.name, path: picked.path }) })
+    } catch (e) {
+      toastError(e, "error.op.loadFailed")
     }
-    reader.readAsDataURL(file)
   }
 
   // 格式化：JSON 用 jsonc-parser（只改空白，注释与大整数原样保留），XML 用标签缩进
@@ -251,14 +250,18 @@ export function BodyEditor(props: BodyEditorProps) {
         {/* Binary：选择单个文件，打包为 {fileName, content(base64)} 存入 bodyContent */}
         <Show when={props.bodyType === "binary"}>
           <div class="flex flex-col gap-2 py-4">
-            <label class="flex items-center gap-2 cursor-pointer text-sm">
+            <button
+              type="button"
+              class="flex items-center gap-2 self-start text-sm"
+              title={binaryFilePath() || undefined}
+              onClick={() => void pickBinaryFile()}
+            >
               <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-muted hover:text-foreground text-muted-foreground">
                 <Icon icon="lucide:upload" class="h-3 w-3" />
                 {t("common.chooseFile")}
               </span>
               <span class="truncate text-muted-foreground max-w-60">{binaryFileName() || t("common.noFileChosen")}</span>
-              <input type="file" class="hidden" onChange={(e) => pickBinaryFile(e.currentTarget)} />
-            </label>
+            </button>
             <Input
               size="sm"
               value={props.contentType}
@@ -293,15 +296,19 @@ export function BodyEditor(props: BodyEditorProps) {
                       <Input size="sm" value={row.value} onInput={(e) => updateField(row.id, { value: e.currentTarget.value })} />
                     }
                   >
-                    {/* 文件选择：显示文件名 + 选择按钮 */}
-                    <label class="flex items-center gap-2 cursor-pointer text-sm">
+                    {/* 文件选择：显示文件名 + 选择按钮，鼠标悬停能看到完整路径 */}
+                    <button
+                      type="button"
+                      class="flex items-center gap-2 text-sm"
+                      title={row.filePath || undefined}
+                      onClick={() => void pickFile(row.id)}
+                    >
                       <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-muted hover:text-foreground text-muted-foreground">
                         <Icon icon="lucide:upload" class="h-3 w-3" />
                         {t("common.chooseFile")}
                       </span>
                       <span class="truncate text-muted-foreground max-w-40">{row.fileName || t("common.noFileChosen")}</span>
-                      <input type="file" class="hidden" onChange={(e) => pickFile(row.id, e.currentTarget)} />
-                    </label>
+                    </button>
                   </Show>
                 ),
               },
@@ -310,7 +317,7 @@ export function BodyEditor(props: BodyEditorProps) {
                   <Select
                     options={[{ value: "text", label: t("common.text") }, { value: "file", label: t("common.file") }]}
                     value={row.fieldType}
-                    onChange={(v) => updateField(row.id, { fieldType: v as "text" | "file", value: "", fileName: "", fileContent: "" })}
+                    onChange={(v) => updateField(row.id, { fieldType: v as "text" | "file", value: "", fileName: "", filePath: "", fileContent: "" })}
                     size="sm"
                   />
                 ),

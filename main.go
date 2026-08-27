@@ -124,6 +124,7 @@ func main() {
 	postmanService := services.NewPostmanService(db)
 	cookieService := services.NewCookieService(db)
 	dataService := services.NewDataService(db, cfg, lastRunCrashed)
+	fileService := services.NewFileService()
 	runnerService := services.NewRunnerService(db, httpService)
 	updateManager := newUpdateManager()
 	updaterService := services.NewUpdaterService(db, updateManager, changelogMarkdown)
@@ -171,6 +172,7 @@ func main() {
 			application.NewService(postmanService),
 			application.NewService(cookieService),
 			application.NewService(dataService),
+			application.NewService(fileService),
 			application.NewService(runnerService),
 			application.NewService(webSocketService),
 			application.NewService(updaterService),

@@ -88,8 +88,12 @@ func TestParseCurlFormAndFlags(t *testing.T) {
 	if req.BodyType != string(models.BodyTypeFormData) || len(req.BodyFields) != 2 {
 		t.Fatalf("BodyType=%q fields=%+v", req.BodyType, req.BodyFields)
 	}
-	if req.BodyFields[1].FieldType != "file" || req.BodyFields[1].Value != "a.png" {
+	// curl 的 @路径 直接落成文件引用，导入后无需再手工选一次文件
+	if req.BodyFields[1].FieldType != "file" {
 		t.Errorf("文件字段解析有误：%+v", req.BodyFields[1])
+	}
+	if file, ok := parseFileField(req.BodyFields[1].Value); !ok || file.Path != "a.png" {
+		t.Errorf("文件字段应记下路径：%+v", req.BodyFields[1])
 	}
 	if req.Auth == nil || req.Auth.Type != string(models.AuthTypeBasic) {
 		t.Fatalf("-u 应解析为 basic 认证，实际 %+v", req.Auth)

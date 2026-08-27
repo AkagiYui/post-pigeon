@@ -93,9 +93,9 @@ func (s *CurlService) ParseCurl(command string) (*CurlRequest, error) {
 			}
 			fieldType := "text"
 			if strings.HasPrefix(value, "@") || strings.HasPrefix(value, "<") {
-				// curl 用 @路径 引用本地文件；这里只保留文件名，内容需用户重新选择
+				// curl 用 @路径 引用本地文件，而我们存的也正是路径，直接照搬即可
 				fieldType = "file"
-				value = strings.TrimLeft(value, "@<")
+				value = fileFieldJSON(strings.TrimLeft(value, "@<"))
 			}
 			formFields = append(formFields, models.EndpointBodyField{Name: name, Value: value, FieldType: fieldType, Enabled: true})
 

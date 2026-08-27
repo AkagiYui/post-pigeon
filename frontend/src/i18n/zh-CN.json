@@ -637,5 +637,6 @@
   "importexport.exportSecrets.body": "这个项目里有 {variables} 个秘密变量、{credentials} 个接口填了鉴权凭据。",
   "importexport.exportSecrets.hint": "导出文件是明文的。不包含凭据时，变量名与鉴权配置仍会保留，只是值留空，对方导入后自己填。",
   "importexport.exportSecrets.exclude": "不包含凭据",
-  "importexport.exportSecrets.include": "包含凭据"
+  "importexport.exportSecrets.include": "包含凭据",
+  "error.http.file_missing": "读不到文件「{name}」，可能已被移动或删除，请重新选择"
 }
