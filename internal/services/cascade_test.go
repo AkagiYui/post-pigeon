@@ -45,7 +45,7 @@ func mkOp(t *testing.T, db *gorm.DB, ownerType models.OperationOwnerType, ownerI
 func allDataModels() []any {
 	return []any{
 		&models.Project{}, &models.Module{}, &models.ModuleBaseURL{}, &models.ModuleParam{},
-		&models.Folder{}, &models.Endpoint{}, &models.EndpointParam{}, &models.EndpointBodyField{},
+		&models.ModuleVariable{}, &models.Folder{}, &models.Endpoint{}, &models.EndpointParam{}, &models.EndpointBodyField{},
 		&models.EndpointHeader{}, &models.EndpointAuth{}, &models.Response{}, &models.ResponseExample{},
 		&models.ResponseSchema{}, &models.Operation{}, &models.Environment{}, &models.EnvironmentVariable{},
 		&models.GlobalVariable{}, &models.ScriptLibrary{}, &models.RequestHistory{},
@@ -118,6 +118,9 @@ func buildRichProject(t *testing.T, db *gorm.DB) richProject {
 	// 模块级：前置 URL、模块参数、请求历史（含挂到端点的历史）
 	if err := ms.SetModuleBaseURL(m.ID, env.ID, "http://a.com"); err != nil {
 		t.Fatalf("设置前置URL失败: %v", err)
+	}
+	if err := db.Create(&models.ModuleVariable{ModuleID: m.ID, Key: "mv", Value: "1", Enabled: true}).Error; err != nil {
+		t.Fatalf("建模块变量失败: %v", err)
 	}
 	if err := db.Create(&models.ModuleParam{ModuleID: m.ID, Type: "query", Name: "mp", Enabled: true}).Error; err != nil {
 		t.Fatalf("建模块参数失败: %v", err)
@@ -242,6 +245,9 @@ func TestDeleteModuleCascade(t *testing.T) {
 	}
 	if countIn(t, db, &models.ModuleParam{}, "module_id = ?", rp.moduleID) != 0 {
 		t.Error("模块参数应级联删除")
+	}
+	if countIn(t, db, &models.ModuleVariable{}, "module_id = ?", rp.moduleID) != 0 {
+		t.Error("模块变量应级联删除")
 	}
 	if countIn(t, db, &models.RequestHistory{}, "module_id = ?", rp.moduleID) != 0 {
 		t.Error("模块请求历史应级联删除")

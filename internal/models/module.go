@@ -24,6 +24,7 @@ type Module struct {
 	// 关联（constraint:OnDelete:CASCADE 使删除模块时，数据库自动级联删除其下所有内容）
 	BaseURLs  []ModuleBaseURL  `gorm:"constraint:OnDelete:CASCADE" json:"baseUrls,omitempty"`
 	Params    []ModuleParam    `gorm:"constraint:OnDelete:CASCADE" json:"params,omitempty"`
+	Variables []ModuleVariable `gorm:"constraint:OnDelete:CASCADE" json:"variables,omitempty"`
 	Endpoints []Endpoint       `gorm:"constraint:OnDelete:CASCADE" json:"-"`
 	Folders   []Folder         `gorm:"constraint:OnDelete:CASCADE" json:"-"`
 	Histories []RequestHistory `gorm:"constraint:OnDelete:CASCADE" json:"-"`
@@ -69,6 +70,31 @@ type ModuleBaseURL struct {
 
 // BeforeCreate 创建前自动生成 UUID
 func (m *ModuleBaseURL) BeforeCreate(tx *gorm.DB) error {
+	if m.ID == "" {
+		m.ID = uuid.New().String()
+	}
+	return nil
+}
+
+// ModuleVariable 模块级变量：仅对该模块下的接口可见，跨环境生效。
+// 优先级介于全局变量与环境变量之间（环境变量同名时覆盖模块变量，模块变量覆盖全局变量）。
+type ModuleVariable struct {
+	ID          string `gorm:"primaryKey" json:"id"`
+	ModuleID    string `gorm:"not null;index" json:"moduleId"`
+	Key         string `gorm:"not null" json:"key"`
+	Value       string `json:"value"`
+	Description string `json:"description"`
+	// Enabled 是否启用，默认启用。
+	// 注意：不能用 gorm default:true，否则 GORM 会丢弃 bool 零值 false，导致"禁用"无法保存
+	Enabled bool `gorm:"not null" json:"enabled"`
+	// SortOrder 排序序号，用于拖拽排序
+	SortOrder int `gorm:"not null;default:0" json:"sortOrder"`
+	// IsSecret 是否为秘密变量，秘密变量的值在前端默认显示为密码，并参与历史脱敏
+	IsSecret bool `gorm:"not null;default:false" json:"isSecret"`
+}
+
+// BeforeCreate 创建前自动生成 UUID
+func (m *ModuleVariable) BeforeCreate(tx *gorm.DB) error {
 	if m.ID == "" {
 		m.ID = uuid.New().String()
 	}

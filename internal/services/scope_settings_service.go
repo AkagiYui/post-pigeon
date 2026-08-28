@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"log/slog"
 
 	"PostPigeon/internal/models"
 
@@ -20,10 +21,11 @@ func NewScopeSettingsService(db *gorm.DB) *ScopeSettingsService {
 
 // ModuleSettings 模块级设置
 type ModuleSettings struct {
-	AuthType   string               `json:"authType"`
-	AuthData   string               `json:"authData"`
-	Params     []models.ModuleParam `json:"params"`
-	Operations []models.Operation   `json:"operations"`
+	AuthType   string                  `json:"authType"`
+	AuthData   string                  `json:"authData"`
+	Params     []models.ModuleParam    `json:"params"`
+	Variables  []models.ModuleVariable `json:"variables"`
+	Operations []models.Operation      `json:"operations"`
 }
 
 // FolderSettings 文件夹级设置
@@ -41,6 +43,7 @@ func (s *ScopeSettingsService) GetModuleSettings(moduleID string) (*ModuleSettin
 	}
 	settings := &ModuleSettings{AuthType: defaultAuthType(m.AuthType, "none"), AuthData: m.AuthData}
 	s.db.Where("module_id = ?", moduleID).Order("sort_order ASC").Find(&settings.Params)
+	s.db.Where("module_id = ?", moduleID).Order("sort_order ASC").Find(&settings.Variables)
 	s.db.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerModule, moduleID).
 		Order("stage ASC, sort_order ASC").Find(&settings.Operations)
 	return settings, nil
@@ -66,7 +69,64 @@ func (s *ScopeSettingsService) SaveModuleSettings(moduleID string, settings Modu
 				return err
 			}
 		}
+		// 模块变量：整体替换
+		if err := tx.Where("module_id = ?", moduleID).Delete(&models.ModuleVariable{}).Error; err != nil {
+			return err
+		}
+		for i := range settings.Variables {
+			if settings.Variables[i].Key == "" {
+				continue
+			}
+			settings.Variables[i].ID = ""
+			settings.Variables[i].ModuleID = moduleID
+			settings.Variables[i].SortOrder = i
+			if err := tx.Create(&settings.Variables[i]).Error; err != nil {
+				return err
+			}
+		}
 		return saveScopeOperations(tx, models.OperationOwnerModule, moduleID, settings.Operations)
+	})
+}
+
+// ApplyModuleVariableChanges 将脚本产生的模块变量增量持久化回模块：
+// upserts 为新增/修改的键值（不存在则创建，存在则更新），removed 为需删除的键。
+// 与 EnvironmentService.ApplyVariableChanges 同口径。
+func (s *ScopeSettingsService) ApplyModuleVariableChanges(moduleID string, upserts map[string]string, removed []string) error {
+	if moduleID == "" || (len(upserts) == 0 && len(removed) == 0) {
+		return nil
+	}
+	return s.db.Transaction(func(tx *gorm.DB) error {
+		for key, value := range upserts {
+			var existing models.ModuleVariable
+			err := tx.Where("module_id = ? AND key = ?", moduleID, key).First(&existing).Error
+			switch {
+			case err == gorm.ErrRecordNotFound:
+				var maxOrder int
+				tx.Model(&models.ModuleVariable{}).Where("module_id = ?", moduleID).
+					Select("COALESCE(MAX(sort_order), -1)").Scan(&maxOrder)
+				nv := models.ModuleVariable{
+					ModuleID: moduleID, Key: key, Value: value,
+					Enabled: true, SortOrder: maxOrder + 1,
+				}
+				if err := tx.Create(&nv).Error; err != nil {
+					return err
+				}
+			case err == nil:
+				if err := tx.Model(&existing).Update("value", value).Error; err != nil {
+					return err
+				}
+			default:
+				return err
+			}
+		}
+		for _, key := range removed {
+			if err := tx.Where("module_id = ? AND key = ?", moduleID, key).
+				Delete(&models.ModuleVariable{}).Error; err != nil {
+				return err
+			}
+		}
+		slog.Info("脚本模块变量增量已持久化", "moduleId", moduleID, "upserts", len(upserts), "removed", len(removed))
+		return nil
 	})
 }
 

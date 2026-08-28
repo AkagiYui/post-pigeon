@@ -149,7 +149,7 @@ func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
 	return strings.Join(lines, " \\\n  "), nil
 }
 
-// requestVars 汇总该请求可用的变量（全局变量 + 环境变量），与发送时的解析口径一致。
+// requestVars 汇总该请求可用的变量（全局变量 + 模块变量 + 环境变量），与发送时的解析口径一致。
 func (s *CurlService) requestVars(data SendRequestData) map[string]string {
 	vars := map[string]string{}
 	if s.db == nil {
@@ -157,6 +157,7 @@ func (s *CurlService) requestVars(data SendRequestData) map[string]string {
 	}
 	httpSvc := NewHTTPService(s.db)
 	maps.Copy(vars, httpSvc.loadGlobalVars(data.ModuleID))
+	maps.Copy(vars, httpSvc.loadModuleVars(data.ModuleID))
 	if data.EnvironmentID != "" {
 		if list, err := NewEnvironmentService(s.db).GetEnvironmentVariables(data.EnvironmentID); err == nil {
 			for _, item := range list {

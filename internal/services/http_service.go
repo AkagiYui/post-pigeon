@@ -256,10 +256,13 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 
 	// 载入环境变量到内存变量存储；前置脚本读写的是这份存储，
 	// 请求结束后再把增量持久化回数据库。
-	// 全局变量（项目级，跨环境）：优先级低于环境变量
+	// 占位符解析优先级（低 → 高，同名后者覆盖前者）：
+	// 全局变量（项目级）< 模块变量（本模块，跨环境）< 环境变量
 	globalVars := s.loadGlobalVars(data.ModuleID)
+	moduleVars := s.loadModuleVars(data.ModuleID)
 	envVars := map[string]string{}
 	maps.Copy(envVars, globalVars)
+	maps.Copy(envVars, moduleVars)
 	if data.EnvironmentID != "" {
 		if vars, err := envService.GetEnvironmentVariables(data.EnvironmentID); err == nil {
 			for _, v := range vars {
@@ -271,10 +274,11 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			slog.Warn("载入环境变量失败", "error", err)
 		}
 	}
+	// Collection 即模块作用域：脚本里的 pm.moduleVariables / pm.collectionVariables 读写这份存储
 	stores := scripting.Stores{
 		Environment: scripting.NewVarStore(envVars),
 		Globals:     scripting.NewVarStore(globalVars),
-		Collection:  scripting.NewVarStore(nil),
+		Collection:  scripting.NewVarStore(moduleVars),
 	}
 
 	// 已保存端点：以「前置/后置操作」组合出的脚本覆盖前端传入的脚本，
@@ -335,6 +339,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 				up, rm := stores.Environment.Changes()
 				_ = envService.ApplyVariableChanges(data.EnvironmentID, up, rm)
 			}
+			s.persistModuleVarChanges(data.ModuleID, stores.Collection)
 			// 文案交给前端 i18n 渲染，后端只给出「被跳过」这一事实
 			return &HTTPResponseData{
 				StatusCode: 0,
@@ -567,11 +572,12 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		// 后开的流会覆盖先开的 cancel，导致第一条流再也停不掉、连接与 goroutine 泄漏。
 		streamID := "stream-" + uuid.NewString()
 		s.registerStream(streamID, cancel)
-		// 持久化前置脚本对环境变量的改动
+		// 持久化前置脚本对环境变量 / 模块变量的改动
 		if data.EnvironmentID != "" {
 			up, rm := stores.Environment.Changes()
 			_ = envService.ApplyVariableChanges(data.EnvironmentID, up, rm)
 		}
+		s.persistModuleVarChanges(data.ModuleID, stores.Collection)
 		// 后台读取事件流并推送，读到 EOF/停止后清理连接
 		safego.Go("http.streamResponse", func() { s.streamResponse(resp, streamID, cancel) })
 
@@ -697,13 +703,14 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		}
 	}
 
-	// 将脚本对环境变量的增量持久化回数据库
+	// 将脚本对环境变量 / 模块变量的增量持久化回数据库
 	if data.EnvironmentID != "" {
 		upserts, removed := stores.Environment.Changes()
 		if err := envService.ApplyVariableChanges(data.EnvironmentID, upserts, removed); err != nil {
 			slog.Error("持久化脚本变量失败", "error", err)
 		}
 	}
+	s.persistModuleVarChanges(data.ModuleID, stores.Collection)
 
 	// 附加脚本执行结果（无脚本时保持 nil）
 	if scriptResults.PreRequest != nil || scriptResults.PostResponse != nil {
@@ -1136,6 +1143,34 @@ func (s *HTTPService) loadGlobalVars(moduleID string) map[string]string {
 	return out
 }
 
+// loadModuleVars 加载模块级变量（启用的）。作用域介于全局变量与环境变量之间。
+func (s *HTTPService) loadModuleVars(moduleID string) map[string]string {
+	out := map[string]string{}
+	if moduleID == "" {
+		return out
+	}
+	var vars []models.ModuleVariable
+	s.db.Where("module_id = ? AND enabled = ?", moduleID, true).Order("sort_order ASC").Find(&vars)
+	for _, v := range vars {
+		out[v.Key] = v.Value
+	}
+	return out
+}
+
+// persistModuleVarChanges 把脚本（pm.moduleVariables）对模块变量的增量写回数据库。
+func (s *HTTPService) persistModuleVarChanges(moduleID string, store *scripting.VarStore) {
+	if moduleID == "" || store == nil {
+		return
+	}
+	upserts, removed := store.Changes()
+	if len(upserts) == 0 && len(removed) == 0 {
+		return
+	}
+	if err := NewScopeSettingsService(s.db).ApplyModuleVariableChanges(moduleID, upserts, removed); err != nil {
+		slog.Error("持久化脚本模块变量失败", "error", err)
+	}
+}
+
 // loadModuleParams 加载模块级自动参数：query/cookie 返回为 EndpointParam，header 返回为 EndpointHeader。
 func (s *HTTPService) loadModuleParams(moduleID string) ([]models.EndpointParam, []models.EndpointHeader) {
 	var params []models.EndpointParam
@@ -1179,7 +1214,7 @@ func (s *HTTPService) saveResponseAndHistory(data SendRequestData, resp *HTTPRes
 	storedRespHeaders := resp.Headers
 	storedActualRequest := resp.ActualRequest
 	if policy.MaskSensitive {
-		secrets := collectSecretValues(s.db, data.EnvironmentID)
+		secrets := collectSecretValues(s.db, data.EnvironmentID, data.ModuleID)
 		storedBody = maskSecretValues(storedBody, secrets)
 		storedReqBody = maskSecretValues(storedReqBody, secrets)
 		storedRespHeaders = maskMultiHeaders(resp.Headers)

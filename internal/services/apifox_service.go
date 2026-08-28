@@ -83,8 +83,18 @@ type apifoxInfo struct {
 }
 
 type apifoxModule struct {
-	ID   flexStr `json:"id"`
-	Name string  `json:"name"`
+	ID        flexStr           `json:"id"`
+	Name      string            `json:"name"`
+	Variables []apifoxModuleVar `json:"moduleVariables"`
+}
+
+// apifoxModuleVar Apifox 的模块级变量。securityType 为 "secret" 时是秘密变量；
+// initialValue（初始值，团队同步）本项目不区分，只取本地值 value，与环境/全局变量的导入口径一致。
+type apifoxModuleVar struct {
+	Name         string `json:"name"`
+	Value        jstr   `json:"value"`
+	Description  string `json:"description"`
+	SecurityType string `json:"securityType"`
 }
 
 type apifoxCollectionRoot struct {
@@ -303,6 +313,7 @@ type ApifoxImportResult struct {
 	GlobalVars   int `json:"globalVars"`
 	Scripts      int `json:"scripts"`
 	ModuleParams int `json:"moduleParams"`
+	ModuleVars   int `json:"moduleVars"`
 }
 
 // apifoxFolderRef 计划中的一层文件夹（携带导入所需的认证与前置/后置操作）。
@@ -332,9 +343,10 @@ type apifoxLeaf struct {
 type importCtx struct {
 	tx         *gorm.DB
 	projectID  string
-	moduleName map[string]string // apifoxModuleID -> 模块名（来自 moduleSettings）
-	moduleByID map[string]string // apifoxModuleID -> 我方 Module.ID
-	envByID    map[string]string // apifoxEnvID -> 我方 Environment.ID
+	moduleName map[string]string            // apifoxModuleID -> 模块名（来自 moduleSettings）
+	moduleVars map[string][]apifoxModuleVar // apifoxModuleID -> 模块变量（来自 moduleSettings）
+	moduleByID map[string]string            // apifoxModuleID -> 我方 Module.ID
+	envByID    map[string]string            // apifoxEnvID -> 我方 Environment.ID
 	result     *ApifoxImportResult
 
 	// 选择导入
@@ -578,6 +590,7 @@ func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedI
 			tx:          tx,
 			projectID:   projectID,
 			moduleName:  map[string]string{},
+			moduleVars:  map[string][]apifoxModuleVar{},
 			moduleByID:  map[string]string{},
 			envByID:     map[string]string{},
 			result:      result,
@@ -596,6 +609,7 @@ func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedI
 		}
 		for _, m := range exp.ModuleSettings {
 			ic.moduleName[m.ID.String()] = m.Name
+			ic.moduleVars[m.ID.String()] = m.Variables
 		}
 		for _, root := range exp.APICollection {
 			ic.rootByMod[root.ModuleID.String()] = root
@@ -654,6 +668,7 @@ func (ic *importCtx) ensureModuleForLeaf(lf *apifoxLeaf) string {
 			ic.importModuleOperations(moduleID, root.PreProcessors, root.PostProcessors)
 		}
 		ic.importEnvBaseURLs(ic.environs, lf.ModuleApifoxID, moduleID)
+		ic.importModuleVars(moduleID, ic.moduleVars[lf.ModuleApifoxID])
 	}
 	return moduleID
 }
@@ -959,6 +974,28 @@ func (ic *importCtx) importEnvBaseURLs(envs []apifoxEnvironment, apifoxModuleID,
 			continue
 		}
 		ic.tx.Create(&models.ModuleBaseURL{ModuleID: moduleID, EnvironmentID: envID, BaseURL: baseURL})
+	}
+}
+
+// importModuleVars 导入模块级变量；同名已存在时跳过（同一模块可能被多次 ensure）。
+func (ic *importCtx) importModuleVars(moduleID string, vars []apifoxModuleVar) {
+	order := 0
+	for _, v := range vars {
+		if v.Name == "" {
+			continue
+		}
+		var count int64
+		ic.tx.Model(&models.ModuleVariable{}).Where("module_id = ? AND key = ?", moduleID, v.Name).Count(&count)
+		if count > 0 {
+			continue
+		}
+		ic.tx.Create(&models.ModuleVariable{
+			ModuleID: moduleID, Key: v.Name, Value: v.Value.String(),
+			Description: v.Description, Enabled: true, SortOrder: order,
+			IsSecret: v.SecurityType == "secret",
+		})
+		ic.result.ModuleVars++
+		order++
 	}
 }
 

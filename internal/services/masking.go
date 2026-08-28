@@ -79,20 +79,35 @@ func maskSecretValues(text string, secrets []string) string {
 	return out
 }
 
-// collectSecretValues 收集该请求可见的秘密变量值（环境变量中标记为 secret 的）。
-func collectSecretValues(db *gorm.DB, environmentID string) []string {
-	if db == nil || environmentID == "" {
+// collectSecretValues 收集该请求可见的秘密变量值（环境变量与模块变量中标记为 secret 的）。
+func collectSecretValues(db *gorm.DB, environmentID, moduleID string) []string {
+	if db == nil {
 		return nil
 	}
-	var vars []models.EnvironmentVariable
-	if err := db.Where("environment_id = ? AND is_secret = ?", environmentID, true).Find(&vars).Error; err != nil {
-		return nil
-	}
-	out := make([]string, 0, len(vars))
-	for _, item := range vars {
-		if strings.TrimSpace(item.Value) != "" {
-			out = append(out, item.Value)
+	out := []string{}
+	appendValue := func(v string) {
+		if strings.TrimSpace(v) != "" {
+			out = append(out, v)
 		}
+	}
+	if environmentID != "" {
+		var vars []models.EnvironmentVariable
+		if err := db.Where("environment_id = ? AND is_secret = ?", environmentID, true).Find(&vars).Error; err == nil {
+			for _, item := range vars {
+				appendValue(item.Value)
+			}
+		}
+	}
+	if moduleID != "" {
+		var vars []models.ModuleVariable
+		if err := db.Where("module_id = ? AND is_secret = ?", moduleID, true).Find(&vars).Error; err == nil {
+			for _, item := range vars {
+				appendValue(item.Value)
+			}
+		}
+	}
+	if len(out) == 0 {
+		return nil
 	}
 	return out
 }

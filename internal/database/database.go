@@ -322,7 +322,7 @@ func cascadeRelations() []struct {
 		fields []string
 	}{
 		{&models.Project{}, []string{"Modules", "Environments", "GlobalVariables", "Scripts"}},
-		{&models.Module{}, []string{"BaseURLs", "Params", "Endpoints", "Folders", "Histories"}},
+		{&models.Module{}, []string{"BaseURLs", "Params", "Variables", "Endpoints", "Folders", "Histories"}},
 		{&models.Folder{}, []string{"Children", "Endpoints"}},
 		{&models.Environment{}, []string{"Variables", "BaseURLs"}},
 		{&models.Endpoint{}, []string{"Params", "BodyFields", "Headers", "Auth", "Response", "Examples", "Schemas", "Histories"}},
@@ -394,6 +394,7 @@ func autoMigrate(db *gorm.DB) error {
 		&models.Module{},
 		&models.ModuleBaseURL{},
 		&models.ModuleParam{},
+		&models.ModuleVariable{},
 		&models.Folder{},
 		&models.Endpoint{},
 		&models.EndpointParam{},
