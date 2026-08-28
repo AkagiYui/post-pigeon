@@ -115,6 +115,8 @@ jobs:
             echo "build=$(go env GOCACHE)"
             echo "mod=$(go env GOMODCACHE)"
             echo "bin=$(go env GOPATH)/bin"
+            # 进 wails3 的缓存 key：见下方「缓存 Wails CLI」
+            echo "goversion=$(go env GOVERSION)"
           } >> "$GITHUB_OUTPUT"
 
       # setup-go 自带缓存的 key 只含 hash(go.sum)，仓库里几个构建负载会抢同一个
@@ -166,12 +168,17 @@ jobs:
 
       # setup-go 已把 GOPATH/bin 放进 PATH，缓存命中时 command -v 能直接找到，
       # 省掉一次编译（macOS Intel 上要 25 秒）
+      # key 里必须带 Go 版本：wails3 generate bindings 用内嵌的 go/types 加载整个
+      # 模块，二进制用哪个 Go 编译就只认到哪个语言版本。key 不含 Go 版本时，go.mod
+      # 提版本后依然命中旧二进制，go1.26 编的 wails3 会把每个 package 都报成
+      # "requires newer Go version"；wails3 又把这些降级成 warning 照常输出，于是
+      # CI 全绿而绑定的类型信息已经退化（见 run 33141687183）。
       - name: 缓存 Wails CLI
         if: runner.os != 'Windows'
         uses: actions/cache@v6
         with:
           path: ${{ steps.gocache.outputs.bin }}/wails3
-          key: wails3-${{ runner.os }}-${{ runner.arch }}-${{ env.WAILS_VERSION }}
+          key: wails3-${{ runner.os }}-${{ runner.arch }}-${{ env.WAILS_VERSION }}-${{ steps.gocache.outputs.goversion }}
 
       - name: 安装 Wails CLI
         run: command -v wails3 >/dev/null 2>&1 || go install github.com/wailsapp/wails/v3/cmd/wails3@${{ env.WAILS_VERSION }}

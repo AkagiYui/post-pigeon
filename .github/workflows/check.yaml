@@ -123,6 +123,8 @@ jobs:
             echo "build=$(go env GOCACHE)"
             echo "mod=$(go env GOMODCACHE)"
             echo "bin=$(go env GOPATH)/bin"
+            # 进 wails3 的缓存 key：见下方「缓存 Wails CLI」
+            echo "goversion=$(go env GOVERSION)"
           } >> "$GITHUB_OUTPUT"
 
       - name: 缓存 Go 构建产物
@@ -166,11 +168,16 @@ jobs:
         run: pnpm install --frozen-lockfile
 
       # tsconfig 覆盖 bindings/ 目录，类型检查前需要先生成绑定
+      # key 里必须带 Go 版本：wails3 generate bindings 用内嵌的 go/types 加载整个
+      # 模块，二进制用哪个 Go 编译就只认到哪个语言版本。key 不含 Go 版本时，go.mod
+      # 提版本后依然命中旧二进制，go1.26 编的 wails3 会把每个 package 都报成
+      # "requires newer Go version"；wails3 又把这些降级成 warning 照常输出，于是
+      # CI 全绿而绑定的类型信息已经退化（见 run 33141687183）。
       - name: 缓存 Wails CLI
         uses: actions/cache@v6
         with:
           path: ${{ steps.gocache.outputs.bin }}/wails3
-          key: wails3-${{ runner.os }}-${{ runner.arch }}-${{ env.WAILS_VERSION }}
+          key: wails3-${{ runner.os }}-${{ runner.arch }}-${{ env.WAILS_VERSION }}-${{ steps.gocache.outputs.goversion }}
 
       - name: 生成 Wails 绑定
         run: |
