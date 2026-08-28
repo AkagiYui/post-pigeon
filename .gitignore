@@ -10,6 +10,8 @@ frontend/node_modules
 frontend/bindings
 build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
+# 内置 WebView2 内核版的产物落点（scripts/pack_bundled_webview.ps1）
+dist-fixedwebview
 __pycache__
 
 # owner 警告插桩的落盘日志（frontend/vite.config.js 的 owner-warn-logger 插件产出）

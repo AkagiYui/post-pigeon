@@ -1,8 +1,10 @@
 package services
 
 import (
-	"PostPigeon/internal/config"
 	"time"
+
+	"PostPigeon/internal/config"
+	"PostPigeon/internal/platform"
 )
 
 // AppService 应用信息服务
@@ -27,6 +29,11 @@ type AppInfo struct {
 	// ReleasesURL 历史版本页面。用户在版本之间来回跳是常态——新版本用着不顺手想退回
 	// 旧版本，总得有个地方能拿到旧版本的安装包，而不是自己去翻 GitHub。
 	ReleasesURL string `json:"releasesUrl"`
+	// Webview 当前使用的浏览器内核。发行包分成「用系统内核」与「内置内核」两种形态
+	// 之后，用户手上到底跑的是哪一种、加载的是哪份运行时，从任务管理器里是看不出来的
+	// （只有一个 msedgewebview2.exe）。精简版系统上排查白屏、渲染异常，第一件要确认
+	// 的就是这个。
+	Webview platform.WebviewInfo `json:"webview"`
 }
 
 // GetAppInfo 获取应用信息
@@ -45,6 +52,7 @@ func (s *AppService) GetAppInfo() AppInfo {
 		BuildTime:     buildTime,
 		RepositoryURL: RepositoryURL(),
 		ReleasesURL:   ReleasesURL(),
+		Webview:       platform.Webview(),
 	}
 }
 

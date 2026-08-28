@@ -7,6 +7,7 @@ import (
 	"log/slog"
 	"os"
 	"runtime"
+	"strings"
 	"time"
 
 	"PostPigeon/internal/config"
@@ -38,6 +39,10 @@ const (
 	updateCheckDelay    = 30 * time.Second
 	updateCheckInterval = 6 * time.Hour
 )
+
+// webviewArgsEnv 追加 WebView2 启动参数的环境变量，多个参数用空格分隔。
+// 例：POSTPIGEON_WEBVIEW_ARGS="--disable-gpu"
+const webviewArgsEnv = "POSTPIGEON_WEBVIEW_ARGS"
 
 func main() {
 	// 初始化配置
@@ -183,6 +188,18 @@ func main() {
 		},
 		Mac: application.MacOptions{
 			ApplicationShouldTerminateAfterLastWindowClosed: true,
+		},
+		Windows: application.WindowsOptions{
+			// 内置 WebView2 运行时（Fixed Version）所在目录，没有则为空、退回系统安装
+			// 的那份。这是同一个二进制能同时供「常规版」与「内置内核版」两种发行包使用
+			// 的关键：精简版系统、网吧还原卡、无盘环境上装不上也留不住 Evergreen 运行时，
+			// 只有跟着应用目录走的固定版本能稳定跑起来。
+			WebviewBrowserPath: platform.BundledWebviewPath(),
+			// 留一个不改代码就能加 WebView2 启动参数的后门。精简版系统常把 DirectX 组件
+			// 一并删掉，GPU 栈异常时整个 webview 会黑屏，此时让用户加一句
+			// --disable-gpu 就能先用起来，不必等下一个版本。
+			// Fields 而不是 Split(" ")：连续空格、前后空格都不会产生空参数。
+			AdditionalBrowserArgs: strings.Fields(os.Getenv(webviewArgsEnv)),
 		},
 		// 有人又启动了一次：把窗口叫到前面，而不是让他对着一句「已经在运行了」
 		// 自己去找窗口。真正挡住第二个实例碰数据库的是上面的文件锁。

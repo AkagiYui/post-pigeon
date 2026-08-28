@@ -53,6 +53,23 @@ Go 负责网络与数据，SolidJS 负责界面，全部数据存在本地 SQLit
 前往 [Actions](https://github.com/AkagiYui/post-pigeon/actions/workflows/build.yaml) 页面，
 在最新的工作流运行记录中下载对应平台的构建产物（macOS arm64/x64、Windows x64、Linux x64）。
 
+#### Windows 该下哪个
+
+Windows 版依赖系统里的 **WebView2 运行时**（Win11 自带，Win10 多数机器也有）。
+但精简版 / Ghost 版系统常把它裁掉，网吧还原卡与无盘环境更是装完一重启就被还原掉。
+为此 Windows 有两套产物：
+
+| 场景 | 下载 | 说明 |
+| --- | --- | --- |
+| 一般情况 | `-installer.exe` 或裸 `.exe` | 体积小，用系统的 WebView2；缺失时安装包会尝试联网补装 |
+| 打不开、提示缺少 WebView2；系统是精简版 / Ghost 版；网吧还原卡、无盘、离线内网机 | `-fixedwebview.zip`（绿色免安装）或 `-fixedwebview-installer.exe` | 内核随包分发，不装、不写注册表、不需要管理员权限；代价是体积大得多 |
+
+内置内核版与常规版是**同一个二进制**，区别只在应用目录下有没有 `webview2\` 文件夹：
+有就用它，没有就退回系统的那份。所以常规版哪天碰到系统运行时损坏，把这个文件夹拷进去
+就能自救，不必重装。
+
+当前实际使用的内核、版本、来源与目录，可以在应用内「设置 → 关于」里查看。
+
 ### 从源码构建
 
 环境要求：

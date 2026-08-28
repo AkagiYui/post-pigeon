@@ -13,6 +13,10 @@ concurrency:
 
 env:
   WAILS_VERSION: v3.0.0-beta.13
+  # 随包分发的 WebView2 固定版本运行时。改版本号时必须同时改摘要，
+  # 否则 .github/actions/webview2-runtime 会当场报错——这是钉住第三方包源的唯一手段。
+  WEBVIEW2_RUNTIME_VERSION: "151.0.4129.107"
+  WEBVIEW2_RUNTIME_SHA256: "09c191904ca71ca4a34a37074d1832e7589d7cc752f945511c968937814792a5"
 
 jobs:
   # 检查 commits，决定是否需要构建
@@ -184,6 +188,36 @@ jobs:
         with:
           name: ${{ matrix.artifact }}
           path: bin/
+
+      # ---- 以下只在 Windows 上跑：内置 WebView2 内核的两个产物 ----
+      # 目标机器是装不上、也留不住 Evergreen 运行时的那些环境：精简版 / Ghost 版
+      # 系统、网吧还原卡与无盘、离线内网机。内核跟着应用目录走，不装、不写注册表、
+      # 不需要管理员权限。
+      - name: 准备 WebView2 固定版本运行时
+        if: runner.os == 'Windows'
+        id: webview2
+        uses: ./.github/actions/webview2-runtime
+        with:
+          version: ${{ env.WEBVIEW2_RUNTIME_VERSION }}
+          sha256: ${{ env.WEBVIEW2_RUNTIME_SHA256 }}
+
+      - name: 打包内置内核版
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WEBVIEW2_RUNTIME_DIR: ${{ steps.webview2.outputs.path }}
+        run: pwsh -File scripts/pack_bundled_webview.ps1 -RuntimeDir $env:WEBVIEW2_RUNTIME_DIR -AppName PostPigeon -Arch amd64
+
+      # 单独上传：内置内核版有好几百 MB，混进常规产物里会让「只想拿个 exe 试一下」
+      # 的人每次都被迫下整包。保留期也短一些——它只是给测试用的，不是发布渠道。
+      - name: 上传内置内核版产物
+        if: runner.os == 'Windows'
+        uses: actions/upload-artifact@v7
+        with:
+          name: ${{ matrix.artifact }}-fixedwebview
+          path: dist-fixedwebview/
+          retention-days: 7
+          compression-level: 0
 
   # 生成构建摘要
   summary:

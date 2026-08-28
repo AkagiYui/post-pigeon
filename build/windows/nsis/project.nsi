@@ -78,8 +78,17 @@ ManifestDPIAware true
 #!uninstfinalize 'signtool --file "%1"'
 #!finalize 'signtool --file "%1"'
 
+# 内置内核版与常规版会同时躺在 bin/ 里，文件名必须区分开。
+# ARG_BUNDLED_WEBVIEW 由 build/windows/Taskfile.yml 的
+# create:nsis:installer:bundled 传入，值是 WebView2 Fixed Version 运行时目录。
+!ifdef ARG_BUNDLED_WEBVIEW
+    !define INSTALLER_VARIANT "-fixedwebview"
+!else
+    !define INSTALLER_VARIANT ""
+!endif
+
 Name "${INFO_PRODUCTNAME}"
-OutFile "..\..\..\bin\${INFO_PROJECTNAME}-${ARCH}-installer.exe" # Name of the installer's file.
+OutFile "..\..\..\bin\${INFO_PROJECTNAME}-${ARCH}${INSTALLER_VARIANT}-installer.exe" # Name of the installer's file.
 InstallDir "$PROGRAMFILES64\${INFO_COMPANYNAME}\${INFO_PRODUCTNAME}" # Default installing folder ($PROGRAMFILES is Program Files folder).
 ShowInstDetails show # This will always show the installation details.
 
@@ -90,7 +99,17 @@ FunctionEnd
 Section
     !insertmacro wails.setShellContext
 
+!ifdef ARG_BUNDLED_WEBVIEW
+    # 内置内核版：运行时随包分发，装到 $INSTDIR\webview2，
+    # 应用启动时由 platform.BundledWebviewPath() 探测到并交给 Wails。
+    # 这里绝不能再去跑 Evergreen 引导程序——目标机器（精简版系统、网吧还原卡、
+    # 内网离线机）本来就装不上也留不住它，跑一次只是白白弹窗失败。
+    DetailPrint "Installing: bundled WebView2 runtime"
+    SetOutPath "$INSTDIR\webview2"
+    File /r "${ARG_BUNDLED_WEBVIEW}\*"
+!else
     !insertmacro wails.webview2runtime
+!endif
 
     SetOutPath $INSTDIR
     

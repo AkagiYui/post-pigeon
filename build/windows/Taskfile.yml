@@ -127,6 +127,39 @@ tasks:
       # 剥掉预发布后缀：0.0.4-beta.1 → 0.0.4，供 NSIS 的 VIProductVersion 使用
       NUMERIC_VERSION: '{{ splitList "-" (.APP_VERSION | default "0.0.0") | first }}'
 
+  create:nsis:installer:bundled:
+    summary: Creates an NSIS installer that bundles the WebView2 Fixed Version runtime
+    desc: |
+      与 create:nsis:installer 同一个 project.nsi，只是多传一个 ARG_BUNDLED_WEBVIEW：
+      装的时候把整个运行时目录拷进 $INSTDIR\webview2，并跳过 Evergreen 引导程序。
+      用法：wails3 task windows:create:nsis:installer:bundled WEBVIEW2_RUNTIME_DIR=<运行时目录>
+      运行时目录就是解压出来的那一层——里面直接放着 msedgewebview2.exe。
+    dir: build/windows/nsis
+    deps:
+      - task: build
+    preconditions:
+      - sh: test -n "{{.WEBVIEW2_RUNTIME_DIR}}"
+        msg: "需要 WEBVIEW2_RUNTIME_DIR：WebView2 Fixed Version 运行时目录"
+      - sh: test -f "{{.WEBVIEW2_RUNTIME_DIR}}/msedgewebview2.exe"
+        msg: "WEBVIEW2_RUNTIME_DIR 里没有 msedgewebview2.exe，不是一个可用的运行时目录"
+    cmds:
+      # 不跑 generate webview2bootstrapper：内置版压根不该带 Evergreen 引导程序
+      #
+      # 也别给 project.nsi 加 SetCompressor /SOLID lzma：对这个 500 多 MB 的载荷
+      # 实测压了 5 分钟以上还没结束，而 build.yaml 每推一次 master 都要跑一遍。
+      # 默认 zlib 出来约 279 MB，LZMA 估计能到 200 MB 上下——省下的那点体积
+      # 不值每次构建多等这么久。真需要小体积，就只在 release.yaml 里单独开。
+      - |
+        {{if eq OS "windows"}}
+        makensis -DARG_NUMERIC_VERSION="{{.NUMERIC_VERSION}}" -DARG_BUNDLED_WEBVIEW="{{.WEBVIEW2_RUNTIME_DIR}}" -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}\{{.BIN_DIR}}\{{.APP_NAME}}.exe" project.nsi
+        {{else}}
+        makensis -DARG_NUMERIC_VERSION="{{.NUMERIC_VERSION}}" -DARG_BUNDLED_WEBVIEW="{{.WEBVIEW2_RUNTIME_DIR}}" -DARG_WAILS_{{.ARG_FLAG}}_BINARY="{{.ROOT_DIR}}/{{.BIN_DIR}}/{{.APP_NAME}}.exe" project.nsi
+        {{end}}
+    vars:
+      ARCH: '{{.ARCH | default ARCH}}'
+      ARG_FLAG: '{{if eq .ARCH "amd64"}}AMD64{{else}}ARM64{{end}}'
+      NUMERIC_VERSION: '{{ splitList "-" (.APP_VERSION | default "0.0.0") | first }}'
+
   create:msix:package:
     summary: Creates an MSIX package
     deps:

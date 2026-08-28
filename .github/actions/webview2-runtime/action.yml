@@ -1,0 +1,106 @@
+name: 准备 WebView2 固定版本运行时
+description: >
+  下载并解压随包分发用的 WebView2 Fixed Version 运行时，输出运行时目录。
+  只在 Windows 上有意义，调用方自行用 `if: runner.os == 'Windows'` 控制。
+
+inputs:
+  version:
+    description: 运行时版本号，如 151.0.4129.107
+    required: true
+  sha256:
+    description: >
+      期望的 nupkg SHA256。必填且必须匹配——包源是第三方对微软官方 cab 的重打包
+      （见下方 package 的说明），钉住摘要是唯一能保证「拿到的还是当初审过的那份」的手段。
+    required: true
+  package:
+    description: >
+      NuGet 包 id（小写）。默认 webview2.runtime.x64 由社区维护，内容是微软官方
+      Fixed Version cab 的原样重打包。微软自己没有在 nuget 上发布固定版本运行时，
+      官方下载页的链接带一次性 GUID、没法在 CI 里直接拉取。
+      如果不接受这个来源，把官方 cab 自行镜像到内部存储后，改用 archive-url 输入。
+    required: false
+    default: webview2.runtime.x64
+  archive-url:
+    description: >
+      直接指定压缩包地址，覆盖 package/version 推导出的 NuGet 地址。
+      用于改从自建镜像（自己下载的官方 cab 重新打成 zip）拉取。
+      要求解压后能在某一层找到 msedgewebview2.exe。
+    required: false
+    default: ""
+
+outputs:
+  path:
+    description: 运行时目录的绝对路径，里面直接放着 msedgewebview2.exe
+    value: ${{ steps.extract.outputs.path }}
+
+runs:
+  using: composite
+  steps:
+    - name: 计算下载地址
+      id: plan
+      shell: pwsh
+      run: |
+        $url = '${{ inputs.archive-url }}'
+        if (-not $url) {
+          $pkg = '${{ inputs.package }}'
+          $ver = '${{ inputs.version }}'
+          $url = "https://api.nuget.org/v3-flatcontainer/$pkg/$ver/$pkg.$ver.nupkg"
+        }
+        "url=$url"                                          >> $env:GITHUB_OUTPUT
+        "archive=${{ runner.temp }}/webview2-runtime.zip"    >> $env:GITHUB_OUTPUT
+        "dest=${{ runner.temp }}/webview2-runtime"           >> $env:GITHUB_OUTPUT
+
+    # 缓存的是压缩包而不是解压后的目录：解压后有 20 万个小文件、500 多 MB，
+    # 缓存的打包与还原都比重新下一次还慢。
+    - name: 缓存运行时压缩包
+      id: cache
+      uses: actions/cache@v6
+      with:
+        path: ${{ steps.plan.outputs.archive }}
+        key: webview2-runtime-${{ inputs.version }}-${{ inputs.sha256 }}
+
+    - name: 下载运行时
+      if: steps.cache.outputs.cache-hit != 'true'
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        # 进度条会让 Invoke-WebRequest 在 CI 上慢好几倍（每写一块就刷一次屏）
+        $ProgressPreference = 'SilentlyContinue'
+        Invoke-WebRequest -Uri '${{ steps.plan.outputs.url }}' -OutFile '${{ steps.plan.outputs.archive }}'
+
+    - name: 校验摘要
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $expected = '${{ inputs.sha256 }}'.ToLower()
+        $actual = (Get-FileHash -Algorithm SHA256 -Path '${{ steps.plan.outputs.archive }}').Hash.ToLower()
+        if ($actual -ne $expected) {
+          # 缓存命中时也会走到这里：缓存 key 里带了摘要，所以这同时也是一道
+          # 「缓存被投毒 / 上游把同一个版本号重新发布了」的告警。
+          Write-Error "WebView2 运行时摘要不匹配`n期望: $expected`n实际: $actual"
+        }
+        Write-Host "摘要校验通过: $actual"
+
+    - name: 解压并定位运行时目录
+      id: extract
+      shell: pwsh
+      run: |
+        $ErrorActionPreference = 'Stop'
+        $dest = '${{ steps.plan.outputs.dest }}'
+        if (Test-Path $dest) { Remove-Item -Recurse -Force $dest }
+        # nupkg 就是个 zip，Expand-Archive 认扩展名，先改名再解
+        $zip = '${{ steps.plan.outputs.archive }}'
+        Expand-Archive -Path $zip -DestinationPath $dest -Force
+
+        # 不同来源的目录层级不一样（nupkg 是 contentFiles/any/any/WebView2/，
+        # 官方 cab 是 Microsoft.WebView2.FixedVersionRuntime.<ver>.<arch>/），
+        # 统一靠 msedgewebview2.exe 的位置来定位，别去猜路径。
+        $host_exe = Get-ChildItem -Path $dest -Recurse -Filter msedgewebview2.exe -File |
+          Sort-Object { $_.FullName.Length } | Select-Object -First 1
+        if (-not $host_exe) {
+          Write-Error "解压结果里找不到 msedgewebview2.exe，包结构与预期不符"
+        }
+        $runtime = $host_exe.Directory.FullName
+        $size = [math]::Round((Get-ChildItem $runtime -Recurse -File | Measure-Object Length -Sum).Sum / 1MB)
+        Write-Host "运行时目录: $runtime ($size MB)"
+        "path=$runtime" >> $env:GITHUB_OUTPUT

@@ -16,6 +16,11 @@ permissions:
 env:
   APP_NAME: PostPigeon
   WAILS_VERSION: v3.0.0-beta.13
+  # 随包分发的 WebView2 固定版本运行时；改版本号必须同步改摘要，
+  # 否则 .github/actions/webview2-runtime 会当场报错（见那里的说明）。
+  # 两条流水线要保持一致，改这里也要改 build.yaml。
+  WEBVIEW2_RUNTIME_VERSION: "151.0.4129.107"
+  WEBVIEW2_RUNTIME_SHA256: "09c191904ca71ca4a34a37074d1832e7589d7cc752f945511c968937814792a5"
 
 jobs:
   # 第一道闸：tag 必须与仓库内容自洽，否则整个发版流程不启动。
@@ -291,6 +296,32 @@ jobs:
       #      归档里有多个顶层条目时它无法判断该把哪个换进去，会直接拒绝。
       # 安装包（NSIS / deb / AppImage）走各自的文件名，绝不会被当成更新产物：
       # 拿安装器替换正在运行的程序等于把应用变成一个安装向导。
+      # ---- 内置 WebView2 内核的 Windows 产物 ----
+      # 给装不上 / 留不住 Evergreen 运行时的机器：精简版 Ghost 系统、网吧还原卡与
+      # 无盘、离线内网机。产物名带 -fixedwebview 后缀，因此不会被更新器选中
+      # （internal/updates/manager.go 的 assetMatcher 只认无后缀的
+      # <AppName>-<GOOS>-<GOARCH>[.zip|.tar.gz|.exe]）——这是刻意的：内核不参与
+      # 应用更新，内置版用户照样走同一个 .exe 更新资产，更新包依旧是几十 MB。
+      - name: 准备 WebView2 固定版本运行时
+        if: runner.os == 'Windows'
+        id: webview2
+        uses: ./.github/actions/webview2-runtime
+        with:
+          version: ${{ env.WEBVIEW2_RUNTIME_VERSION }}
+          sha256: ${{ env.WEBVIEW2_RUNTIME_SHA256 }}
+
+      - name: 打包内置内核版
+        if: runner.os == 'Windows'
+        shell: pwsh
+        env:
+          WEBVIEW2_RUNTIME_DIR: ${{ steps.webview2.outputs.path }}
+        run: >
+          pwsh -File scripts/pack_bundled_webview.ps1
+          -RuntimeDir $env:WEBVIEW2_RUNTIME_DIR
+          -AppName "${{ env.APP_NAME }}"
+          -Arch "${{ matrix.goarch }}"
+          -OutDir dist
+
       - name: 归档发布产物
         id: package
         run: |
@@ -308,19 +339,20 @@ jobs:
               ;;
             windows)
               cp "bin/${NAME}.exe" "dist/${NAME}-windows-${GOARCH}.exe"
-              # 用通配符直接遍历而不是解析 ls 的输出：文件名里有空格或换行时
-              # ls 的结果没法可靠地切成一个个路径
-              installer=""
-              for candidate in bin/*installer*.exe; do
-                if [ -f "${candidate}" ]; then
-                  installer="${candidate}"
-                  break
-                fi
-              done
-              if [ -n "${installer}" ]; then
+              # 按确切文件名取，不再用 *installer* 通配：bin/ 里现在同时躺着常规版和
+              # 内置内核版两个安装包（见 build/windows/nsis/project.nsi 的
+              # INSTALLER_VARIANT），通配匹配到哪个取决于文件系统的返回顺序。
+              # NSIS 的 OutFile 用的是 GOARCH 之外的架构名，这里做一次映射。
+              case "$GOARCH" in
+                amd64) NSIS_ARCH="amd64" ;;
+                arm64) NSIS_ARCH="arm64" ;;
+                *)     NSIS_ARCH="$GOARCH" ;;
+              esac
+              installer="bin/${NAME}-${NSIS_ARCH}-installer.exe"
+              if [ -f "${installer}" ]; then
                 cp "${installer}" "dist/${NAME}-windows-${GOARCH}-installer.exe"
               else
-                echo "::warning::未找到 NSIS 安装包"
+                echo "::warning::未找到 NSIS 安装包：${installer}"
               fi
               ;;
             linux)
