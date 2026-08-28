@@ -260,7 +260,7 @@ func (s *ModuleService) ConvertFolderToModule(folderID string, newModuleName str
 		descendantIDs := (&FolderService{}).collectFolderIDs(tx, folderID)
 
 		// 该文件夹升级为新模块的根文件夹
-		if err := tx.Model(&models.Folder{}).Where("id = ?", folderID).Updates(map[string]interface{}{
+		if err := tx.Model(&models.Folder{}).Where("id = ?", folderID).Updates(map[string]any{
 			"module_id": newModule.ID,
 			"parent_id": nil,
 			"name":      "__root",

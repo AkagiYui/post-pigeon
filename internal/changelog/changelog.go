@@ -13,6 +13,7 @@ package changelog
 
 import (
 	"regexp"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -68,7 +69,7 @@ func Parse(md string) []Entry {
 		sec.Items = append(sec.Items, text)
 	}
 
-	for _, raw := range strings.Split(md, "\n") {
+	for raw := range strings.SplitSeq(md, "\n") {
 		line := strings.TrimRight(raw, " \t\r")
 
 		if strings.TrimSpace(line) == "" {
@@ -239,10 +240,8 @@ func parse(s string) version {
 	if i := strings.IndexByte(s, '-'); i >= 0 {
 		pre = strings.Split(s[i+1:], ".")
 		s = s[:i]
-		for _, p := range pre {
-			if p == "" {
-				return version{}
-			}
+		if slices.Contains(pre, "") {
+			return version{}
 		}
 	}
 

@@ -161,7 +161,7 @@ func TestHistoryRetentionPolicy(t *testing.T) {
 
 	hs := NewRequestHistoryService(db)
 	base := time.Now().Add(-time.Hour)
-	for i := 0; i < 6; i++ {
+	for i := range 6 {
 		record := &models.RequestHistory{
 			ModuleID:  module.ID,
 			Method:    "GET",
@@ -278,8 +278,8 @@ func TestFollowRedirectsInheritance(t *testing.T) {
 	}{
 		{"继承-全局开启", true, nil, 200},
 		{"继承-全局关闭", false, nil, 302},
-		{"显式开启压过全局关闭", false, models.Ptr(true), 200},
-		{"显式关闭压过全局开启", true, models.Ptr(false), 302},
+		{"显式开启压过全局关闭", false, new(true), 200},
+		{"显式关闭压过全局开启", true, new(false), 302},
 	}
 	for _, c := range cases {
 		t.Run(c.name, func(t *testing.T) {
@@ -312,7 +312,7 @@ func TestSendNoCacheHeaders(t *testing.T) {
 		return echo.Headers["Cache-Control"]
 	}
 
-	base := SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/echo", FollowRedirects: models.Ptr(true), Timeout: 5000}
+	base := SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/echo", FollowRedirects: new(true), Timeout: 5000}
 
 	// 默认关闭：不带 Cache-Control
 	if err := settings.SaveRequestSettings(models.RequestSettings{FollowRedirects: true}); err != nil {

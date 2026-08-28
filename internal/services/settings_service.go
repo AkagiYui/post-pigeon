@@ -4,6 +4,7 @@ import (
 	"PostPigeon/internal/models"
 	"fmt"
 	"log/slog"
+	"maps"
 	"time"
 
 	"gorm.io/gorm"
@@ -63,9 +64,7 @@ func (s *SettingsService) GetAllSettings() (map[string]string, error) {
 
 	result := make(map[string]string)
 	// 先填充默认值
-	for k, v := range models.DefaultSettings {
-		result[k] = v
-	}
+	maps.Copy(result, models.DefaultSettings)
 	// 用数据库值覆盖
 	for _, s := range settings {
 		result[s.Key] = s.Value

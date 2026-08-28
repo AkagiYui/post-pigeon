@@ -49,7 +49,7 @@ func (s *ScopeSettingsService) GetModuleSettings(moduleID string) (*ModuleSettin
 // SaveModuleSettings 保存模块设置
 func (s *ScopeSettingsService) SaveModuleSettings(moduleID string, settings ModuleSettings) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&models.Module{}).Where("id = ?", moduleID).Updates(map[string]interface{}{
+		if err := tx.Model(&models.Module{}).Where("id = ?", moduleID).Updates(map[string]any{
 			"auth_type": defaultAuthType(settings.AuthType, "none"), "auth_data": settings.AuthData,
 		}).Error; err != nil {
 			return err
@@ -85,7 +85,7 @@ func (s *ScopeSettingsService) GetFolderSettings(folderID string) (*FolderSettin
 // SaveFolderSettings 保存文件夹设置
 func (s *ScopeSettingsService) SaveFolderSettings(folderID string, settings FolderSettings) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Model(&models.Folder{}).Where("id = ?", folderID).Updates(map[string]interface{}{
+		if err := tx.Model(&models.Folder{}).Where("id = ?", folderID).Updates(map[string]any{
 			"auth_type": defaultAuthType(settings.AuthType, "inherit"), "auth_data": settings.AuthData,
 		}).Error; err != nil {
 			return err

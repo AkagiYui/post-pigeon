@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"maps"
 	"sort"
 	"strconv"
 	"strings"
@@ -143,13 +144,11 @@ func (s *ImportExportService) ExportOpenAPI(moduleID string) (string, error) {
 			Responses: map[string]openAPIExportRs{
 				"200": {Description: "OK"},
 			},
+			Parameters:  exportParameters(detail),
+			RequestBody: exportRequestBody(endpoint, detail),
 		}
-		oper.Parameters = exportParameters(detail)
-		oper.RequestBody = exportRequestBody(endpoint, detail)
 		if scheme, security := exportSecurity(detail.Auth); scheme != nil {
-			for name, def := range scheme {
-				securitySchemes[name] = def
-			}
+			maps.Copy(securitySchemes, scheme)
 			oper.Security = security
 		}
 		if len(detail.Examples) > 0 {

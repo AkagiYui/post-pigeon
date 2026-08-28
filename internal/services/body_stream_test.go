@@ -42,7 +42,7 @@ func TestBodyStreamReplayable(t *testing.T) {
 	path := writeTempFile(t, "重放.txt", "DATA")
 	stream := newBodyStream(fileSegment(path, 4))
 
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		body := stream.open()
 		content, err := io.ReadAll(body)
 		if err != nil {

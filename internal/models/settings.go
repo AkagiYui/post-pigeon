@@ -116,11 +116,8 @@ var DefaultSettings = map[string]string{
 	SettingsKeyUIScale:     "1.0",
 }
 
-// Ptr 返回 v 的指针，便于构造 *bool / *int 这类「未设置 vs 显式值」的三态字段。
-func Ptr[T any](v T) *T { return &v }
-
 // ToJSON 将值序列化为 JSON 字符串
-func ToJSON(v interface{}) string {
+func ToJSON(v any) string {
 	b, err := json.Marshal(v)
 	if err != nil {
 		slog.Error("JSON序列化失败", "error", err)
@@ -130,6 +127,6 @@ func ToJSON(v interface{}) string {
 }
 
 // FromJSON 从 JSON 字符串反序列化
-func FromJSON(s string, v interface{}) error {
+func FromJSON(s string, v any) error {
 	return json.Unmarshal([]byte(s), v)
 }

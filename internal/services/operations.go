@@ -3,6 +3,7 @@ package services
 import (
 	"encoding/json"
 	"fmt"
+	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -61,9 +62,9 @@ func gatherOperationLevels(db *gorm.DB, ep *models.Endpoint, stage models.Operat
 	// 文件夹链：从根到叶
 	folderChain := folderChainToRoot(db, ep.FolderID) // 叶 -> 根
 	var folderLevelsRootFirst [][]models.Operation
-	for i := len(folderChain) - 1; i >= 0; i-- {
+	for _, f := range slices.Backward(folderChain) {
 		folderLevelsRootFirst = append(folderLevelsRootFirst,
-			loadOperations(db, models.OperationOwnerFolder, folderChain[i], stage))
+			loadOperations(db, models.OperationOwnerFolder, f, stage))
 	}
 
 	if stage == models.OperationStagePre {
@@ -75,8 +76,8 @@ func gatherOperationLevels(db *gorm.DB, ep *models.Endpoint, stage models.Operat
 	}
 	// 后置：端点 -> 文件夹(叶->根) -> 模块
 	levels := [][]models.Operation{endpointOps}
-	for i := len(folderLevelsRootFirst) - 1; i >= 0; i-- {
-		levels = append(levels, folderLevelsRootFirst[i])
+	for _, f := range slices.Backward(folderLevelsRootFirst) {
+		levels = append(levels, f)
 	}
 	levels = append(levels, moduleOps)
 	return levels
@@ -146,10 +147,8 @@ func translateOperation(db *gorm.DB, op models.Operation) string {
 		if d.Milliseconds <= 0 {
 			return ""
 		}
-		ms := d.Milliseconds
-		if ms > 10000 {
-			ms = 10000 // 上限，避免脚本超时
-		}
+		// 上限，避免脚本超时
+		ms := min(d.Milliseconds, 10000)
 		return fmt.Sprintf("{const __e=Date.now()+%d;while(Date.now()<__e){}}", ms)
 
 	default:

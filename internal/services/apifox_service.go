@@ -747,7 +747,7 @@ func (ic *importCtx) applyModuleAuth(moduleID string, auth apifoxAuth) {
 		return
 	}
 	ic.tx.Model(&models.Module{}).Where("id = ?", moduleID).
-		Updates(map[string]interface{}{"auth_type": t, "auth_data": data})
+		Updates(map[string]any{"auth_type": t, "auth_data": data})
 }
 
 func (ic *importCtx) importModuleOperations(moduleID string, pre, post []apifoxProcessor) {

@@ -285,7 +285,7 @@ func TestEndpointLifecycle(t *testing.T) {
 	err = es.SaveEndpointData(EndpointSaveData{
 		ID: e1.ID, Name: "E1改", Method: "POST", Path: "/z",
 		BodyType: "json", BodyContent: `{"a":1}`, ContentType: "application/json",
-		Timeout: 5000, FollowRedirects: models.Ptr(false),
+		Timeout: 5000, FollowRedirects: new(false),
 		Params:     []models.EndpointParam{{Type: "query", Name: "q", Value: "1", Enabled: true}},
 		Headers:    []models.EndpointHeader{{Name: "X-Test", Value: "hi", Enabled: true}},
 		BodyFields: []models.EndpointBodyField{{Name: "f", Value: "fv", FieldType: "text", Enabled: true}},
@@ -581,7 +581,7 @@ func TestRequestHistory(t *testing.T) {
 
 	timingJSON := models.ToJSON(models.TimingInfo{Total: 42})
 	var firstID string
-	for i := 0; i < 3; i++ {
+	for i := range 3 {
 		h := &models.RequestHistory{
 			ModuleID: m.ID, Method: "GET", URL: "http://x/",
 			StatusCode: 200, Timing: timingJSON, Size: 10,

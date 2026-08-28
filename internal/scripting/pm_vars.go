@@ -2,6 +2,8 @@ package scripting
 
 import (
 	"fmt"
+	"maps"
+	"slices"
 	"strings"
 
 	"github.com/dop251/goja"
@@ -119,11 +121,9 @@ func newVarScope(vm *goja.Runtime, store *VarStore, readonly bool) *goja.Object 
 func mergedVars(order []*VarStore) map[string]string {
 	merged := map[string]string{}
 	// order 是 高→低 优先级；合并时从低到高覆盖，故逆序遍历
-	for i := len(order) - 1; i >= 0; i-- {
-		if order[i] != nil {
-			for k, v := range order[i].ToMap() {
-				merged[k] = v
-			}
+	for _, o := range slices.Backward(order) {
+		if o != nil {
+			maps.Copy(merged, o.ToMap())
 		}
 	}
 	return merged

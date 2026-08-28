@@ -51,7 +51,7 @@ func buildCookieList(vm *goja.Runtime, cookies []Cookie) *goja.Object {
 func buildCookieJar(vm *goja.Runtime) *goja.Object {
 	store := map[string]string{}
 	jar := vm.NewObject()
-	callback := func(call goja.FunctionCall, argIdx int, args ...interface{}) {
+	callback := func(call goja.FunctionCall, argIdx int, args ...any) {
 		if fn, ok := goja.AssertFunction(call.Argument(argIdx)); ok {
 			vals := make([]goja.Value, 0, len(args)+1)
 			vals = append(vals, goja.Null()) // err = null

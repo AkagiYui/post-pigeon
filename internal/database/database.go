@@ -7,7 +7,7 @@ import (
 	"io/fs"
 	"log/slog"
 	"path"
-	"sort"
+	"slices"
 	"strconv"
 	"strings"
 
@@ -217,7 +217,7 @@ func allMigrationVersions() ([]int64, error) {
 	if len(versions) == 0 {
 		return nil, fmt.Errorf("未找到任何迁移文件")
 	}
-	sort.Slice(versions, func(i, j int) bool { return versions[i] < versions[j] })
+	slices.Sort(versions)
 	return versions, nil
 }
 
@@ -314,11 +314,11 @@ func migrateProjectSortOrder(db *gorm.DB) error {
 // 以「父模型 + 该模型上的关系字段名」表示（DropConstraint/CreateConstraint 均按此解析）。
 // 不含 Operation：它是多态归属，无外键，由服务层显式清理。
 func cascadeRelations() []struct {
-	model  interface{}
+	model  any
 	fields []string
 } {
 	return []struct {
-		model  interface{}
+		model  any
 		fields []string
 	}{
 		{&models.Project{}, []string{"Modules", "Environments", "GlobalVariables", "Scripts"}},

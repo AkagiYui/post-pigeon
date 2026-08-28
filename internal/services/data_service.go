@@ -53,8 +53,11 @@ type DatabaseInfo struct {
 
 // GetDatabaseInfo 返回数据库体积概况。
 func (s *DataService) GetDatabaseInfo() (DatabaseInfo, error) {
-	info := DatabaseInfo{Path: s.cfg.DBPath, DataDir: s.cfg.DataDir}
-	info.SizeBytes = dbFilesSize(s.cfg.DBPath)
+	info := DatabaseInfo{
+		Path:      s.cfg.DBPath,
+		DataDir:   s.cfg.DataDir,
+		SizeBytes: dbFilesSize(s.cfg.DBPath),
+	}
 
 	// SQLite 删除数据后页会进入 freelist 而不还给文件系统，文件因此只涨不落。
 	// 这里把「压缩能拿回多少」直接算给用户看，否则「我清了历史怎么没变小」无从解释。

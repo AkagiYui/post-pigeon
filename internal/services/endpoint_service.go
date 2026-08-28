@@ -101,7 +101,7 @@ func (s *EndpointService) CreateEndpoint(moduleID string, folderID *string, name
 func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// 更新端点基本信息
-		if err := tx.Model(&models.Endpoint{}).Where("id = ?", data.ID).Updates(map[string]interface{}{
+		if err := tx.Model(&models.Endpoint{}).Where("id = ?", data.ID).Updates(map[string]any{
 			"name":                   data.Name,
 			"method":                 data.Method,
 			"path":                   data.Path,
@@ -253,7 +253,7 @@ func (s *EndpointService) CreateDocument(moduleID string, folderID *string, name
 
 // SaveDocument 保存文档内容与名称。
 func (s *EndpointService) SaveDocument(id string, name string, content string) error {
-	return s.db.Model(&models.Endpoint{}).Where("id = ?", id).Updates(map[string]interface{}{
+	return s.db.Model(&models.Endpoint{}).Where("id = ?", id).Updates(map[string]any{
 		"name":        name,
 		"doc_content": content,
 	}).Error
@@ -351,7 +351,7 @@ func (s *EndpointService) SaveResponse(endpointID string, resp *models.Response)
 		return result.Error
 	}
 
-	result = s.db.Model(&existing).Updates(map[string]interface{}{
+	result = s.db.Model(&existing).Updates(map[string]any{
 		"status_code":    resp.StatusCode,
 		"headers":        resp.Headers,
 		"body":           resp.Body,
@@ -505,7 +505,7 @@ func (s *EndpointService) MoveEndpoint(id string, moduleID string, folderID *str
 	}
 	query.Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
 
-	result := s.db.Model(&models.Endpoint{}).Where("id = ?", id).Updates(map[string]interface{}{
+	result := s.db.Model(&models.Endpoint{}).Where("id = ?", id).Updates(map[string]any{
 		"module_id":  moduleID,
 		"folder_id":  folderID,
 		"sort_order": maxSort + 1,

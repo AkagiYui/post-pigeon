@@ -132,7 +132,7 @@ func TestHTTP_SSEStreaming(t *testing.T) {
 		w.Header().Set("Content-Type", "text/event-stream")
 		w.WriteHeader(200)
 		if fl, ok := w.(http.Flusher); ok {
-			for i := 0; i < 3; i++ {
+			for i := range 3 {
 				fmt.Fprintf(w, "data: msg%d\n\n", i)
 				fl.Flush()
 			}
@@ -444,7 +444,7 @@ func TestHTTP_RedirectFollow(t *testing.T) {
 
 	// 跟随重定向 → 最终 200
 	resp, err := hs.SendRequest(SendRequestData{
-		Method: "GET", BaseURL: srv.URL, Path: "/redirect", FollowRedirects: models.Ptr(true),
+		Method: "GET", BaseURL: srv.URL, Path: "/redirect", FollowRedirects: new(true),
 	})
 	if err != nil {
 		t.Fatalf("err=%v", err)
@@ -455,7 +455,7 @@ func TestHTTP_RedirectFollow(t *testing.T) {
 
 	// 不跟随 → 返回 302
 	resp, err = hs.SendRequest(SendRequestData{
-		Method: "GET", BaseURL: srv.URL, Path: "/redirect", FollowRedirects: models.Ptr(false),
+		Method: "GET", BaseURL: srv.URL, Path: "/redirect", FollowRedirects: new(false),
 	})
 	if err != nil {
 		t.Fatalf("err=%v", err)

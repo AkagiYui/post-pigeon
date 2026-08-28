@@ -2,6 +2,7 @@ package services
 
 import (
 	"fmt"
+	"maps"
 	"net/url"
 	"sort"
 	"strings"
@@ -155,9 +156,7 @@ func (s *CurlService) requestVars(data SendRequestData) map[string]string {
 		return vars
 	}
 	httpSvc := NewHTTPService(s.db)
-	for k, v := range httpSvc.loadGlobalVars(data.ModuleID) {
-		vars[k] = v
-	}
+	maps.Copy(vars, httpSvc.loadGlobalVars(data.ModuleID))
 	if data.EnvironmentID != "" {
 		if list, err := NewEnvironmentService(s.db).GetEnvironmentVariables(data.EnvironmentID); err == nil {
 			for _, item := range list {

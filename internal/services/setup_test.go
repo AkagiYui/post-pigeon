@@ -62,7 +62,7 @@ func newTestDB(t *testing.T) *gorm.DB {
 
 // waitFor 轮询等待条件成立（最多 ~2s），用于验证异步操作
 func waitFor(cond func() bool) bool {
-	for i := 0; i < 200; i++ {
+	for range 200 {
 		if cond() {
 			return true
 		}

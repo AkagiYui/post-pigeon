@@ -55,8 +55,8 @@ type openAPIParam struct {
 	In          string         `json:"in"`
 	Required    bool           `json:"required"`
 	Description string         `json:"description"`
-	Example     interface{}    `json:"example"`
-	XExample    interface{}    `json:"x-example"`
+	Example     any            `json:"example"`
+	XExample    any            `json:"x-example"`
 	Type        string         `json:"type"` // v2
 	Schema      *openAPISchema `json:"schema"`
 }
@@ -70,7 +70,7 @@ type openAPIRequestBody struct {
 // openAPIMediaType v3 媒体类型
 type openAPIMediaType struct {
 	Schema  *openAPISchema `json:"schema"`
-	Example interface{}    `json:"example"`
+	Example any            `json:"example"`
 }
 
 // openAPISchema 简化的 schema 结构
@@ -79,7 +79,7 @@ type openAPISchema struct {
 	Format     string                   `json:"format"`
 	Properties map[string]openAPISchema `json:"properties"`
 	Required   []string                 `json:"required"`
-	Example    interface{}              `json:"example"`
+	Example    any                      `json:"example"`
 	Items      *openAPISchema           `json:"items"`
 }
 
@@ -174,7 +174,7 @@ func paramExample(p openAPIParam) string {
 }
 
 // toStringValue 将任意 JSON 值转为字符串
-func toStringValue(v interface{}) string {
+func toStringValue(v any) string {
 	switch val := v.(type) {
 	case string:
 		return val
@@ -190,7 +190,7 @@ func toStringValue(v interface{}) string {
 }
 
 // schemaExampleJSON 根据 schema 生成示例 JSON 字符串（用于 JSON 请求体）
-func schemaExampleJSON(schema *openAPISchema, fallback interface{}) string {
+func schemaExampleJSON(schema *openAPISchema, fallback any) string {
 	if fallback != nil {
 		if b, err := json.MarshalIndent(fallback, "", "  "); err == nil {
 			return string(b)
@@ -208,22 +208,22 @@ func schemaExampleJSON(schema *openAPISchema, fallback interface{}) string {
 }
 
 // buildExampleValue 递归根据 schema 构建示例值
-func buildExampleValue(schema openAPISchema) interface{} {
+func buildExampleValue(schema openAPISchema) any {
 	if schema.Example != nil {
 		return schema.Example
 	}
 	switch schema.Type {
 	case "object":
-		obj := map[string]interface{}{}
+		obj := map[string]any{}
 		for name, prop := range schema.Properties {
 			obj[name] = buildExampleValue(prop)
 		}
 		return obj
 	case "array":
 		if schema.Items != nil {
-			return []interface{}{buildExampleValue(*schema.Items)}
+			return []any{buildExampleValue(*schema.Items)}
 		}
-		return []interface{}{}
+		return []any{}
 	case "integer", "number":
 		return 0
 	case "boolean":

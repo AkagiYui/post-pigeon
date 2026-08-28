@@ -13,7 +13,7 @@ import (
 )
 
 // countIn 返回某模型表中满足条件的行数。cond 为空时统计全表。
-func countIn(t *testing.T, db *gorm.DB, model interface{}, cond ...interface{}) int64 {
+func countIn(t *testing.T, db *gorm.DB, model any, cond ...any) int64 {
 	t.Helper()
 	var c int64
 	q := db.Model(model)
@@ -42,8 +42,8 @@ func mkOp(t *testing.T, db *gorm.DB, ownerType models.OperationOwnerType, ownerI
 }
 
 // 所有会随项目删除而应被清空的表；用于断言删除单个项目后数据库彻底干净。
-func allDataModels() []interface{} {
-	return []interface{}{
+func allDataModels() []any {
+	return []any{
 		&models.Project{}, &models.Module{}, &models.ModuleBaseURL{}, &models.ModuleParam{},
 		&models.Folder{}, &models.Endpoint{}, &models.EndpointParam{}, &models.EndpointBodyField{},
 		&models.EndpointHeader{}, &models.EndpointAuth{}, &models.Response{}, &models.ResponseExample{},
@@ -268,7 +268,7 @@ func TestDeleteEndpointCascade(t *testing.T) {
 	if countIn(t, db, &models.Endpoint{}, "id = ?", rp.epFolder) != 0 {
 		t.Error("端点应被删除")
 	}
-	for _, tbl := range []interface{}{
+	for _, tbl := range []any{
 		&models.EndpointParam{}, &models.EndpointBodyField{}, &models.EndpointHeader{},
 		&models.EndpointAuth{}, &models.Response{}, &models.ResponseExample{}, &models.ResponseSchema{},
 	} {
@@ -339,7 +339,7 @@ func TestCascadeMigrationFromLegacySchema(t *testing.T) {
 	mod := &models.Module{ID: "m1", ProjectID: "p1", Name: "M"}
 	ep := &models.Endpoint{ID: "e1", ModuleID: "m1", Name: "E", Method: "GET", Path: "/"}
 	hdr := &models.EndpointHeader{ID: "h1", EndpointID: "e1", Name: "H"}
-	for _, r := range []interface{}{proj, mod, ep, hdr} {
+	for _, r := range []any{proj, mod, ep, hdr} {
 		if err := legacy.Create(r).Error; err != nil {
 			t.Fatalf("旧库写入失败: %v", err)
 		}
@@ -362,7 +362,7 @@ func TestCascadeMigrationFromLegacySchema(t *testing.T) {
 	if err := NewProjectService(db).DeleteProject("p1"); err != nil {
 		t.Fatalf("删除项目失败: %v", err)
 	}
-	for _, m := range []interface{}{&models.Module{}, &models.Endpoint{}, &models.EndpointHeader{}} {
+	for _, m := range []any{&models.Module{}, &models.Endpoint{}, &models.EndpointHeader{}} {
 		if n := countIn(t, db, m); n != 0 {
 			t.Errorf("升级后删除项目，%T 仍残留 %d 行——外键级联未生效", m, n)
 		}
@@ -370,8 +370,8 @@ func TestCascadeMigrationFromLegacySchema(t *testing.T) {
 }
 
 // legacyModels 与 database.autoMigrate 保持一致的模型清单，供迁移测试建“旧库”使用。
-func legacyModels() []interface{} {
-	return []interface{}{
+func legacyModels() []any {
+	return []any{
 		&models.Project{}, &models.Environment{}, &models.EnvironmentVariable{}, &models.GlobalVariable{},
 		&models.Module{}, &models.ModuleBaseURL{}, &models.ModuleParam{}, &models.Folder{},
 		&models.Endpoint{}, &models.EndpointParam{}, &models.EndpointBodyField{}, &models.EndpointHeader{},
@@ -451,7 +451,7 @@ func TestCascadeMigrationFixesLegacyNonCascadeFK(t *testing.T) {
 		t.Fatalf("旧库 endpoints.folder_id 竟已是 CASCADE，无法复现场景")
 	}
 	fid := "fo1"
-	rows := []interface{}{
+	rows := []any{
 		&legProject{ID: "p1", Name: "P"},
 		&legModule{ID: "m1", ProjectID: "p1", Name: "M"},
 		&legFolder{ID: "fo1", ModuleID: "m1", Name: "F"},

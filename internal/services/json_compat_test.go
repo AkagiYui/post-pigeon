@@ -26,7 +26,7 @@ func TestNormalizeJSONCComments(t *testing.T) {
 		t.Errorf("注释没去干净：%q", got)
 	}
 	// 整行注释连同换行一起删掉，不留空行
-	for _, line := range strings.Split(got, "\n") {
+	for line := range strings.SplitSeq(got, "\n") {
 		if strings.TrimSpace(line) == "" {
 			t.Errorf("留下了空行：%q", got)
 		}

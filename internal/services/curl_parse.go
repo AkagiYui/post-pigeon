@@ -173,7 +173,7 @@ func (s *CurlService) ParseCurl(command string) (*CurlRequest, error) {
 
 	// Cookie 头拆成 cookie 参数
 	for _, pairs := range cookiePairs {
-		for _, pair := range strings.Split(pairs, ";") {
+		for pair := range strings.SplitSeq(pairs, ";") {
 			name, value, ok := splitOnce(strings.TrimSpace(pair), "=")
 			if ok && name != "" {
 				req.Params = append(req.Params, models.EndpointParam{Type: "cookie", Name: name, Value: value, Enabled: true})
@@ -255,7 +255,7 @@ func parseQueryLoose(s string) url.Values {
 		return values
 	}
 	values := url.Values{}
-	for _, pair := range strings.Split(s, "&") {
+	for pair := range strings.SplitSeq(s, "&") {
 		name, value, ok := splitOnce(pair, "=")
 		if ok {
 			values.Add(name, value)
@@ -293,11 +293,11 @@ func splitHeader(s string) (string, string, bool) {
 
 // splitOnce 按首个 sep 切成两段。
 func splitOnce(s, sep string) (string, string, bool) {
-	idx := strings.Index(s, sep)
-	if idx < 0 {
+	before, after, ok := strings.Cut(s, sep)
+	if !ok {
 		return strings.TrimSpace(s), "", false
 	}
-	return s[:idx], s[idx+len(sep):], true
+	return before, after, true
 }
 
 // tokenizeShell 按 POSIX shell 规则切分命令行：处理单引号、双引号、反斜杠转义、

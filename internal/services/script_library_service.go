@@ -43,7 +43,7 @@ func (s *ScriptLibraryService) CreateScript(projectID, name, content, descriptio
 
 // UpdateScript 更新脚本库脚本
 func (s *ScriptLibraryService) UpdateScript(id, name, content, description string) error {
-	return s.db.Model(&models.ScriptLibrary{}).Where("id = ?", id).Updates(map[string]interface{}{
+	return s.db.Model(&models.ScriptLibrary{}).Where("id = ?", id).Updates(map[string]any{
 		"name": name, "content": content, "description": description,
 	}).Error
 }

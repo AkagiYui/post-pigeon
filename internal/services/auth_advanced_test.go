@@ -123,7 +123,7 @@ func TestOAuth2ClientCredentials(t *testing.T) {
 	}
 
 	hs := newTestHTTPService(t, db)
-	for i := 0; i < 2; i++ {
+	for i := range 2 {
 		if _, err := hs.SendRequest(SendRequestData{
 			Method: "GET", BaseURL: srv.URL, Path: "/api", Auth: auth,
 		}); err != nil {

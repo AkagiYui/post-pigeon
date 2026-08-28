@@ -281,9 +281,11 @@ func (s *ImportExportService) exportFolders(db *gorm.DB, moduleID string, parent
 
 	result := make([]FolderExport, 0, len(folders))
 	for _, folder := range folders {
-		fe := FolderExport{Folder: folder}
-		fe.Children = s.exportFolders(db, moduleID, &folder.ID)
-		fe.Endpoints = s.exportEndpoints(db, moduleID, &folder.ID)
+		fe := FolderExport{
+			Folder:    folder,
+			Children:  s.exportFolders(db, moduleID, &folder.ID),
+			Endpoints: s.exportEndpoints(db, moduleID, &folder.ID),
+		}
 		result = append(result, fe)
 	}
 	return result

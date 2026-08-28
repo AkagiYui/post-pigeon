@@ -1,5 +1,7 @@
 package scripting
 
+import "maps"
+
 // VarStore 是脚本可读写的变量存储（环境 / 全局 / 集合作用域各一份）。
 // 它记录被修改和删除的键，便于请求结束后仅将增量持久化回数据库。
 type VarStore struct {
@@ -11,9 +13,7 @@ type VarStore struct {
 // NewVarStore 用初始键值创建变量存储，initial 可以为 nil。
 func NewVarStore(initial map[string]string) *VarStore {
 	values := make(map[string]string, len(initial))
-	for k, v := range initial {
-		values[k] = v
-	}
+	maps.Copy(values, initial)
 	return &VarStore{
 		values:  values,
 		dirty:   make(map[string]struct{}),
@@ -61,9 +61,7 @@ func (s *VarStore) Clear() {
 // ToMap 返回当前变量的浅拷贝。
 func (s *VarStore) ToMap() map[string]string {
 	out := make(map[string]string, len(s.values))
-	for k, v := range s.values {
-		out[k] = v
-	}
+	maps.Copy(out, s.values)
 	return out
 }
 

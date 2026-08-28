@@ -167,8 +167,8 @@ func buildDigestAuthorization(challenge digestChallenge, username, password, met
 
 // pickDigestQOP 从挑战给出的候选中选一个受支持的 qop。
 func pickDigestQOP(qop string) string {
-	options := strings.Split(qop, ",")
-	for _, option := range options {
+	options := strings.SplitSeq(qop, ",")
+	for option := range options {
 		switch strings.TrimSpace(option) {
 		case "auth":
 			return "auth"

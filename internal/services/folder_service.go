@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"log/slog"
+	"slices"
 
 	"gorm.io/gorm"
 
@@ -117,10 +118,8 @@ func (s *FolderService) MoveFolderTo(id string, targetModuleID string, targetPar
 
 	// 校验：不能移动到自身或其后代之下
 	if targetParentID != nil {
-		for _, d := range descendantIDs {
-			if d == *targetParentID {
-				return fmt.Errorf("不能将文件夹移动到其自身或子文件夹下")
-			}
+		if slices.Contains(descendantIDs, *targetParentID) {
+			return fmt.Errorf("不能将文件夹移动到其自身或子文件夹下")
 		}
 	}
 
@@ -136,7 +135,7 @@ func (s *FolderService) MoveFolderTo(id string, targetModuleID string, targetPar
 
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// 更新被移动文件夹的父文件夹和所属模块
-		if err := tx.Model(&models.Folder{}).Where("id = ?", id).Updates(map[string]interface{}{
+		if err := tx.Model(&models.Folder{}).Where("id = ?", id).Updates(map[string]any{
 			"parent_id": resolvedParentID,
 			"module_id": targetModuleID,
 		}).Error; err != nil {

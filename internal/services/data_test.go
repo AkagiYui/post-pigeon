@@ -34,7 +34,7 @@ func newTestDataService(t *testing.T) (*DataService, *gorm.DB) {
 func fillHistories(t *testing.T, db *gorm.DB, moduleID string, count int) {
 	t.Helper()
 	body := strings.Repeat("x", 64*1024)
-	for i := 0; i < count; i++ {
+	for i := range count {
 		h := &models.RequestHistory{
 			ID:           fmt.Sprintf("h%d", i),
 			ModuleID:     moduleID,

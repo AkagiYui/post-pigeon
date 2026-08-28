@@ -10,6 +10,7 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptrace"
@@ -137,16 +138,14 @@ func (s *HTTPService) ServiceShutdown() error {
 
 // startPersistWorkers 启动固定数量的落库 worker（首次入队时懒启动）。
 func (s *HTTPService) startPersistWorkers() {
-	for i := 0; i < persistWorkers; i++ {
-		s.persistWG.Add(1)
-		go func() {
-			defer s.persistWG.Done()
+	for range persistWorkers {
+		s.persistWG.Go(func() {
 			// runPersist 里层有 recover，这里再兜一道：循环本身出问题不该掀掉进程
 			defer safego.Recover("http.persistWorker")
 			for job := range s.persistCh {
 				s.runPersist(job)
 			}
-		}()
+		})
 	}
 }
 
@@ -260,9 +259,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	// 全局变量（项目级，跨环境）：优先级低于环境变量
 	globalVars := s.loadGlobalVars(data.ModuleID)
 	envVars := map[string]string{}
-	for k, v := range globalVars {
-		envVars[k] = v
-	}
+	maps.Copy(envVars, globalVars)
 	if data.EnvironmentID != "" {
 		if vars, err := envService.GetEnvironmentVariables(data.EnvironmentID); err == nil {
 			for _, v := range vars {

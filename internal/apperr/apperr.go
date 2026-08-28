@@ -54,8 +54,7 @@ func Wrap(err error, code string, params ...Param) error {
 		return nil
 	}
 	// 已经是应用错误时保留最内层的错误码，避免层层包装丢失语义
-	var appErr *Error
-	if errors.As(err, &appErr) {
+	if appErr, ok := errors.AsType[*Error](err); ok {
 		return appErr
 	}
 	return &Error{Kind: Marker, Code: code, Params: buildParams(params), Cause: err.Error(), cause: err}
@@ -85,8 +84,7 @@ func buildParams(params []Param) map[string]string {
 
 // Code 返回错误链上第一个应用错误的错误码；不存在时返回空串。
 func Code(err error) string {
-	var appErr *Error
-	if errors.As(err, &appErr) {
+	if appErr, ok := errors.AsType[*Error](err); ok {
 		return appErr.Code
 	}
 	return ""

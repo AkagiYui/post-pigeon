@@ -61,7 +61,7 @@ func TestRotatesRepeatedly(t *testing.T) {
 	}
 	defer file.Close()
 
-	for i := 0; i < 4; i++ {
+	for range 4 {
 		if _, err := file.Write([]byte(strings.Repeat("x", 40) + "\n")); err != nil {
 			t.Fatalf("写入失败: %v", err)
 		}

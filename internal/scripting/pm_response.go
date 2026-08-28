@@ -51,8 +51,8 @@ func buildResponseObject(vm *goja.Runtime, resp *ResponseData, mutable bool) *go
 		ct := headerValue(resp.Headers, "Content-Type")
 		mime := ct
 		charset := ""
-		if i := strings.Index(ct, ";"); i >= 0 {
-			mime = strings.TrimSpace(ct[:i])
+		if before, _, ok := strings.Cut(ct, ";"); ok {
+			mime = strings.TrimSpace(before)
 			if j := strings.Index(strings.ToLower(ct), "charset="); j >= 0 {
 				charset = strings.TrimSpace(ct[j+len("charset="):])
 			}

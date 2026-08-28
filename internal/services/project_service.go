@@ -129,7 +129,7 @@ func (s *ProjectService) CreateProject(name string, description string) (*models
 
 // UpdateProject 更新项目信息
 func (s *ProjectService) UpdateProject(id string, name string, description string) error {
-	result := s.db.Model(&models.Project{}).Where("id = ?", id).Updates(map[string]interface{}{
+	result := s.db.Model(&models.Project{}).Where("id = ?", id).Updates(map[string]any{
 		"name":        name,
 		"description": description,
 	})

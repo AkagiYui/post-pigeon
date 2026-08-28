@@ -118,7 +118,7 @@ func parseHeadersArg(vm *goja.Runtime, v goja.Value) []Header {
 	// 数组形态
 	if isArray(vm, obj) {
 		length := int(obj.Get("length").ToInteger())
-		for i := 0; i < length; i++ {
+		for i := range length {
 			if item, ok := obj.Get(strconv.Itoa(i)).(*goja.Object); ok {
 				out = append(out, Header{Key: safeStr(item.Get("key")), Value: safeStr(item.Get("value"))})
 			}
