@@ -450,6 +450,68 @@ func folderPathString(folders []apifoxFolderRef) string {
 
 // buildLeaves 以确定的顺序展开导出文件中所有可导入的叶子项并编号。
 // 预览与导入共用此函数，保证下标一致。
+// apifoxEmptyFolder 一条「递归下去也不含任何接口」的文件夹路径。
+type apifoxEmptyFolder struct {
+	ModuleApifoxID string
+	ModuleName     string
+	Folders        []apifoxFolderRef
+}
+
+// buildEmptyFolders 收集导出文件里不含任何接口的文件夹路径。
+//
+// 文件夹本身不产生叶子，是随叶子按需创建的（见 ensureFolderPath），所以整棵空目录
+// 会被静默丢掉。但用户在 Apifox 里建的空目录通常是「占位待填」的结构，导进来凭空
+// 少几个目录只会让人以为导漏了，因此单独收出来补建。
+//
+// 每一层空文件夹都记全路径：'A/B' 与 'A/B/C' 都在列，ensureFolderPath 按名去重，
+// 重复的祖先只会建一次。
+func buildEmptyFolders(exp *apifoxExport, moduleName map[string]string) []apifoxEmptyFolder {
+	var out []apifoxEmptyFolder
+
+	// hasAPI 判断这棵子树里有没有真正的接口
+	var hasAPI func(items []apifoxItem) bool
+	hasAPI = func(items []apifoxItem) bool {
+		for i := range items {
+			if items[i].API != nil {
+				return true
+			}
+			if hasAPI(items[i].Items) {
+				return true
+			}
+		}
+		return false
+	}
+
+	collect := func(roots []apifoxCollectionRoot) {
+		for ri := range roots {
+			root := &roots[ri]
+			modID := root.ModuleID.String()
+			var walk func(items []apifoxItem, folders []apifoxFolderRef)
+			walk = func(items []apifoxItem, folders []apifoxFolderRef) {
+				for i := range items {
+					it := &items[i]
+					if it.API != nil {
+						continue
+					}
+					path := appendFolder(folders, apifoxFolderRef{
+						Name: it.Name, Auth: it.Auth, Pre: it.PreProcessors, Post: it.PostProcessors,
+					})
+					if !hasAPI(it.Items) {
+						out = append(out, apifoxEmptyFolder{
+							ModuleApifoxID: modID, ModuleName: moduleName[modID], Folders: cloneFolders(path),
+						})
+					}
+					walk(it.Items, path)
+				}
+			}
+			walk(root.Items, nil)
+		}
+	}
+	collect(exp.APICollection)
+	collect(exp.WebSocketCollection)
+	return out
+}
+
 func buildLeaves(exp *apifoxExport, moduleName map[string]string) []apifoxLeaf {
 	leaves := make([]apifoxLeaf, 0, 64)
 	idx := 0
@@ -478,7 +540,7 @@ func buildLeaves(exp *apifoxExport, moduleName map[string]string) []apifoxLeaf {
 		walk(root.Items, nil)
 	}
 
-	// WebSocket 集合：仅收集真正的 WS 端点（空文件夹不产生叶子，避免重复空目录）
+	// WebSocket 集合：仅收集真正的 WS 端点（空文件夹不产生叶子，改由 buildEmptyFolders 补建）
 	for ri := range exp.WebSocketCollection {
 		root := &exp.WebSocketCollection[ri]
 		modID := root.ModuleID.String()
@@ -685,7 +747,7 @@ func importApifoxInto(tx *gorm.DB, projectID string, exp *apifoxExport, selected
 	ic.importGlobalVars(exp.GlobalVariables)
 	ic.importScripts(exp.CommonScripts)
 
-	// 逐叶子导入：文件夹按路径去重、按需创建（修复重复文件夹并跳过空目录）
+	// 逐叶子导入：文件夹按路径去重、按需创建；不含接口的空目录随后由 importEmptyFolders 补建
 	leaves := buildLeaves(exp, ic.moduleName)
 	for i := range leaves {
 		lf := &leaves[i]
@@ -707,10 +769,42 @@ func importApifoxInto(tx *gorm.DB, projectID string, exp *apifoxExport, selected
 		}
 	}
 
+	// 空文件夹：它们不产生叶子，上面的循环建不出来，这里按路径补一遍
+	ic.importEmptyFolders(buildEmptyFolders(exp, ic.moduleName))
+
 	// 公共参数：并入默认模块的自动参数
 	ic.importCommonParameters(exp.CommonParameters)
 
 	return nil
+}
+
+// importEmptyFolders 补建不含任何接口的文件夹。
+//
+// 只补在「本次确实导入了内容」的模块下：勾选式导入时用户挑的是接口，凭空多出一个
+// 他一个接口都没选的模块会很突兀。全量导入没有这层顾虑，模块也一并按需创建。
+func (ic *importCtx) importEmptyFolders(folders []apifoxEmptyFolder) {
+	for _, ef := range folders {
+		if len(ef.Folders) == 0 {
+			continue
+		}
+		var moduleID string
+		switch {
+		case ef.ModuleApifoxID == "":
+			if !ic.selectAll {
+				continue
+			}
+			moduleID = ic.ensureModule(defaultStr(ef.ModuleName, "默认模块"))
+		case ic.selectAll:
+			moduleID = ic.ensureModuleByApifoxID(ef.ModuleApifoxID)
+		default:
+			mid, ok := ic.moduleByID[ef.ModuleApifoxID]
+			if !ok {
+				continue
+			}
+			moduleID = mid
+		}
+		ic.ensureFolderPath(moduleID, ef.Folders)
+	}
 }
 
 // ensureModuleForLeaf 解析叶子所属模块并按需应用模块级认证/操作/前置 URL（每模块仅一次）。

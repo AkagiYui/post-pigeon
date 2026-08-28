@@ -426,3 +426,106 @@ func TestApifoxImportAsProject_Selective(t *testing.T) {
 		t.Error("项目本身仍应创建成功")
 	}
 }
+
+// apifoxEmptyFolderFixture 一份带空文件夹的导出：
+//   - 待补充           空目录
+//   - 待补充/子级       空目录（嵌套在空目录下）
+//   - 已有             含一个接口
+//   - 已有/待填         空目录（嵌套在非空目录下）
+//   - 独立空目录        整棵子树都没有接口
+const apifoxEmptyFolderFixture = `{
+  "apifoxProject": "1.0.0",
+  "$schema": { "app": "apifox", "type": "project", "version": "1.2.0" },
+  "info": { "name": "带空目录的项目" },
+  "moduleSettings": [ { "id": "3001", "name": "订单" } ],
+  "apiCollection": [
+    {
+      "name": "根目录",
+      "moduleId": 3001,
+      "items": [
+        { "name": "待补充", "items": [ { "name": "子级", "items": [] } ] },
+        { "name": "已有", "items": [
+          { "api": { "id": 1, "name": "下单", "method": "post", "path": "/orders" } },
+          { "name": "待填", "items": [] }
+        ] },
+        { "name": "独立空目录", "items": [] }
+      ]
+    }
+  ]
+}`
+
+// folderPaths 返回某模块下所有文件夹的「父级路径/名称」，__root 折叠为空前缀。
+func folderPaths(t *testing.T, db *gorm.DB, moduleID string) map[string]bool {
+	t.Helper()
+	var folders []models.Folder
+	db.Where("module_id = ?", moduleID).Find(&folders)
+	byID := map[string]models.Folder{}
+	for _, f := range folders {
+		byID[f.ID] = f
+	}
+	out := map[string]bool{}
+	for _, f := range folders {
+		if f.Name == "__root" {
+			continue
+		}
+		path := f.Name
+		for cur := f; cur.ParentID != nil; {
+			parent, ok := byID[*cur.ParentID]
+			if !ok || parent.Name == "__root" {
+				break
+			}
+			path = parent.Name + "/" + path
+			cur = parent
+		}
+		out[path] = true
+	}
+	return out
+}
+
+// TestApifoxImport_EmptyFolders 空文件夹（含嵌套）应一并导入，不该被静默丢掉。
+func TestApifoxImport_EmptyFolders(t *testing.T) {
+	db := newTestDB(t)
+	p := mustCreateProject(t, db, "empty-folders")
+
+	if _, err := NewApifoxService(db).ImportApifox(p.ID, apifoxEmptyFolderFixture, nil); err != nil {
+		t.Fatalf("导入失败: %v", err)
+	}
+
+	var mod models.Module
+	if err := db.Where("project_id = ? AND name = ?", p.ID, "订单").First(&mod).Error; err != nil {
+		t.Fatalf("未找到模块: %v", err)
+	}
+	got := folderPaths(t, db, mod.ID)
+	for _, want := range []string{"待补充", "待补充/子级", "已有", "已有/待填", "独立空目录"} {
+		if !got[want] {
+			t.Errorf("缺少文件夹 %q，实际有 %v", want, got)
+		}
+	}
+	// 数量卡死重复创建：「待补充」既自身是空目录、又是「待补充/子级」的祖先，
+	// 「已有」则是叶子循环先建好的，补建时都必须命中缓存而不是再建一个
+	if len(got) != 5 {
+		t.Errorf("文件夹数 = %d，期望 5，实际 %v", len(got), got)
+	}
+	var dup int64
+	db.Model(&models.Folder{}).Where("module_id = ? AND name = ?", mod.ID, "已有").Count(&dup)
+	if dup != 1 {
+		t.Errorf("非空目录「已有」被建了 %d 次，补建空目录时应复用它", dup)
+	}
+}
+
+// TestApifoxImport_EmptyFoldersSkippedOnPartialImport 勾选式导入时，
+// 一个接口都没选中的模块不该因为空目录而凭空出现。
+func TestApifoxImport_EmptyFoldersSkippedOnPartialImport(t *testing.T) {
+	db := newTestDB(t)
+	p := mustCreateProject(t, db, "empty-folders-partial")
+
+	// 传一个不存在的下标 = 一个叶子都没选中
+	if _, err := NewApifoxService(db).ImportApifox(p.ID, apifoxEmptyFolderFixture, []int{999}); err != nil {
+		t.Fatalf("导入失败: %v", err)
+	}
+	var n int64
+	db.Model(&models.Module{}).Where("project_id = ? AND name = ?", p.ID, "订单").Count(&n)
+	if n != 0 {
+		t.Errorf("没选中任何接口时不该创建模块「订单」")
+	}
+}
