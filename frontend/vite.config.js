@@ -1,3 +1,6 @@
+import fs from "node:fs"
+import { fileURLToPath } from "node:url"
+
 import tailwindcss from "@tailwindcss/vite"
 import { tanstackRouter } from "@tanstack/router-plugin/vite"
 import { DevTools } from "@vitejs/devtools"
@@ -9,6 +12,20 @@ import { solidDevtoolsPanel, tanstackRouterPanel } from "vite-plugin-devtools-pa
 import iconifyOffline from "vite-plugin-iconify-offline"
 import solid from "vite-plugin-solid"
 
+// 临时调试插件：接收前端经 HMR 通道回传的 solid owner 警告栈，写入 owner-warn.log。
+// 调试完请连同 src/lib/devOwnerWarn.ts 一起删除。
+const ownerWarnLogger = () => ({
+  name: "owner-warn-logger",
+  apply: "serve",
+  configureServer(server) {
+    const file = fileURLToPath(new URL("./owner-warn.log", import.meta.url))
+    fs.writeFileSync(file, "")
+    server.ws.on("owner-warn", (data) => {
+      fs.appendFileSync(file, `=== #${data.seq} ${data.msg}\n${data.stack}\n\n`)
+    })
+  },
+})
+
 export default defineConfig({
   // 监听 IPv6 通配地址（Node 下为双栈），使 Wails 的 Go 资源代理无论走
   // [::1] 还是 127.0.0.1 都能连上 vite，避免 "dial tcp [::1]:9245: operation timed out"。
@@ -19,6 +36,7 @@ export default defineConfig({
     tsconfigPaths: true,
   },
   plugins: [
+    ownerWarnLogger(),
     tailwindcss(),
     tanstackRouter({ target: "solid", autoCodeSplitting: true }),
     devtools({

@@ -12,6 +12,9 @@ build/linux/appimage/build
 build/windows/nsis/MicrosoftEdgeWebview2Setup.exe
 __pycache__
 
+# owner 警告插桩的落盘日志（frontend/vite.config.js 的 owner-warn-logger 插件产出）
+frontend/owner-warn.log
+
 # macOS app-icon appiconset PNGs — regenerated from build/appicon.png by
 # build/darwin/generate-assets-car.sh; the compiled build/darwin/Assets.car is committed instead.
 build/darwin/Assets.xcassets/appicon.appiconset/icon_*.png

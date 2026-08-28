@@ -1,4 +1,6 @@
 /* @refresh reload */
+// 临时：捕获 solid owner 警告的调用栈（调试完请连同 lib/devOwnerWarn.ts 一起删除）
+import "@/lib/devOwnerWarn"
 // solid-devtools 的 vite 插件会把这行替换成 debugger 的 setup。
 // 必须在应用渲染之前执行，否则 solid 的 DEV 钩子装不上，devtools 面板拿不到 owner 树。
 // 生产构建下该包解析到 noop 实现。
