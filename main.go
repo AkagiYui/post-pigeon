@@ -340,6 +340,22 @@ func main() {
 	// 设置应用菜单
 	app.Menu.Set(appMenu)
 
+	// 优雅退出时的清理。必须挂在 Wails 的 shutdown 钩子上，不能写在 app.Run() 后面：
+	// macOS 的退出走 [NSApp terminate:]，AppKit 在 applicationShouldTerminate: 里调完
+	// cleanup()（也就是这些钩子）后直接 exit()，app.Run() 永不返回——写在它后面等于没写，
+	// 于是运行标记永远留着，下次启动一律被判成「上次异常退出」。
+	// Windows/Linux 上 Run() 会返回，但它们同样会先跑 cleanup()，所以这里一处就够。
+	//
+	// 只放「优雅退出才做」的事：被强杀时钩子不执行，运行标记留下正是我们要的信号。
+	// 实例锁不用放进来——它是文件锁，进程一没内核就释放了（见 instancelock）。
+	app.OnShutdown(func() {
+		if err := crashreport.Clear(cfg.DataDir); err != nil {
+			slog.Warn("清除运行标记失败", "error", err)
+		}
+		// 这行同时是钩子本身的探针：日志里没有它，就说明清理没跑到
+		slog.Info("PostPigeon 应用退出")
+	})
+
 	// 创建主窗口
 	mainWindow = app.Window.NewWithOptions(windowOptions)
 	registerFileDrop(mainWindow)
@@ -356,18 +372,11 @@ func main() {
 		})
 	}
 
-	// 运行应用
-	err = app.Run()
-	if err != nil {
+	// 运行应用。退出前的清理见上面的 app.OnShutdown——macOS 上这里之后的代码不可达。
+	if err := app.Run(); err != nil {
 		slog.Error("应用运行失败", "error", err)
 		os.Exit(1)
 	}
-
-	// 走到这里才算正常退出，清掉运行标记
-	if err := crashreport.Clear(cfg.DataDir); err != nil {
-		slog.Warn("清除运行标记失败", "error", err)
-	}
-	slog.Info("PostPigeon 应用退出")
 }
 
 // FileDropEventName 是「原生文件拖放」转发给前端的事件名。
