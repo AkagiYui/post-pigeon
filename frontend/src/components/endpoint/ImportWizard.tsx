@@ -7,7 +7,7 @@
 // 首页的「导入项目」复用同一个向导，只是可选类型换成项目级的两种
 // （本应用导出文件 / Apifox），由调用方通过 kinds 指定。
 import { Icon } from "@iconify-icon/solid"
-import { createEffect, createSignal, For, on, Show } from "solid-js"
+import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js"
 
 import { ImportExportService } from "@/../bindings/PostPigeon/internal/services"
 import { Button } from "@/components/ui/button"
@@ -16,6 +16,7 @@ import { Input, Textarea } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"
 import { readText } from "@/lib/clipboard"
 import { cn } from "@/lib/utils"
+import { nativeFileDropAvailable, onFilesDropped } from "@/stores/fileDrop"
 import { toastError } from "@/stores/toast"
 
 /** 支持的导入格式。project 是本应用自己的项目导出文件（仅首页「导入项目」用） */
@@ -23,6 +24,9 @@ export type ImportKind = "postman" | "apifox" | "openapi" | "project"
 
 /** 文档内容的来源 */
 type ImportSource = "file" | "url" | "text"
+
+/** 拖放区标识，与元素上的 data-drop-zone 属性一致（见 stores/fileDrop.ts） */
+const DROP_ZONE = "import-document"
 
 /** 类型选择卡片的元数据 */
 interface KindMeta {
@@ -91,6 +95,23 @@ export function ImportWizardDialog(props: ImportWizardDialogProps) {
       toastError(e, "error.op.loadFailed")
     }
   }
+
+  // 应用内的拖放走原生链路：只拿得到路径，正文要回后端读。
+  // 订阅始终挂着（对话框关着时 data-file-drop-target 元素不存在，事件不会派发到这里）。
+  onCleanup(onFilesDropped(DROP_ZONE, (paths) => {
+    const path = paths[0]
+    if (!path) return
+    void (async () => {
+      try {
+        const content = await ImportExportService.ReadImportDocument(path)
+        if (!content) return
+        setFileText(content)
+        setFileName(path.split(/[\\/]/).pop() || path)
+      } catch (e) {
+        toastError(e, "error.op.loadFailed")
+      }
+    })()
+  }))
 
   const pickFile = () => {
     const input = document.createElement("input")
@@ -192,19 +213,30 @@ export function ImportWizardDialog(props: ImportWizardDialogProps) {
           </div>
 
           <Show when={source() === "file"}>
-            {/* 拖拽区兼作点击区：两种习惯都能用 */}
+            {/* 拖拽区兼作点击区：两种习惯都能用。
+                data-file-drop-target 是 Wails 判定「这里能放」的标记，缺了它原生拖放会被丢弃；
+                拖上来时运行时会给它加 file-drop-target-active 类，高亮沿用同一套样式。
+                浏览器里没有原生链路，退回 HTML5 的 drop 事件。 */}
             <div
+              data-file-drop-target
+              data-drop-zone={DROP_ZONE}
               onClick={pickFile}
-              onDragOver={(e) => { e.preventDefault(); setDragging(true) }}
+              onDragOver={(e) => {
+                e.preventDefault()
+                if (!nativeFileDropAvailable()) setDragging(true)
+              }}
               onDragLeave={() => setDragging(false)}
               onDrop={(e) => {
                 e.preventDefault()
                 setDragging(false)
+                // 应用内交给原生链路处理，两边都收会把同一次拖放处理两遍
+                if (nativeFileDropAvailable()) return
                 const file = e.dataTransfer?.files?.[0]
                 if (file) void acceptFile(file)
               }}
               class={cn(
                 "flex flex-col items-center justify-center gap-1.5 h-32 rounded-md border border-dashed cursor-pointer transition-colors",
+                "[&.file-drop-target-active]:border-accent [&.file-drop-target-active]:bg-accent-muted",
                 dragging() ? "border-accent bg-accent-muted" : "border-border hover:bg-muted/50",
               )}
             >

@@ -21,6 +21,7 @@ import (
 	"PostPigeon/internal/updates"
 
 	"github.com/wailsapp/wails/v3/pkg/application"
+	"github.com/wailsapp/wails/v3/pkg/events"
 )
 
 //go:embed all:frontend/dist
@@ -282,8 +283,12 @@ func main() {
 			DisableFramelessWindowDecorations: false,
 		},
 		BackgroundColour: application.NewRGB(27, 38, 54),
-		URL:              "/",
-		DevToolsEnabled:  true,
+		// 允许把文件从系统拖进窗口。WebView 默认不会把外部文件交给页面的 drop 事件，
+		// 拖进来只会石沉大海；开启后 Wails 会把命中 data-file-drop-target 元素的拖放
+		// 转成 WindowFilesDropped 事件（见 registerFileDrop）。
+		EnableFileDrop:  true,
+		URL:             "/",
+		DevToolsEnabled: true,
 		KeyBindings: map[string]func(window application.Window){
 			"F12": openDevToolsKeyBinding,
 		},
@@ -310,7 +315,7 @@ func main() {
 		defaultOpts.StartState = application.WindowStateNormal
 		defaultOpts.Width = platform.DefaultWindowWidth
 		defaultOpts.Height = platform.DefaultWindowHeight
-		app.Window.NewWithOptions(defaultOpts)
+		registerFileDrop(app.Window.NewWithOptions(defaultOpts))
 	})
 	appSubMenu.AddSeparator()
 	appSubMenu.Add("隐藏 " + config.AppName).SetAccelerator("Cmd+H").OnClick(func(_ *application.Context) {
@@ -337,6 +342,7 @@ func main() {
 
 	// 创建主窗口
 	mainWindow = app.Window.NewWithOptions(windowOptions)
+	registerFileDrop(mainWindow)
 
 	// 设置窗口状态持久化监听（保存位置和大小变化）
 	windowStateService.SetupWindowStatePersistence(mainWindow)
@@ -362,6 +368,42 @@ func main() {
 		slog.Warn("清除运行标记失败", "error", err)
 	}
 	slog.Info("PostPigeon 应用退出")
+}
+
+// FileDropEventName 是「原生文件拖放」转发给前端的事件名。
+const FileDropEventName = "files:dropped"
+
+// FileDropPayload 一次拖放的内容：文件路径，以及被拖到的那个元素的标识。
+//
+// 只有路径没有内容：原生拖放拿不到 <input type="file"> 那样的 File 对象，
+// 前端要拿正文得再调一次后端（导入文档走 ImportExportService.ReadImportDocument）。
+type FileDropPayload struct {
+	Paths []string `json:"paths"`
+	// Zone 取自落点元素的 data-drop-zone 属性，用来区分页面上的多个拖放区
+	Zone string `json:"zone"`
+}
+
+// registerFileDrop 把窗口的原生文件拖放转成前端事件。
+//
+// Wails 的链路是：原生层拿到路径 → 运行时用落点坐标找到最近的
+// data-file-drop-target 元素 → 回传给 Go 触发 WindowFilesDropped。
+// 页面自己的 drop 事件全程不会被触发，所以必须在这里转发一次。
+func registerFileDrop(window *application.WebviewWindow) {
+	if window == nil {
+		return
+	}
+	window.OnWindowEvent(events.Common.WindowFilesDropped, func(e *application.WindowEvent) {
+		ctx := e.Context()
+		paths := ctx.DroppedFiles()
+		if len(paths) == 0 {
+			return
+		}
+		zone := ""
+		if target := ctx.DropTargetDetails(); target != nil {
+			zone = target.Attributes["data-drop-zone"]
+		}
+		window.EmitEvent(FileDropEventName, FileDropPayload{Paths: paths, Zone: zone})
+	})
 }
 
 // notifyRunningInstance 让已经在跑的那个实例把窗口叫到前面。

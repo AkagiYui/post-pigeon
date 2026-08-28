@@ -5,6 +5,7 @@ import (
 	"io"
 	"net/http"
 	"net/url"
+	"os"
 	"strings"
 	"time"
 
@@ -72,6 +73,49 @@ func (s *ImportExportService) FetchImportDocument(rawURL string) (string, error)
 	text := strings.TrimSpace(string(body))
 	if text == "" {
 		return "", apperr.Wrap(fmt.Errorf("响应内容为空"), apperr.CodeImportParse)
+	}
+	return text, nil
+}
+
+// ReadImportDocument 读取本机上的一份接口文档，返回正文文本。
+//
+// 与 FetchImportDocument 对称：URL 来源走前者，路径来源走这里。
+// 之所以需要它，是因为原生「拖文件进窗口」给到前端的只有路径而不是文件内容
+// （见 main.go 的 registerFileDrop），拿不到 <input type="file"> 那样的 File 对象。
+func (s *ImportExportService) ReadImportDocument(path string) (string, error) {
+	target := strings.TrimSpace(path)
+	if target == "" {
+		return "", apperr.New(apperr.CodeInvalidInput)
+	}
+
+	stat, err := os.Stat(target)
+	if err != nil {
+		return "", apperr.Wrap(err, apperr.CodeNotFound, apperr.P("path", target))
+	}
+	if stat.IsDir() {
+		return "", apperr.New(apperr.CodeInvalidInput, apperr.P("path", target))
+	}
+	if stat.Size() > maxImportDocumentBytes {
+		return "", apperr.New(apperr.CodeResponseTooLarge)
+	}
+
+	f, err := os.Open(target)
+	if err != nil {
+		return "", apperr.Wrap(err, apperr.CodeReadResponse, apperr.P("path", target))
+	}
+	defer func() { _ = f.Close() }()
+
+	// 仍然封顶读：Stat 与 Open 之间文件可能被换掉
+	body, err := io.ReadAll(io.LimitReader(f, maxImportDocumentBytes+1))
+	if err != nil {
+		return "", apperr.Wrap(err, apperr.CodeReadResponse, apperr.P("path", target))
+	}
+	if len(body) > maxImportDocumentBytes {
+		return "", apperr.New(apperr.CodeResponseTooLarge)
+	}
+	text := strings.TrimSpace(string(body))
+	if text == "" {
+		return "", apperr.Wrap(fmt.Errorf("文件内容为空"), apperr.CodeImportParse)
 	}
 	return text, nil
 }
