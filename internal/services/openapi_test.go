@@ -146,7 +146,7 @@ func TestImportOpenAPIToModule(t *testing.T) {
 	m := defaultModule(t, db, p.ID)
 
 	// 预览
-	preview, err := ie.PreviewOpenAPIImport(m.ID, openapi3Doc)
+	preview, err := ie.PreviewOpenAPIImport(m.ID, openapi3Doc, "")
 	if err != nil {
 		t.Fatalf("PreviewOpenAPIImport err=%v", err)
 	}
@@ -209,7 +209,7 @@ func TestImportOpenAPIToModule(t *testing.T) {
 	}
 
 	// 再次预览应检测到重复
-	preview2, _ := ie.PreviewOpenAPIImport(m.ID, openapi3Doc)
+	preview2, _ := ie.PreviewOpenAPIImport(m.ID, openapi3Doc, "")
 	if preview2.DuplicateCount != 2 {
 		t.Errorf("重复检测数 = %d，期望 2", preview2.DuplicateCount)
 	}
@@ -243,7 +243,7 @@ func TestImportOpenAPISelectedIndexes(t *testing.T) {
 	p := mustCreateProject(t, db, "选择导入项目")
 	m := defaultModule(t, db, p.ID)
 
-	preview, err := ie.PreviewOpenAPIImport(m.ID, openapi3Doc)
+	preview, err := ie.PreviewOpenAPIImport(m.ID, openapi3Doc, "")
 	if err != nil {
 		t.Fatalf("PreviewOpenAPIImport err=%v", err)
 	}
@@ -414,7 +414,7 @@ func TestImportOpenAPIToProjectNewModule(t *testing.T) {
 	p := mustCreateProject(t, db, "导入项目")
 
 	// 目标模块还不存在时也能预览，且不会有重复项
-	preview, err := ie.PreviewOpenAPIForProject(p.ID, "", openapi3Doc)
+	preview, err := ie.PreviewOpenAPIForProject(p.ID, "", openapi3Doc, "")
 	if err != nil {
 		t.Fatalf("PreviewOpenAPIForProject err=%v", err)
 	}
@@ -511,4 +511,110 @@ func TestImportOpenAPIToProjectSwagger2(t *testing.T) {
 	if res.Created != 2 {
 		t.Fatalf("创建接口数 = %d，期望 2", res.Created)
 	}
+}
+
+// TestOpenAPIImport_MatchModes 三档口径在 OpenAPI 侧的区别：
+// 上游改了路径但 operationId 不变时，只有按来源 ID 这一档认得出是同一条。
+func TestOpenAPIImport_MatchModes(t *testing.T) {
+	mk := func(path, summary string) string {
+		return `{"openapi":"3.0.0","info":{"title":"T","version":"1"},"paths":{"` + path + `":{
+		  "get":{"operationId":"getThing","summary":"` + summary + `","responses":{"200":{"description":"ok"}}}}}}`
+	}
+
+	t.Run("按来源 ID：改了路径仍是同一条", func(t *testing.T) {
+		db := newTestDB(t)
+		p := mustCreateProject(t, db, "oa-src")
+		m := defaultModule(t, db, p.ID)
+		ie := NewImportExportService(db)
+
+		if _, err := ie.ImportOpenAPIToModule(m.ID, mk("/old", "旧"), OpenAPIImportOptions{
+			MatchMode: MatchBySourceID, Overwrite: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		res, err := ie.ImportOpenAPIToModule(m.ID, mk("/new", "新"), OpenAPIImportOptions{
+			MatchMode: MatchBySourceID, Overwrite: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Overwritten != 1 || res.Created != 0 {
+			t.Errorf("应识别为同一条并覆盖，实际 created=%d overwritten=%d", res.Created, res.Overwritten)
+		}
+		var n int64
+		db.Model(&models.Endpoint{}).Where("module_id = ?", m.ID).Count(&n)
+		if n != 1 {
+			t.Errorf("接口数 = %d，期望 1", n)
+		}
+	})
+
+	t.Run("按方法+路径：改了路径算新接口", func(t *testing.T) {
+		db := newTestDB(t)
+		p := mustCreateProject(t, db, "oa-path")
+		m := defaultModule(t, db, p.ID)
+		ie := NewImportExportService(db)
+
+		if _, err := ie.ImportOpenAPIToModule(m.ID, mk("/old", "旧"), OpenAPIImportOptions{
+			MatchMode: MatchByMethodPath, Overwrite: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		res, err := ie.ImportOpenAPIToModule(m.ID, mk("/new", "新"), OpenAPIImportOptions{
+			MatchMode: MatchByMethodPath, Overwrite: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Created != 1 {
+			t.Errorf("路径变了应算新接口，实际 created=%d overwritten=%d", res.Created, res.Overwritten)
+		}
+	})
+
+	t.Run("按方法+路径：改了 summary 仍是同一条", func(t *testing.T) {
+		db := newTestDB(t)
+		p := mustCreateProject(t, db, "oa-summary")
+		m := defaultModule(t, db, p.ID)
+		ie := NewImportExportService(db)
+
+		if _, err := ie.ImportOpenAPIToModule(m.ID, mk("/thing", "旧标题"), OpenAPIImportOptions{
+			MatchMode: MatchByMethodPath, Overwrite: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		res, err := ie.ImportOpenAPIToModule(m.ID, mk("/thing", "新标题"), OpenAPIImportOptions{
+			MatchMode: MatchByMethodPath, Overwrite: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		// 旧口径按 method+name 匹配，改了 summary 就会重复建一条；现在按 path 匹配不会
+		if res.Overwritten != 1 || res.Created != 0 {
+			t.Errorf("改 summary 不该算新接口，实际 created=%d overwritten=%d", res.Created, res.Overwritten)
+		}
+	})
+
+	t.Run("文档没写 operationId 时按来源 ID 会自动退回方法+路径", func(t *testing.T) {
+		const noOpID = `{"openapi":"3.0.0","info":{"title":"T","version":"1"},"paths":{"/a":{
+		  "get":{"summary":"A","responses":{"200":{"description":"ok"}}}}}}`
+		db := newTestDB(t)
+		p := mustCreateProject(t, db, "oa-noid")
+		m := defaultModule(t, db, p.ID)
+		ie := NewImportExportService(db)
+
+		if _, err := ie.ImportOpenAPIToModule(m.ID, noOpID, OpenAPIImportOptions{
+			MatchMode: MatchBySourceID, Overwrite: true,
+		}); err != nil {
+			t.Fatal(err)
+		}
+		res, err := ie.ImportOpenAPIToModule(m.ID, noOpID, OpenAPIImportOptions{
+			MatchMode: MatchBySourceID, Overwrite: true,
+		})
+		if err != nil {
+			t.Fatal(err)
+		}
+		if res.Overwritten != 1 {
+			t.Errorf("没有 operationId 时应退回方法+路径并认出重复，实际 created=%d overwritten=%d",
+				res.Created, res.Overwritten)
+		}
+	})
 }

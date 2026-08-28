@@ -53,7 +53,7 @@ func TestApifoxImport(t *testing.T) {
 	project := mustCreateProject(t, db, "apifox-import")
 	svc := NewApifoxService(db)
 
-	res, err := svc.ImportApifox(project.ID, corpus, nil)
+	res, err := svc.ImportApifox(project.ID, corpus, nil, "")
 	if err != nil {
 		t.Fatalf("导入失败: %v", err)
 	}
@@ -195,7 +195,7 @@ func TestApifoxFolderTree(t *testing.T) {
 	corpus := loadCorpus(t)
 	db := newTestDB(t)
 	project := mustCreateProject(t, db, "apifox-tree")
-	if _, err := NewApifoxService(db).ImportApifox(project.ID, corpus, nil); err != nil {
+	if _, err := NewApifoxService(db).ImportApifox(project.ID, corpus, nil, ""); err != nil {
 		t.Fatalf("导入失败: %v", err)
 	}
 	tree, err := NewProjectService(db).GetProjectTree(project.ID)
@@ -288,7 +288,7 @@ func TestApifoxSelectiveImport(t *testing.T) {
 			}
 		}
 	}
-	if _, err := svc.ImportApifox(project.ID, corpus, selected); err != nil {
+	if _, err := svc.ImportApifox(project.ID, corpus, selected, ""); err != nil {
 		t.Fatalf("选择性导入失败: %v", err)
 	}
 	// 仅应有 3 个接口端点被创建
@@ -330,7 +330,7 @@ const apifoxProjectFixture = `{
 // 且新项目里不该出现 CreateProject 预置的「默认模块 / 测试环境 / 正式环境」空壳。
 func TestApifoxImportAsProject_DefaultName(t *testing.T) {
 	db := newTestDB(t)
-	res, err := NewApifoxService(db).ImportApifoxAsProject("", apifoxProjectFixture, nil)
+	res, err := NewApifoxService(db).ImportApifoxAsProject("", apifoxProjectFixture, nil, "")
 	if err != nil {
 		t.Fatalf("导入为新项目失败: %v", err)
 	}
@@ -367,7 +367,7 @@ func TestApifoxImportAsProject_DefaultName(t *testing.T) {
 // TestApifoxImportAsProject_Rename 传了名字就用传的名字。
 func TestApifoxImportAsProject_Rename(t *testing.T) {
 	db := newTestDB(t)
-	res, err := NewApifoxService(db).ImportApifoxAsProject("  我改的名字  ", apifoxProjectFixture, nil)
+	res, err := NewApifoxService(db).ImportApifoxAsProject("  我改的名字  ", apifoxProjectFixture, nil, "")
 	if err != nil {
 		t.Fatalf("导入为新项目失败: %v", err)
 	}
@@ -379,7 +379,7 @@ func TestApifoxImportAsProject_Rename(t *testing.T) {
 // TestApifoxImportAsProject_NoNameFallback 名字与 $.info.name 都为空时兜底。
 func TestApifoxImportAsProject_NoNameFallback(t *testing.T) {
 	db := newTestDB(t)
-	res, err := NewApifoxService(db).ImportApifoxAsProject("", `{"apifoxProject":"1.0.0","info":{"name":""}}`, nil)
+	res, err := NewApifoxService(db).ImportApifoxAsProject("", `{"apifoxProject":"1.0.0","info":{"name":""}}`, nil, "")
 	if err != nil {
 		t.Fatalf("导入为新项目失败: %v", err)
 	}
@@ -391,7 +391,7 @@ func TestApifoxImportAsProject_NoNameFallback(t *testing.T) {
 // TestApifoxImportAsProject_RejectsNonApifox 非 Apifox 文件应直接报错，且不留下空项目。
 func TestApifoxImportAsProject_RejectsNonApifox(t *testing.T) {
 	db := newTestDB(t)
-	if _, err := NewApifoxService(db).ImportApifoxAsProject("x", `{"info":{"name":"n"}}`, nil); err == nil {
+	if _, err := NewApifoxService(db).ImportApifoxAsProject("x", `{"info":{"name":"n"}}`, nil, ""); err == nil {
 		t.Fatal("非 Apifox 文件应报错")
 	}
 	var n int64
@@ -413,7 +413,7 @@ func TestApifoxImportAsProject_Selective(t *testing.T) {
 		t.Fatalf("预览项数 = %d，期望 1", len(preview.Items))
 	}
 	// 传一个不存在的下标 = 一个都不选
-	res, err := svc.ImportApifoxAsProject("空导入", apifoxProjectFixture, []int{999})
+	res, err := svc.ImportApifoxAsProject("空导入", apifoxProjectFixture, []int{999}, "")
 	if err != nil {
 		t.Fatalf("导入失败: %v", err)
 	}
@@ -487,7 +487,7 @@ func TestApifoxImport_EmptyFolders(t *testing.T) {
 	db := newTestDB(t)
 	p := mustCreateProject(t, db, "empty-folders")
 
-	if _, err := NewApifoxService(db).ImportApifox(p.ID, apifoxEmptyFolderFixture, nil); err != nil {
+	if _, err := NewApifoxService(db).ImportApifox(p.ID, apifoxEmptyFolderFixture, nil, ""); err != nil {
 		t.Fatalf("导入失败: %v", err)
 	}
 
@@ -520,7 +520,7 @@ func TestApifoxImport_EmptyFoldersSkippedOnPartialImport(t *testing.T) {
 	p := mustCreateProject(t, db, "empty-folders-partial")
 
 	// 传一个不存在的下标 = 一个叶子都没选中
-	if _, err := NewApifoxService(db).ImportApifox(p.ID, apifoxEmptyFolderFixture, []int{999}); err != nil {
+	if _, err := NewApifoxService(db).ImportApifox(p.ID, apifoxEmptyFolderFixture, []int{999}, ""); err != nil {
 		t.Fatalf("导入失败: %v", err)
 	}
 	var n int64
@@ -578,7 +578,7 @@ func TestApifoxImport_Idempotent(t *testing.T) {
 
 	once := newTestDB(t)
 	p1 := mustCreateProject(t, once, "import-once")
-	if _, err := NewApifoxService(once).ImportApifox(p1.ID, corpus, nil); err != nil {
+	if _, err := NewApifoxService(once).ImportApifox(p1.ID, corpus, nil, ""); err != nil {
 		t.Fatalf("首次导入失败: %v", err)
 	}
 	want := countAll(t, once, p1.ID)
@@ -587,7 +587,7 @@ func TestApifoxImport_Idempotent(t *testing.T) {
 	p2 := mustCreateProject(t, twice, "import-twice")
 	svc := NewApifoxService(twice)
 	for i := range 2 {
-		if _, err := svc.ImportApifox(p2.ID, corpus, nil); err != nil {
+		if _, err := svc.ImportApifox(p2.ID, corpus, nil, ""); err != nil {
 			t.Fatalf("第 %d 次导入失败: %v", i+1, err)
 		}
 	}
@@ -608,7 +608,7 @@ func TestApifoxImport_MergeKeepsEndpointID(t *testing.T) {
 	p := mustCreateProject(t, db, "merge-id")
 	svc := NewApifoxService(db)
 
-	if _, err := svc.ImportApifox(p.ID, apifoxEmptyFolderFixture, nil); err != nil {
+	if _, err := svc.ImportApifox(p.ID, apifoxEmptyFolderFixture, nil, ""); err != nil {
 		t.Fatalf("首次导入失败: %v", err)
 	}
 	var before models.Endpoint
@@ -622,7 +622,7 @@ func TestApifoxImport_MergeKeepsEndpointID(t *testing.T) {
 		t.Fatalf("建历史失败: %v", err)
 	}
 
-	if _, err := svc.ImportApifox(p.ID, apifoxEmptyFolderFixture, nil); err != nil {
+	if _, err := svc.ImportApifox(p.ID, apifoxEmptyFolderFixture, nil, ""); err != nil {
 		t.Fatalf("再次导入失败: %v", err)
 	}
 	var after []models.Endpoint
@@ -667,10 +667,10 @@ func TestApifoxImport_MergeRefreshesContent(t *testing.T) {
       ] } ]
     }`
 
-	if _, err := svc.ImportApifox(p.ID, v1, nil); err != nil {
+	if _, err := svc.ImportApifox(p.ID, v1, nil, ""); err != nil {
 		t.Fatalf("导入 v1 失败: %v", err)
 	}
-	if _, err := svc.ImportApifox(p.ID, v2, nil); err != nil {
+	if _, err := svc.ImportApifox(p.ID, v2, nil, ""); err != nil {
 		t.Fatalf("导入 v2 失败: %v", err)
 	}
 
@@ -708,7 +708,7 @@ func TestApifoxImport_SamePathDistinctEndpoints(t *testing.T) {
 	p := mustCreateProject(t, db, "same-path")
 	svc := NewApifoxService(db)
 
-	if _, err := svc.ImportApifox(p.ID, fixture, nil); err != nil {
+	if _, err := svc.ImportApifox(p.ID, fixture, nil, ""); err != nil {
 		t.Fatalf("首次导入失败: %v", err)
 	}
 	var eps []models.Endpoint
@@ -722,7 +722,7 @@ func TestApifoxImport_SamePathDistinctEndpoints(t *testing.T) {
 	}
 
 	// 再导一次仍是 2 条，且各自对上原来那条
-	if _, err := svc.ImportApifox(p.ID, fixture, nil); err != nil {
+	if _, err := svc.ImportApifox(p.ID, fixture, nil, ""); err != nil {
 		t.Fatalf("再次导入失败: %v", err)
 	}
 	var again []models.Endpoint
@@ -736,5 +736,189 @@ func TestApifoxImport_SamePathDistinctEndpoints(t *testing.T) {
 	}
 	if again[0].Name != "登录-手机" || again[1].Name != "登录-邮箱" {
 		t.Errorf("重复导入后接口名错位 = %v", []string{again[0].Name, again[1].Name})
+	}
+}
+
+// twinsFixture 两条 method+path 相同、只有名字与参数不同的接口。
+// order 参数决定它们在文件里的先后，用来模拟上游调整顺序。
+func twinsFixture(phoneFirst bool) string {
+	phone := `{ "api": { "id": 10, "name": "登录-手机", "method": "post", "path": "/login",
+		"parameters": { "query": [ { "name": "by", "value": "phone" } ] } } }`
+	email := `{ "api": { "id": 11, "name": "登录-邮箱", "method": "post", "path": "/login",
+		"parameters": { "query": [ { "name": "by", "value": "email" } ] } } }`
+	first, second := phone, email
+	if !phoneFirst {
+		first, second = email, phone
+	}
+	return `{ "apifoxProject": "1.0.0", "info": { "name": "P" },
+	  "moduleSettings": [ { "id": "1", "name": "M" } ],
+	  "apiCollection": [ { "name": "根目录", "moduleId": 1, "items": [ ` + first + `, ` + second + ` ] } ] }`
+}
+
+// paramOf 返回某接口第一个参数的值，便于断言「哪套参数落到了哪条记录上」。
+func paramOf(t *testing.T, db *gorm.DB, endpointID string) string {
+	t.Helper()
+	var ps []models.EndpointParam
+	db.Where("endpoint_id = ?", endpointID).Find(&ps)
+	if len(ps) == 0 {
+		return ""
+	}
+	return ps[0].Value
+}
+
+// TestApifoxImport_MatchByMethodPath_SwapsOnReorder 记录「按方法+路径」这一档的已知局限：
+// 两条接口在 method+path 上完全无法区分时，只能按位置配对，上游一调顺序内容就串位。
+// 这正是另外两档存在的理由。
+func TestApifoxImport_MatchByMethodPath_SwapsOnReorder(t *testing.T) {
+	db := newTestDB(t)
+	p := mustCreateProject(t, db, "swap")
+	svc := NewApifoxService(db)
+
+	if _, err := svc.ImportApifox(p.ID, twinsFixture(true), nil, MatchByMethodPath); err != nil {
+		t.Fatal(err)
+	}
+	var eps []models.Endpoint
+	db.Where("path = ?", "/login").Order("sort_order ASC").Find(&eps)
+	if len(eps) != 2 {
+		t.Fatalf("接口数 = %d，期望 2", len(eps))
+	}
+	first := eps[0].ID
+	if got := paramOf(t, db, first); got != "phone" {
+		t.Fatalf("首次导入第一条的参数 = %q，期望 phone", got)
+	}
+
+	// 上游调换顺序后重新导入：数量仍对，但两条的参数互换了
+	if _, err := svc.ImportApifox(p.ID, twinsFixture(false), nil, MatchByMethodPath); err != nil {
+		t.Fatal(err)
+	}
+	if got := paramOf(t, db, first); got != "email" {
+		t.Errorf("按方法+路径匹配时，调换顺序后第一条应拿到 email（已知局限），实际 %q", got)
+	}
+}
+
+// TestApifoxImport_MatchBySourceID_SurvivesReorder 按来源 ID 匹配时，
+// 上游怎么调顺序都不会串位——这是默认档。
+func TestApifoxImport_MatchBySourceID_SurvivesReorder(t *testing.T) {
+	db := newTestDB(t)
+	p := mustCreateProject(t, db, "byid")
+	svc := NewApifoxService(db)
+
+	if _, err := svc.ImportApifox(p.ID, twinsFixture(true), nil, MatchBySourceID); err != nil {
+		t.Fatal(err)
+	}
+	var phone models.Endpoint
+	if err := db.Where("name = ?", "登录-手机").First(&phone).Error; err != nil {
+		t.Fatalf("未找到「登录-手机」: %v", err)
+	}
+	if phone.SourceID != "10" || phone.Source != EndpointSourceApifox {
+		t.Errorf("来源标识未落库: source=%q sourceId=%q", phone.Source, phone.SourceID)
+	}
+
+	if _, err := svc.ImportApifox(p.ID, twinsFixture(false), nil, MatchBySourceID); err != nil {
+		t.Fatal(err)
+	}
+	var eps []models.Endpoint
+	db.Where("path = ?", "/login").Find(&eps)
+	if len(eps) != 2 {
+		t.Fatalf("接口数 = %d，期望 2", len(eps))
+	}
+	var after models.Endpoint
+	db.Where("id = ?", phone.ID).First(&after)
+	if after.Name != "登录-手机" {
+		t.Errorf("同一条记录的名字变了：%q，按来源 ID 匹配不该串位", after.Name)
+	}
+	if got := paramOf(t, db, phone.ID); got != "phone" {
+		t.Errorf("参数 = %q，期望仍是 phone", got)
+	}
+}
+
+// TestApifoxImport_MatchByMethodPathName 名称参与匹配时，同路径不同名的两条各认各的。
+func TestApifoxImport_MatchByMethodPathName(t *testing.T) {
+	db := newTestDB(t)
+	p := mustCreateProject(t, db, "bypathname")
+	svc := NewApifoxService(db)
+
+	if _, err := svc.ImportApifox(p.ID, twinsFixture(true), nil, MatchByMethodPathName); err != nil {
+		t.Fatal(err)
+	}
+	var phone models.Endpoint
+	db.Where("name = ?", "登录-手机").First(&phone)
+
+	if _, err := svc.ImportApifox(p.ID, twinsFixture(false), nil, MatchByMethodPathName); err != nil {
+		t.Fatal(err)
+	}
+	var n int64
+	db.Model(&models.Endpoint{}).Where("path = ?", "/login").Count(&n)
+	if n != 2 {
+		t.Fatalf("接口数 = %d，期望 2", n)
+	}
+	if got := paramOf(t, db, phone.ID); got != "phone" {
+		t.Errorf("参数 = %q，期望仍是 phone（按名称配对不会串位）", got)
+	}
+}
+
+// TestApifoxImport_SourceIDSurvivesRenameAndPathChange 来源 ID 不变时，
+// 上游改名、改路径都应认得出是同一条，而不是再建一条。
+func TestApifoxImport_SourceIDSurvivesRenameAndPathChange(t *testing.T) {
+	mk := func(name, path string) string {
+		return `{ "apifoxProject": "1.0.0", "info": { "name": "P" },
+		  "moduleSettings": [ { "id": "1", "name": "M" } ],
+		  "apiCollection": [ { "name": "根目录", "moduleId": 1, "items": [
+		    { "api": { "id": 42, "name": "` + name + `", "method": "get", "path": "` + path + `" } }
+		  ] } ] }`
+	}
+	db := newTestDB(t)
+	p := mustCreateProject(t, db, "rename")
+	svc := NewApifoxService(db)
+
+	if _, err := svc.ImportApifox(p.ID, mk("旧名", "/old"), nil, MatchBySourceID); err != nil {
+		t.Fatal(err)
+	}
+	var before models.Endpoint
+	db.Where("source_id = ?", "42").First(&before)
+
+	if _, err := svc.ImportApifox(p.ID, mk("新名", "/new"), nil, MatchBySourceID); err != nil {
+		t.Fatal(err)
+	}
+	var eps []models.Endpoint
+	db.Where("module_id = ?", before.ModuleID).Find(&eps)
+	if len(eps) != 1 {
+		t.Fatalf("接口数 = %d，期望 1（改名改路径仍是同一条）", len(eps))
+	}
+	if eps[0].ID != before.ID || eps[0].Name != "新名" || eps[0].Path != "/new" {
+		t.Errorf("应原地更新为 新名 /new，实际 id=%v name=%q path=%q",
+			eps[0].ID == before.ID, eps[0].Name, eps[0].Path)
+	}
+}
+
+// TestApifoxImport_AdoptsRecordsWithoutSourceID 加来源 ID 之前导进来的老记录，
+// 首次按来源 ID 重新导入时应被认领并补写标识，而不是重复建一条。
+func TestApifoxImport_AdoptsRecordsWithoutSourceID(t *testing.T) {
+	db := newTestDB(t)
+	p := mustCreateProject(t, db, "adopt")
+	svc := NewApifoxService(db)
+
+	if _, err := svc.ImportApifox(p.ID, apifoxEmptyFolderFixture, nil, MatchByMethodPath); err != nil {
+		t.Fatal(err)
+	}
+	var before models.Endpoint
+	db.Where("path = ?", "/orders").First(&before)
+	// 抹掉来源标识，模拟「升级前导入的老数据」
+	db.Model(&models.Endpoint{}).Where("id = ?", before.ID).
+		Updates(map[string]any{"source": "", "source_id": ""})
+
+	if _, err := svc.ImportApifox(p.ID, apifoxEmptyFolderFixture, nil, MatchBySourceID); err != nil {
+		t.Fatal(err)
+	}
+	var eps []models.Endpoint
+	db.Where("path = ?", "/orders").Find(&eps)
+	if len(eps) != 1 {
+		t.Fatalf("接口数 = %d，期望 1（老记录应被认领而非重建）", len(eps))
+	}
+	if eps[0].ID != before.ID {
+		t.Errorf("端点 ID 变了，说明是重建而非认领")
+	}
+	if eps[0].SourceID == "" {
+		t.Errorf("认领后应补写来源 ID，实际为空")
 	}
 }

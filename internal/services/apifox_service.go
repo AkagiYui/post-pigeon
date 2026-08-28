@@ -253,6 +253,7 @@ type apifoxDocRoot struct {
 }
 
 type apifoxDoc struct {
+	ID       flexStr     `json:"id"`
 	Name     string      `json:"name"`
 	Content  string      `json:"content"`
 	ModuleID flexStr     `json:"moduleId"`
@@ -265,6 +266,7 @@ type apifoxRequestRoot struct {
 }
 
 type apifoxRequestItem struct {
+	ID          flexStr           `json:"id"`
 	Name        string            `json:"name"`
 	Method      string            `json:"method"`
 	Path        string            `json:"path"`
@@ -359,6 +361,8 @@ type importCtx struct {
 	orderIn     map[string]int    // 端点所在容器 -> 下一个 sortOrder（容器 = moduleID|folderID）
 	moduleInit  map[string]bool   // apifoxModuleID 是否已应用模块级认证/操作/前置URL
 	rootByMod   map[string]apifoxCollectionRoot
+	// matchMode 本次导入的重复判定口径
+	matchMode ImportMatchMode
 	// claimed 记录本次导入已经写过的端点 ID。同一份文件里允许存在多个
 	// method+path 相同、只是名字不同的接口（如「登录-手机」「登录-邮箱」），
 	// 它们必须各自对应一条记录，不能都去认领同一个已有端点。
@@ -641,7 +645,9 @@ type ApifoxProjectImportResult struct {
 
 // ImportApifox 将 Apifox 导出内容导入到指定项目。
 // selectedIndexes 为空时导入全部叶子，否则仅导入对应下标的叶子（对应预览列表 Item.Index）。
-func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedIndexes []int) (*ApifoxImportResult, error) {
+// matchMode 见 ImportMatchMode；传空串按 MatchBySourceID 处理（Apifox 导出必带接口 ID，
+// 精确匹配是这里最合适的默认）。
+func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedIndexes []int, matchMode string) (*ApifoxImportResult, error) {
 	exp, err := parseApifoxExport(jsonStr)
 	if err != nil {
 		return nil, err
@@ -658,7 +664,7 @@ func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedI
 
 	result := &ApifoxImportResult{}
 	err = s.db.Transaction(func(tx *gorm.DB) error {
-		return importApifoxInto(tx, projectID, &exp, selectedIndexes, result)
+		return importApifoxInto(tx, projectID, &exp, selectedIndexes, matchMode, result)
 	})
 	if err != nil {
 		return nil, err
@@ -674,7 +680,7 @@ func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedI
 // 与 CreateProject 不同，这里不预置「默认模块 / 测试环境 / 正式环境」：
 // 模块与环境都应来自导出文件，预置的那几个只会变成需要用户手动清理的空壳。
 // 这与 ImportExportService.ImportProject（导入本项目自己的导出格式）口径一致。
-func (s *ApifoxService) ImportApifoxAsProject(name string, jsonStr string, selectedIndexes []int) (*ApifoxProjectImportResult, error) {
+func (s *ApifoxService) ImportApifoxAsProject(name string, jsonStr string, selectedIndexes []int, matchMode string) (*ApifoxProjectImportResult, error) {
 	exp, err := parseApifoxExport(jsonStr)
 	if err != nil {
 		return nil, err
@@ -697,7 +703,7 @@ func (s *ApifoxService) ImportApifoxAsProject(name string, jsonStr string, selec
 		if err := tx.Create(project).Error; err != nil {
 			return fmt.Errorf("创建项目失败: %w", err)
 		}
-		return importApifoxInto(tx, project.ID, &exp, selectedIndexes, stats)
+		return importApifoxInto(tx, project.ID, &exp, selectedIndexes, matchMode, stats)
 	})
 	if err != nil {
 		return nil, err
@@ -715,7 +721,7 @@ func assertApifoxExport(exp *apifoxExport) error {
 }
 
 // importApifoxInto 在给定事务里把导出内容写进 projectID 指向的项目，统计写入 result。
-func importApifoxInto(tx *gorm.DB, projectID string, exp *apifoxExport, selectedIndexes []int, result *ApifoxImportResult) error {
+func importApifoxInto(tx *gorm.DB, projectID string, exp *apifoxExport, selectedIndexes []int, matchMode string, result *ApifoxImportResult) error {
 	ic := &importCtx{
 		tx:          tx,
 		projectID:   projectID,
@@ -732,6 +738,7 @@ func importApifoxInto(tx *gorm.DB, projectID string, exp *apifoxExport, selected
 		moduleInit:  map[string]bool{},
 		rootByMod:   map[string]apifoxCollectionRoot{},
 		claimed:     map[string]bool{},
+		matchMode:   normalizeMatchMode(matchMode, MatchBySourceID),
 		rootFolder:  map[string]string{},
 		environs:    exp.Environments,
 	}
@@ -954,37 +961,12 @@ func (ic *importCtx) importModuleOperations(moduleID string, pre, post []apifoxP
 // upsertEndpoint 把一个端点写进项目：同容器里已有「同一个接口」就原地更新，否则新建。
 // 返回端点 ID 与是否为新建（新建才计入统计）。
 //
-// 何为「同一个接口」：同模块 + 同目录 + 同类型，再加上
-//   - 文档：同名称（文档没有 method/path 可比）
-//   - 其余：同 method + 同 path（改了名字仍认得出是它，这是接口更稳定的身份）
+// 何为「同一个接口」由 ic.matchMode 决定，见 findExistingEndpoint。
 //
 // 命中时保留原端点 ID，请求历史与已保存的响应因此不会因为重新导入而失联；
 // 内容则以导出文件为准整体覆盖，重新导入才能起到「同步上游改动」的作用。
 func (ic *importCtx) upsertEndpoint(ep *models.Endpoint) (string, bool) {
-	q := ic.tx.Where("module_id = ? AND type = ?", ep.ModuleID, ep.Type)
-	if ep.FolderID == nil {
-		q = q.Where("folder_id IS NULL")
-	} else {
-		q = q.Where("folder_id = ?", *ep.FolderID)
-	}
-	if ep.Type == string(models.EndpointTypeDoc) {
-		q = q.Where("name = ?", ep.Name)
-	} else {
-		q = q.Where("method = ? AND path = ?", ep.Method, ep.Path)
-	}
-
-	// 取全部候选而不是 First：同容器里可能有多条 method+path 相同的接口，
-	// 本次已认领过的要跳过，让后一条源接口去认下一个，避免它们被合并成一条。
-	var candidates []models.Endpoint
-	q.Order("sort_order ASC, id ASC").Find(&candidates)
-	var existing models.Endpoint
-	found := false
-	for _, c := range candidates {
-		if !ic.claimed[c.ID] {
-			existing, found = c, true
-			break
-		}
-	}
+	existing, found := ic.findExistingEndpoint(ep)
 	if !found {
 		ic.tx.Create(ep)
 		ic.claimed[ep.ID] = true
@@ -994,14 +976,66 @@ func (ic *importCtx) upsertEndpoint(ep *models.Endpoint) (string, bool) {
 
 	// 原地更新：只覆盖导出文件描述得了的字段。代理 / TLS / 超时 / 跟随重定向
 	// 这些本地调试设置 Apifox 侧没有对应概念，保留用户自己调好的值。
+	// source/source_id 一并写上：老库里的记录是按路径认领来的，补上标识后
+	// 下次就能走精确匹配了。
 	ic.tx.Model(&existing).Updates(map[string]any{
 		"name": ep.Name, "method": ep.Method, "path": ep.Path,
 		"body_type": ep.BodyType, "body_content": ep.BodyContent, "content_type": ep.ContentType,
 		"doc_content": ep.DocContent, "status": ep.Status, "tags": ep.Tags,
 		"description": ep.Description, "sort_order": ep.SortOrder,
+		"source": ep.Source, "source_id": ep.SourceID,
 	})
 	ic.clearEndpointChildren(existing.ID)
 	return existing.ID, false
+}
+
+// findExistingEndpoint 在同模块 + 同目录 + 同类型的范围内找「还是那条接口」。
+//
+// 按来源 ID 匹配时，落空不代表就是新接口——库里可能是「加来源 ID 之前导进来的」旧记录，
+// 于是退回方法+路径去认领它（只认还没有来源 ID、或来源 ID 正是自己的那些，
+// 免得把另一条上游接口的记录抢过来），认领后 upsertEndpoint 会把标识补写上。
+func (ic *importCtx) findExistingEndpoint(ep *models.Endpoint) (models.Endpoint, bool) {
+	scope := func() *gorm.DB {
+		q := ic.tx.Where("module_id = ? AND type = ?", ep.ModuleID, ep.Type)
+		if ep.FolderID == nil {
+			return q.Where("folder_id IS NULL")
+		}
+		return q.Where("folder_id = ?", *ep.FolderID)
+	}
+
+	if ic.matchMode == MatchBySourceID && ep.SourceID != "" {
+		if e, ok := ic.firstUnclaimed(scope().Where("source = ? AND source_id = ?", ep.Source, ep.SourceID)); ok {
+			return e, true
+		}
+		return ic.firstUnclaimed(scope().
+			Where("source_id IS NULL OR source_id = '' OR source_id = ?", ep.SourceID))
+	}
+
+	q := scope()
+	if ep.Type == string(models.EndpointTypeDoc) {
+		q = q.Where("name = ?", ep.Name)
+	} else {
+		q = q.Where("method = ? AND path = ?", ep.Method, ep.Path)
+		if ic.matchMode == MatchByMethodPathName {
+			q = q.Where("name = ?", ep.Name)
+		}
+	}
+	return ic.firstUnclaimed(q)
+}
+
+// firstUnclaimed 取候选里第一个本次尚未认领的端点。
+//
+// 不用 First 而是取全部再筛：同一容器里可能有多条 method+path 相同、只是名字不同的接口
+// （如「登录-手机」「登录-邮箱」），它们必须各自对应一条记录，不能都去认领同一个。
+func (ic *importCtx) firstUnclaimed(q *gorm.DB) (models.Endpoint, bool) {
+	var candidates []models.Endpoint
+	q.Order("sort_order ASC, id ASC").Find(&candidates)
+	for _, c := range candidates {
+		if !ic.claimed[c.ID] {
+			return c, true
+		}
+	}
+	return models.Endpoint{}, false
 }
 
 // clearEndpointChildren 清掉端点上「由导入写入」的子数据，供覆盖前置空。
@@ -1028,6 +1062,8 @@ func (ic *importCtx) createAPIEndpoint(moduleID string, folderID *string, name s
 		FolderID:          folderID,
 		Name:              defaultStr(name, defaultStr(api.Name, api.Path)),
 		Type:              string(models.EndpointTypeHTTP),
+		Source:            EndpointSourceApifox,
+		SourceID:          api.ID.String(),
 		Method:            strings.ToUpper(defaultStr(api.Method, "GET")),
 		Path:              api.Path,
 		BodyType:          bodyType,
@@ -1060,6 +1096,7 @@ func (ic *importCtx) createWSEndpoint(moduleID string, folderID *string, name st
 	ep := models.Endpoint{
 		ModuleID: moduleID, FolderID: folderID, Name: defaultStr(name, api.Path),
 		Type: string(models.EndpointTypeWebSocket), Method: "GET", Path: api.Path,
+		Source: EndpointSourceApifox, SourceID: api.ID.String(),
 		Timeout: 30000, InheritOperations: true, SortOrder: sortOrder,
 	}
 	if _, created := ic.upsertEndpoint(&ep); created {
@@ -1075,6 +1112,7 @@ func (ic *importCtx) createDocEndpoint(moduleID string, folderID *string, doc *a
 	ep := models.Endpoint{
 		ModuleID: moduleID, FolderID: folderID, Name: defaultStr(doc.Name, "文档"),
 		Type: string(models.EndpointTypeDoc), Method: "GET", Path: "/",
+		Source: EndpointSourceApifox, SourceID: doc.ID.String(),
 		DocContent: doc.Content, SortOrder: sortOrder, InheritOperations: false,
 	}
 	if _, created := ic.upsertEndpoint(&ep); created {
@@ -1183,6 +1221,7 @@ func (ic *importCtx) createRequestEndpoint(moduleID string, folderID *string, it
 	ep := models.Endpoint{
 		ModuleID: moduleID, FolderID: folderID, Name: defaultStr(item.Name, item.Path),
 		Type: string(models.EndpointTypeHTTP), Method: strings.ToUpper(defaultStr(item.Method, "GET")),
+		Source: EndpointSourceApifox, SourceID: item.ID.String(),
 		Path: item.Path, BodyType: bodyType, BodyContent: bodyContent, ContentType: contentType,
 		Timeout: 30000, InheritOperations: true, SortOrder: sortOrder,
 	}

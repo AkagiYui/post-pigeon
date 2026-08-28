@@ -78,6 +78,12 @@ type Endpoint struct {
 	Description string `gorm:"type:text" json:"description"`
 	// InheritOperations 是否继承上级（文件夹/模块）的前置后置操作，默认继承
 	InheritOperations bool `gorm:"default:true" json:"inheritOperations"`
+	// Source 这条接口是从哪种格式导入的：apifox / openapi / postman，空表示手工创建。
+	// SourceID 是它在来源系统里的稳定标识（Apifox 的接口 ID、OpenAPI 的 operationId）。
+	// 两者一起构成来源命名空间——不同格式的 ID 不在一个空间里，必须连 Source 一起比。
+	// 重复导入时可据此精确认出「还是那条接口」，改名、改路径、挪目录都不影响。
+	Source   string `gorm:"index" json:"source"`
+	SourceID string `gorm:"index" json:"sourceId"`
 	// DisabledGlobalParams 本接口禁用的全局(模块)查询参数名列表，JSON 字符串数组。
 	// 仅影响本接口是否附加对应的模块自动参数，不改变模块级参数自身的启用状态。
 	DisabledGlobalParams string `gorm:"type:text" json:"disabledGlobalParams"`

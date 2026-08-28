@@ -45,6 +45,34 @@ function SelectAllRow(props: {
   )
 }
 
+/** 重复判定口径。取值与后端 services.ImportMatchMode 一致 */
+export type MatchMode = "sourceId" | "methodPath" | "methodPathName"
+
+/** MatchModeSelect 选择「什么算同一条接口」，Apifox 与 OpenAPI 两个导入框共用 */
+function MatchModeSelect(props: {
+  value: MatchMode
+  onChange: (v: MatchMode) => void
+  /** 提示文案按格式区分：两种格式的来源 ID 不是一回事 */
+  kind: "apifox" | "openapi"
+}) {
+  return (
+    <div class="shrink-0 flex flex-col gap-1.5">
+      <span class="text-xs font-medium text-muted-foreground">{t("import.matchLabel")}</span>
+      <Select
+        size="sm"
+        value={props.value}
+        onChange={(v) => props.onChange(v as MatchMode)}
+        options={[
+          { value: "sourceId", label: t("import.match.sourceId") },
+          { value: "methodPath", label: t("import.match.methodPath") },
+          { value: "methodPathName", label: t("import.match.methodPathName") },
+        ]}
+      />
+      <span class="text-[11px] text-muted-foreground">{t(`import.match.hint.${props.kind}`)}</span>
+    </div>
+  )
+}
+
 /** 切换集合中的一项，返回新集合（保持 Set 的不可变更新语义） */
 function toggleIndex(current: Set<number>, index: number, checked: boolean): Set<number> {
   const next = new Set(current)
@@ -81,6 +109,8 @@ export function OpenAPIImportDialog(props: OpenAPIImportDialogProps) {
   /** 导入目标模块；空串表示「新建模块」 */
   const [targetModuleId, setTargetModuleId] = createSignal("")
   const [newModuleName, setNewModuleName] = createSignal("")
+  // OpenAPI 默认按方法+路径：operationId 是可选字段，实测很多导出根本不写
+  const [matchMode, setMatchMode] = createSignal<MatchMode>("methodPath")
 
   /** 目标模块可选时才显示选择器 */
   const canChooseModule = () => !props.moduleId
@@ -98,17 +128,18 @@ export function OpenAPIImportDialog(props: OpenAPIImportDialogProps) {
     setImportServers(true)
     setNewModuleName("")
     setTargetModuleId(props.moduleId ?? "")
+    setMatchMode("methodPath")
   }))
 
   // 换目标模块要重新预览：重复项是相对目标模块算出来的
   let previewSeq = 0
-  createEffect(on(() => [props.open, props.json, targetModuleId()] as const, async ([open, json, moduleId]) => {
+  createEffect(on(() => [props.open, props.json, targetModuleId(), matchMode()] as const, async ([open, json, moduleId, mode]) => {
     if (!open || !json) return
     const seq = ++previewSeq
     setError("")
     setPreview(null)
     try {
-      const result = await ImportExportService.PreviewOpenAPIForProject(props.projectId, moduleId, json)
+      const result = await ImportExportService.PreviewOpenAPIForProject(props.projectId, moduleId, json, mode)
       // 期间又换了一次目标模块，这次的结果已经过期
       if (seq !== previewSeq) return
       setPreview(result)
@@ -133,6 +164,7 @@ export function OpenAPIImportDialog(props: OpenAPIImportDialogProps) {
         overwriteModuleName: !!targetModuleId() && overwriteModuleName(),
         importServers: importServers(),
         selectedIndexes: Array.from(selected()),
+        matchMode: matchMode(),
       })
       props.onClose()
       toastSuccess(t("importexport.imported"))
@@ -180,8 +212,9 @@ export function OpenAPIImportDialog(props: OpenAPIImportDialogProps) {
               <div class="shrink-0 text-sm text-muted-foreground">
                 {t("openapi.summary", { total: data().total, dup: data().duplicateCount })}
               </div>
-              {/* 导入选项：模块名称、环境与前置 URL */}
+              {/* 导入选项：重复判定口径、模块名称、环境与前置 URL */}
               <div class="shrink-0 flex flex-col gap-2 border border-border rounded-md p-3">
+                <MatchModeSelect value={matchMode()} onChange={setMatchMode} kind="openapi" />
                 <Show when={!!targetModuleId() && data().moduleName && data().moduleName !== data().currentModuleName}>
                   <label class="flex items-center gap-2 text-sm cursor-pointer">
                     <Checkbox checked={overwriteModuleName()} onChange={(e) => setOverwriteModuleName(e.currentTarget.checked)} />
@@ -297,6 +330,8 @@ export function ApifoxImportDialog(props: ApifoxImportDialogProps) {
   const [error, setError] = createSignal("")
   /** 「导入为新项目」时的项目名，默认取导出文件的 $.info.name */
   const [projectName, setProjectName] = createSignal("")
+  // Apifox 默认按来源 ID：导出文件必带接口 ID，精确匹配最合适
+  const [matchMode, setMatchMode] = createSignal<MatchMode>("sourceId")
 
   /** 没给目标项目 = 建新项目 */
   const createsProject = () => !props.projectId
@@ -306,6 +341,7 @@ export function ApifoxImportDialog(props: ApifoxImportDialogProps) {
     setError("")
     setPreview(null)
     setProjectName("")
+    setMatchMode("sourceId")
     try {
       const result = await ApifoxService.PreviewApifox(json)
       // 非 Apifox 导出文件要明确提示，否则用户只会看到一份空预览
@@ -328,9 +364,9 @@ export function ApifoxImportDialog(props: ApifoxImportDialogProps) {
     try {
       const projectId = props.projectId
       if (projectId) {
-        await ApifoxService.ImportApifox(projectId, props.json, Array.from(selected()))
+        await ApifoxService.ImportApifox(projectId, props.json, Array.from(selected()), matchMode())
       } else {
-        await ApifoxService.ImportApifoxAsProject(projectName().trim(), props.json, Array.from(selected()))
+        await ApifoxService.ImportApifoxAsProject(projectName().trim(), props.json, Array.from(selected()), matchMode())
       }
       props.onClose()
       toastSuccess(t("importexport.imported"))
@@ -405,7 +441,10 @@ export function ApifoxImportDialog(props: ApifoxImportDialogProps) {
                   )}
                 </For>
               </div>
-              <p class="text-xs text-muted-foreground shrink-0">{t("apifox.dedupHint")}</p>
+              <div class="shrink-0 border border-border rounded-md p-3 flex flex-col gap-2">
+                <MatchModeSelect value={matchMode()} onChange={setMatchMode} kind="apifox" />
+                <p class="text-xs text-muted-foreground">{t("apifox.dedupHint")}</p>
+              </div>
             </>
           )}
         </Show>

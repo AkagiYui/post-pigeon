@@ -61,20 +61,21 @@ func TestNoPendingMigrationSkipsBackup(t *testing.T) {
 // TestPendingMigrationCreatesBackup 有待应用迁移时应先备份，且备份里保留着迁移前的数据。
 func TestPendingMigrationCreatesBackup(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "pending.db")
-	db, err := Initialize(dbPath)
+
+	// 老老实实迁到「最新的上一版」，而不是抹掉版本记录假装落后一版：
+	// 后者造出的是现实中不存在的库——列已经建好了、版本号却说没建过，
+	// 于是 ALTER TABLE ADD COLUMN 这类迁移会因为列已存在而失败。
+	versions, err := allMigrationVersions()
 	if err != nil {
-		t.Fatalf("初始化失败: %v", err)
+		t.Fatalf("读取迁移清单失败: %v", err)
 	}
+	if len(versions) < 2 {
+		t.Skip("迁移不足两条，无法制造「落后一版」的库")
+	}
+	db := openMigrationDB(t, dbPath)
+	migrateUpTo(t, db, versions[len(versions)-2])
 	if err := db.Create(&models.Project{ID: "p1", Name: "备份验证"}).Error; err != nil {
 		t.Fatalf("建项目失败: %v", err)
-	}
-	// 抹掉最新一条版本记录，制造「有一条迁移待应用」的局面
-	latest, err := latestMigrationVersion()
-	if err != nil {
-		t.Fatalf("读取最新迁移号失败: %v", err)
-	}
-	if err := db.Exec("DELETE FROM goose_db_version WHERE version_id = ?", latest).Error; err != nil {
-		t.Fatalf("删除版本记录失败: %v", err)
 	}
 	closeDB(t, db)
 

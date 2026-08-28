@@ -91,7 +91,11 @@ var httpMethods = map[string]bool{
 
 // parsedEndpoint 从文档中解析出的端点
 type parsedEndpoint struct {
-	Name        string
+	Name string
+	// SourceID 即文档里的 operationId。它是 OpenAPI 规范中唯一的稳定标识，
+	// 但为可选字段——实测不少导出（含 Apifox 导出的 OpenAPI）根本不写，
+	// 所以只能当作可选的匹配依据，不能当默认。
+	SourceID    string
 	Method      string
 	Path        string
 	Params      []models.EndpointParam
@@ -147,6 +151,9 @@ type OpenAPIImportOptions struct {
 	OverwriteModuleName bool  `json:"overwriteModuleName"` // 用文档标题覆盖模块名称
 	ImportServers       bool  `json:"importServers"`       // 创建/覆盖环境与模块前置 URL
 	SelectedIndexes     []int `json:"selectedIndexes"`     // 勾选导入的接口序号（对应预览项 Index）；为 nil 时导入全部，便于兼容旧调用方
+	// MatchMode 重复接口的判定口径，见 ImportMatchMode。空值按 MatchByMethodPath 处理
+	// ——method+path 是 OpenAPI 文档的结构主键，而 operationId 是可选的，常常没有。
+	MatchMode string `json:"matchMode"`
 }
 
 // OpenAPIImportResult OpenAPI 导入结果
@@ -324,8 +331,9 @@ func extractServers(doc *openAPIDoc) []parsedServer {
 // buildParsedEndpoint 将单个操作转换为 parsedEndpoint
 func buildParsedEndpoint(path string, method string, op openAPIOperation) parsedEndpoint {
 	ep := parsedEndpoint{
-		Method: strings.ToUpper(method),
-		Path:   path,
+		Method:   strings.ToUpper(method),
+		Path:     path,
+		SourceID: op.OperationID,
 	}
 
 	// 名称：优先 summary，其次 operationId，最后 "METHOD path"
@@ -485,33 +493,42 @@ func joinPath(basePath, path string) string {
 	return base + path
 }
 
-// dupKey 生成重复检测键（同名 + 同方法）
-func dupKey(method, name string) string {
-	return strings.ToUpper(method) + "\x00" + name
+// dupKey 按给定口径生成重复检测键。sourceID 为空时（文档没写 operationId）
+// 自动退回方法+路径，否则整份没有 operationId 的文档会被当成「全是同一条」。
+func dupKey(mode ImportMatchMode, method, path, name, sourceID string) string {
+	if mode == MatchBySourceID && sourceID != "" {
+		return "op\x00" + sourceID
+	}
+	key := strings.ToUpper(method) + "\x00" + path
+	if mode == MatchByMethodPathName {
+		key += "\x00" + name
+	}
+	return key
 }
 
 // PreviewOpenAPIImport 预览 OpenAPI 导入，标记与目标模块中已有接口重名重方法的项，
 // 并返回文档标题、服务器/环境信息，供前端选择是否覆盖模块名、导入环境与前置 URL
-func (s *ImportExportService) PreviewOpenAPIImport(moduleID string, jsonStr string) (*OpenAPIPreview, error) {
+func (s *ImportExportService) PreviewOpenAPIImport(moduleID string, jsonStr string, matchMode string) (*OpenAPIPreview, error) {
 	// 目标模块（获取当前名称与所属项目）
 	var module models.Module
 	if err := s.db.Where("id = ?", moduleID).First(&module).Error; err != nil {
 		return nil, fmt.Errorf("目标模块不存在: %w", err)
 	}
-	return s.previewOpenAPI(module.ProjectID, moduleID, module.Name, jsonStr)
+	return s.previewOpenAPI(module.ProjectID, moduleID, module.Name, jsonStr, matchMode)
 }
 
 // PreviewOpenAPIForProject 项目级预览：导入目标还没定下来时用。
 // moduleID 为空表示「新建模块」——没有可比对的已有接口，预览里也就不会有重复项。
-func (s *ImportExportService) PreviewOpenAPIForProject(projectID string, moduleID string, jsonStr string) (*OpenAPIPreview, error) {
+func (s *ImportExportService) PreviewOpenAPIForProject(projectID string, moduleID string, jsonStr string, matchMode string) (*OpenAPIPreview, error) {
 	if moduleID != "" {
-		return s.PreviewOpenAPIImport(moduleID, jsonStr)
+		return s.PreviewOpenAPIImport(moduleID, jsonStr, matchMode)
 	}
-	return s.previewOpenAPI(projectID, "", "", jsonStr)
+	return s.previewOpenAPI(projectID, "", "", jsonStr, matchMode)
 }
 
 // previewOpenAPI 生成预览。moduleID 为空时跳过重复检测（目标模块尚不存在）。
-func (s *ImportExportService) previewOpenAPI(projectID string, moduleID string, moduleName string, jsonStr string) (*OpenAPIPreview, error) {
+func (s *ImportExportService) previewOpenAPI(projectID string, moduleID string, moduleName string, jsonStr string, matchMode string) (*OpenAPIPreview, error) {
+	mode := normalizeMatchMode(matchMode, MatchByMethodPath)
 	doc, err := parseOpenAPIDoc(jsonStr)
 	if err != nil {
 		return nil, err
@@ -519,7 +536,7 @@ func (s *ImportExportService) previewOpenAPI(projectID string, moduleID string, 
 
 	existing := map[string]bool{}
 	if moduleID != "" {
-		existing = s.existingEndpointKeys(moduleID)
+		existing = s.existingEndpointKeys(moduleID, mode)
 	}
 
 	preview := &OpenAPIPreview{
@@ -528,7 +545,7 @@ func (s *ImportExportService) previewOpenAPI(projectID string, moduleID string, 
 		CurrentModuleName: moduleName,
 	}
 	for i, ep := range doc.Endpoints {
-		dup := existing[dupKey(ep.Method, ep.Name)]
+		dup := existing[dupKey(mode, ep.Method, ep.Path, ep.Name, ep.SourceID)]
 		if dup {
 			preview.DuplicateCount++
 		}
@@ -567,12 +584,12 @@ func (s *ImportExportService) existingEnvNames(projectID string) map[string]bool
 }
 
 // existingEndpointKeys 返回模块中已有端点的重复检测键集合
-func (s *ImportExportService) existingEndpointKeys(moduleID string) map[string]bool {
+func (s *ImportExportService) existingEndpointKeys(moduleID string, mode ImportMatchMode) map[string]bool {
 	var endpoints []models.Endpoint
 	s.db.Where("module_id = ?", moduleID).Find(&endpoints)
 	keys := make(map[string]bool, len(endpoints))
 	for _, e := range endpoints {
-		keys[dupKey(e.Method, e.Name)] = true
+		keys[dupKey(mode, e.Method, e.Path, e.Name, e.SourceID)] = true
 	}
 	return keys
 }
@@ -586,6 +603,7 @@ type OpenAPIProjectImportOptions struct {
 	OverwriteModuleName bool   `json:"overwriteModuleName"` // 用文档标题覆盖模块名（仅并入已有模块时有意义）
 	ImportServers       bool   `json:"importServers"`       // 创建/复用环境并设置模块前置 URL
 	SelectedIndexes     []int  `json:"selectedIndexes"`     // 勾选导入的接口序号；为 nil 时导入全部
+	MatchMode           string `json:"matchMode"`           // 重复接口的判定口径，见 ImportMatchMode
 }
 
 // defaultOpenAPIModuleName 是文档没有标题、用户也没填名称时新建模块的兜底名称。
@@ -599,6 +617,7 @@ func (s *ImportExportService) ImportOpenAPIToProject(projectID string, jsonStr s
 		OverwriteModuleName: opts.OverwriteModuleName,
 		ImportServers:       opts.ImportServers,
 		SelectedIndexes:     opts.SelectedIndexes,
+		MatchMode:           opts.MatchMode,
 	}
 	if opts.ModuleID != "" {
 		return s.ImportOpenAPIToModule(opts.ModuleID, jsonStr, moduleOpts)
@@ -630,6 +649,7 @@ func (s *ImportExportService) ImportOpenAPIToProject(projectID string, jsonStr s
 // opts.OverwriteModuleName=true 时用文档标题覆盖模块名；
 // opts.ImportServers=true 时按文档 servers 创建/复用环境并设置模块前置 URL。
 func (s *ImportExportService) ImportOpenAPIToModule(moduleID string, jsonStr string, opts OpenAPIImportOptions) (*OpenAPIImportResult, error) {
+	mode := normalizeMatchMode(opts.MatchMode, MatchByMethodPath)
 	// 校验模块存在
 	var module models.Module
 	if err := s.db.Where("id = ?", moduleID).First(&module).Error; err != nil {
@@ -665,7 +685,7 @@ func (s *ImportExportService) ImportOpenAPIToModule(moduleID string, jsonStr str
 		}
 		existing := make(map[string][]string)
 		for _, e := range existingList {
-			k := dupKey(e.Method, e.Name)
+			k := dupKey(mode, e.Method, e.Path, e.Name, e.SourceID)
 			existing[k] = append(existing[k], e.ID)
 		}
 
@@ -686,7 +706,7 @@ func (s *ImportExportService) ImportOpenAPIToModule(moduleID string, jsonStr str
 			if selected != nil && !selected[i] {
 				continue
 			}
-			key := dupKey(ep.Method, ep.Name)
+			key := dupKey(mode, ep.Method, ep.Path, ep.Name, ep.SourceID)
 			if ids, dup := existing[key]; dup {
 				if !opts.Overwrite {
 					result.Skipped++
@@ -794,6 +814,8 @@ func createParsedEndpoint(tx *gorm.DB, moduleID string, ep parsedEndpoint, sortO
 		Name:        ep.Name,
 		Method:      ep.Method,
 		Path:        ep.Path,
+		Source:      EndpointSourceOpenAPI,
+		SourceID:    ep.SourceID,
 		BodyType:    ep.BodyType,
 		BodyContent: ep.BodyContent,
 		ContentType: ep.ContentType,

@@ -326,7 +326,7 @@ func TestModuleVars_ApifoxImport(t *testing.T) {
 	db := newTestDB(t)
 	p := mustCreateProject(t, db, "apifox-modvars")
 
-	res, err := NewApifoxService(db).ImportApifox(p.ID, apifoxModuleVarFixture, nil)
+	res, err := NewApifoxService(db).ImportApifox(p.ID, apifoxModuleVarFixture, nil, "")
 	if err != nil {
 		t.Fatalf("导入失败: %v", err)
 	}
