@@ -19,15 +19,20 @@ export interface SettingsModalProps {
   onClose: () => void
 }
 
-/** 设置标签列表 */
+/**
+ * 设置标签列表。
+ * 这里只存图标名而不是 <Icon> 元素：JSX 在模块顶层求值会脱离 solid 的 owner 树
+ * （节点永不释放），且元素是模块级单例，同一个 DOM 节点无法同时出现在两处。
+ * 图标统一在 tabs() 里按需创建。
+ */
 const settingsTabs = [
-  { key: "appearance", label: "", icon: <Icon icon="lucide:palette" class="h-4 w-4" /> }, // label 在渲染时由 i18n 填充
-  { key: "proxy", label: "", icon: <Icon icon="lucide:network" class="h-4 w-4" /> },
-  { key: "tls", label: "", icon: <Icon icon="lucide:shield-check" class="h-4 w-4" /> },
-  { key: "request", label: "", icon: <Icon icon="lucide:gauge" class="h-4 w-4" /> },
-  { key: "data", label: "", icon: <Icon icon="lucide:database" class="h-4 w-4" /> },
-  { key: "update", label: "", icon: <Icon icon="lucide:refresh-cw" class="h-4 w-4" /> },
-  { key: "about", label: "", icon: <Icon icon="lucide:info" class="h-4 w-4" /> },
+  { key: "appearance", icon: "lucide:palette" },
+  { key: "proxy", icon: "lucide:network" },
+  { key: "tls", icon: "lucide:shield-check" },
+  { key: "request", icon: "lucide:gauge" },
+  { key: "data", icon: "lucide:database" },
+  { key: "update", icon: "lucide:refresh-cw" },
+  { key: "about", icon: "lucide:info" },
 ]
 
 /**
@@ -38,8 +43,9 @@ export function SettingsModal(props: SettingsModalProps) {
 
   // 带国际化标签的 tab 列表
   const tabs = () => settingsTabs.map(tab => ({
-    ...tab,
+    key: tab.key,
     label: t(`settings.${tab.key}`),
+    icon: <Icon icon={tab.icon} class="h-4 w-4" />,
   }))
 
   return (

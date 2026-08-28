@@ -20,15 +20,20 @@ import { useRouteCache } from "@/hooks/useRouteCache"
 import { setProjectNames } from "@/stores/app"
 import { toastError } from "@/stores/toast"
 
-/** 项目设置标签列表 */
+/**
+ * 项目设置标签列表。
+ * 只存图标名而不是 <Icon> 元素：JSX 在模块顶层求值会脱离 solid 的 owner 树
+ * （节点永不释放），且元素是模块级单例，同一个 DOM 节点无法同时出现在两处。
+ * 图标统一在 tabs() 里按需创建。
+ */
 const projectSettingsTabs = [
-  { key: "basic", label: "", icon: <Icon icon="lucide:cog" class="h-4 w-4" /> }, // label 在渲染时由 i18n 填充
-  { key: "environment", label: "", icon: <Icon icon="lucide:globe" class="h-4 w-4" /> },
-  { key: "globalVars", label: "", icon: <Icon icon="lucide:variable" class="h-4 w-4" /> },
-  { key: "scriptLibrary", label: "", icon: <Icon icon="lucide:file-code" class="h-4 w-4" /> },
-  { key: "proxy", label: "", icon: <Icon icon="lucide:network" class="h-4 w-4" /> },
-  { key: "tls", label: "", icon: <Icon icon="lucide:shield-check" class="h-4 w-4" /> },
-  { key: "cookies", label: "", icon: <Icon icon="lucide:cookie" class="h-4 w-4" /> },
+  { key: "basic", icon: "lucide:cog" },
+  { key: "environment", icon: "lucide:globe" },
+  { key: "globalVars", icon: "lucide:variable" },
+  { key: "scriptLibrary", icon: "lucide:file-code" },
+  { key: "proxy", icon: "lucide:network" },
+  { key: "tls", icon: "lucide:shield-check" },
+  { key: "cookies", icon: "lucide:cookie" },
 ]
 
 export const Route = createFileRoute("/project/$id/settings")({
@@ -130,8 +135,9 @@ function ProjectSettingsPage() {
     proxy: t("proxy.title"),
   }
   const tabs = () => projectSettingsTabs.map(tab => ({
-    ...tab,
+    key: tab.key,
     label: tabLabels[tab.key] || tab.key,
+    icon: <Icon icon={tab.icon} class="h-4 w-4" />,
   }))
 
   return (

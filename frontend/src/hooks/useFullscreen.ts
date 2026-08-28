@@ -24,37 +24,31 @@ let initialized = false
  * ```
  */
 export function useFullscreen() {
-  onMount(async () => {
+  onMount(() => {
     // 避免重复初始化
     if (initialized) return
     initialized = true
 
-    // 初始化时检查当前全屏状态。
-    // 全屏状态只影响标题栏留白，拿不到就按「非全屏」渲染即可，
-    // 但绝不能让它变成一条未捕获的 Promise 拒绝（那会在控制台里裸奔且无人处理）。
-    try {
-      setIsFullscreen(await Window.IsFullscreen())
-    } catch (e) {
-      console.warn("读取全屏状态失败，按非全屏处理", e)
-      setIsFullscreen(false)
+    // 清理必须在这里同步注册。onMount 的回调一旦 await，solid 的 owner 就丢了，
+    // 之后再调 onCleanup 是空操作——监听器和定时器会永远解绑不掉。
+    const disposers: Array<() => void> = []
+    onCleanup(() => {
+      for (const dispose of disposers) dispose()
+      initialized = false
+    })
+
+    // 订阅先于首次读取建立，读取期间的状态变化不会漏掉；
+    // 若读取返回时事件已经先到，则以事件为准，不用陈旧值覆盖。
+    let eventArrived = false
+    const applyFromEvent = (value: boolean) => {
+      eventArrived = true
+      setIsFullscreen(value)
     }
 
     if (System.IsMac()) {
       // macOS: 监听专用全屏事件
-      const enterUnsub = Events.On("mac:WindowDidEnterFullScreen", () => {
-        setIsFullscreen(true)
-      })
-
-      const exitUnsub = Events.On("mac:WindowDidExitFullScreen", () => {
-        setIsFullscreen(false)
-      })
-
-      // 组件卸载时清理监听器
-      onCleanup(() => {
-        enterUnsub()
-        exitUnsub()
-        initialized = false
-      })
+      disposers.push(Events.On("mac:WindowDidEnterFullScreen", () => applyFromEvent(true)))
+      disposers.push(Events.On("mac:WindowDidExitFullScreen", () => applyFromEvent(false)))
     } else {
       // Windows/Linux: 使用轮询检测（Wails v3 可能也支持事件）
       const interval = setInterval(async () => {
@@ -64,12 +58,21 @@ export function useFullscreen() {
           // 轮询期间的偶发失败忽略即可，下一次心跳会自行恢复
         }
       }, 500)
-
-      onCleanup(() => {
-        clearInterval(interval)
-        initialized = false
-      })
+      disposers.push(() => clearInterval(interval))
     }
+
+    // 初始化时检查当前全屏状态。
+    // 全屏状态只影响标题栏留白，拿不到就按「非全屏」渲染即可，
+    // 但绝不能让它变成一条未捕获的 Promise 拒绝（那会在控制台里裸奔且无人处理）。
+    void (async () => {
+      try {
+        const value = await Window.IsFullscreen()
+        if (!eventArrived) setIsFullscreen(value)
+      } catch (e) {
+        console.warn("读取全屏状态失败，按非全屏处理", e)
+        if (!eventArrived) setIsFullscreen(false)
+      }
+    })()
   })
 
   return isFullscreen
