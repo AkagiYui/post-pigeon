@@ -1,8 +1,11 @@
-// 「导入接口」向导：先选导入类型（Postman / Apifox / OpenAPI），再选内容来源（文件 / URL / 文本），
-// 拿到文档内容后交给各自的预览对话框继续。
+// 导入向导：先选导入类型，再选内容来源（文件 / URL / 文本），拿到文档内容后
+// 交给各自的预览对话框继续。
 //
 // 之前每种格式在菜单里各占一项、各自只支持「选文件」；把入口收拢到一个模态框后，
 // 「从哪儿来」这件事只需要实现一次，三种来源对任何格式都可用。
+//
+// 首页的「导入项目」复用同一个向导，只是可选类型换成项目级的两种
+// （本应用导出文件 / Apifox），由调用方通过 kinds 指定。
 import { Icon } from "@iconify-icon/solid"
 import { createEffect, createSignal, For, on, Show } from "solid-js"
 
@@ -15,8 +18,8 @@ import { readText } from "@/lib/clipboard"
 import { cn } from "@/lib/utils"
 import { toastError } from "@/stores/toast"
 
-/** 支持的导入格式 */
-export type ImportKind = "postman" | "apifox" | "openapi"
+/** 支持的导入格式。project 是本应用自己的项目导出文件（仅首页「导入项目」用） */
+export type ImportKind = "postman" | "apifox" | "openapi" | "project"
 
 /** 文档内容的来源 */
 type ImportSource = "file" | "url" | "text"
@@ -28,11 +31,15 @@ interface KindMeta {
   iconClass: string
 }
 
-const KINDS: KindMeta[] = [
-  { kind: "openapi", icon: "lucide:file-json", iconClass: "text-emerald-500" },
-  { kind: "postman", icon: "lucide:file-down", iconClass: "text-amber-600" },
-  { kind: "apifox", icon: "lucide:file-down", iconClass: "text-orange-500" },
-]
+const KIND_META: Record<ImportKind, KindMeta> = {
+  openapi: { kind: "openapi", icon: "lucide:file-json", iconClass: "text-emerald-500" },
+  postman: { kind: "postman", icon: "lucide:file-down", iconClass: "text-amber-600" },
+  apifox: { kind: "apifox", icon: "lucide:file-down", iconClass: "text-orange-500" },
+  project: { kind: "project", icon: "lucide:package", iconClass: "text-sky-500" },
+}
+
+/** 「导入接口」默认可选的三种格式 */
+const DEFAULT_KINDS: ImportKind[] = ["openapi", "postman", "apifox"]
 
 const SOURCES: { source: ImportSource; icon: string }[] = [
   { source: "file", icon: "lucide:file-up" },
@@ -45,12 +52,17 @@ export interface ImportWizardDialogProps {
   onClose: () => void
   /** 锁定导入格式（从模块菜单进入时只会是 OpenAPI），不传则由用户选 */
   fixedKind?: ImportKind
+  /** 可选的导入格式，默认为接口级的三种；首页「导入项目」传项目级的两种 */
+  kinds?: ImportKind[]
+  /** 对话框标题，默认「导入接口」 */
+  title?: string
   /** 读取到文档内容后的回调，由调用方打开对应格式的预览对话框 */
   onLoaded: (kind: ImportKind, text: string) => void
 }
 
 export function ImportWizardDialog(props: ImportWizardDialogProps) {
-  const [kind, setKind] = createSignal<ImportKind>("openapi")
+  const kinds = () => props.kinds ?? DEFAULT_KINDS
+  const [kind, setKind] = createSignal<ImportKind>(DEFAULT_KINDS[0])
   const [source, setSource] = createSignal<ImportSource>("file")
   const [fileName, setFileName] = createSignal("")
   const [fileText, setFileText] = createSignal("")
@@ -62,7 +74,7 @@ export function ImportWizardDialog(props: ImportWizardDialogProps) {
   // 每次打开都从干净状态开始：上一次留下的文件名/URL 容易让人误以为这次也带着它
   createEffect(on(() => props.open, (open) => {
     if (!open) return
-    setKind(props.fixedKind ?? "openapi")
+    setKind(props.fixedKind ?? kinds()[0])
     setSource("file")
     setFileName("")
     setFileText("")
@@ -126,14 +138,15 @@ export function ImportWizardDialog(props: ImportWizardDialogProps) {
   }
 
   return (
-    <Dialog open={props.open} onClose={props.onClose} title={t("import.title")} closeOnEsc closeOnOverlayClick width="560px">
+    <Dialog open={props.open} onClose={props.onClose} title={props.title ?? t("import.title")} closeOnEsc closeOnOverlayClick width="560px">
       <div class="px-6 py-4 flex flex-col gap-4">
         {/* 导入类型（调用方锁定格式时不显示） */}
         <Show when={!props.fixedKind}>
           <div class="flex flex-col gap-2">
             <span class="text-xs font-medium text-muted-foreground">{t("import.kindLabel")}</span>
-            <div class="grid grid-cols-3 gap-2">
-              <For each={KINDS}>
+            {/* 列数跟着可选格式数走：两种格式时占满，不留一格空白 */}
+            <div class="grid gap-2" style={{ "grid-template-columns": `repeat(${kinds().length}, minmax(0, 1fr))` }}>
+              <For each={kinds().map(k => KIND_META[k])}>
                 {(meta) => (
                   <button
                     type="button"

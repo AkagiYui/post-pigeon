@@ -307,3 +307,122 @@ func assertBodyType(t *testing.T, db *gorm.DB, bt string) {
 		t.Errorf("应有 body_type=%s 的端点", bt)
 	}
 }
+
+// apifoxProjectFixture 一份最小可导入的 Apifox 导出：项目名 + 一个模块 + 一个环境 + 一个接口。
+const apifoxProjectFixture = `{
+  "apifoxProject": "1.0.0",
+  "$schema": { "app": "apifox", "type": "project", "version": "1.2.0" },
+  "info": { "name": "来自 Apifox 的项目", "description": "描述" },
+  "moduleSettings": [ { "id": "2001", "name": "支付", "moduleVariables": [] } ],
+  "environments": [
+    { "id": "3001", "name": "预发", "baseUrls": { "2001": "https://pre.example.com" }, "variables": [] }
+  ],
+  "apiCollection": [
+    {
+      "name": "根目录",
+      "moduleId": 2001,
+      "items": [ { "api": { "id": 1, "name": "支付下单", "method": "post", "path": "/pay" } } ]
+    }
+  ]
+}`
+
+// TestApifoxImportAsProject_DefaultName 不传名字时用导出文件的 $.info.name，
+// 且新项目里不该出现 CreateProject 预置的「默认模块 / 测试环境 / 正式环境」空壳。
+func TestApifoxImportAsProject_DefaultName(t *testing.T) {
+	db := newTestDB(t)
+	res, err := NewApifoxService(db).ImportApifoxAsProject("", apifoxProjectFixture, nil)
+	if err != nil {
+		t.Fatalf("导入为新项目失败: %v", err)
+	}
+	if res.Project == nil || res.Project.Name != "来自 Apifox 的项目" {
+		t.Fatalf("项目名 = %+v，期望取 $.info.name", res.Project)
+	}
+	if res.Project.Description != "描述" {
+		t.Errorf("项目描述 = %q，期望取 $.info.description", res.Project.Description)
+	}
+	if res.Stats == nil || res.Stats.Endpoints != 1 {
+		t.Errorf("导入统计 = %+v，期望 1 个接口", res.Stats)
+	}
+
+	var modules []models.Module
+	db.Where("project_id = ?", res.Project.ID).Find(&modules)
+	if len(modules) != 1 || modules[0].Name != "支付" {
+		t.Errorf("模块 = %+v，期望仅有导出文件里的「支付」", modules)
+	}
+	var envs []models.Environment
+	db.Where("project_id = ?", res.Project.ID).Find(&envs)
+	if len(envs) != 1 || envs[0].Name != "预发" {
+		t.Errorf("环境 = %+v，期望仅有导出文件里的「预发」", envs)
+	}
+	// 模块前置 URL 也应跟着环境一起落地
+	var baseURL models.ModuleBaseURL
+	if err := db.Where("module_id = ? AND environment_id = ?", modules[0].ID, envs[0].ID).First(&baseURL).Error; err != nil {
+		t.Fatalf("模块前置 URL 未导入: %v", err)
+	}
+	if baseURL.BaseURL != "https://pre.example.com" {
+		t.Errorf("前置 URL = %q", baseURL.BaseURL)
+	}
+}
+
+// TestApifoxImportAsProject_Rename 传了名字就用传的名字。
+func TestApifoxImportAsProject_Rename(t *testing.T) {
+	db := newTestDB(t)
+	res, err := NewApifoxService(db).ImportApifoxAsProject("  我改的名字  ", apifoxProjectFixture, nil)
+	if err != nil {
+		t.Fatalf("导入为新项目失败: %v", err)
+	}
+	if res.Project.Name != "我改的名字" {
+		t.Errorf("项目名 = %q，期望使用调用方给的名字（并去掉首尾空格）", res.Project.Name)
+	}
+}
+
+// TestApifoxImportAsProject_NoNameFallback 名字与 $.info.name 都为空时兜底。
+func TestApifoxImportAsProject_NoNameFallback(t *testing.T) {
+	db := newTestDB(t)
+	res, err := NewApifoxService(db).ImportApifoxAsProject("", `{"apifoxProject":"1.0.0","info":{"name":""}}`, nil)
+	if err != nil {
+		t.Fatalf("导入为新项目失败: %v", err)
+	}
+	if res.Project.Name != "未命名项目" {
+		t.Errorf("项目名 = %q，期望兜底为「未命名项目」", res.Project.Name)
+	}
+}
+
+// TestApifoxImportAsProject_RejectsNonApifox 非 Apifox 文件应直接报错，且不留下空项目。
+func TestApifoxImportAsProject_RejectsNonApifox(t *testing.T) {
+	db := newTestDB(t)
+	if _, err := NewApifoxService(db).ImportApifoxAsProject("x", `{"info":{"name":"n"}}`, nil); err == nil {
+		t.Fatal("非 Apifox 文件应报错")
+	}
+	var n int64
+	db.Model(&models.Project{}).Count(&n)
+	if n != 0 {
+		t.Errorf("导入失败后不应留下项目，实际 %d 个", n)
+	}
+}
+
+// TestApifoxImportAsProject_Selective 只导入选中的叶子。
+func TestApifoxImportAsProject_Selective(t *testing.T) {
+	db := newTestDB(t)
+	svc := NewApifoxService(db)
+	preview, err := svc.PreviewApifox(apifoxProjectFixture)
+	if err != nil {
+		t.Fatalf("预览失败: %v", err)
+	}
+	if len(preview.Items) != 1 {
+		t.Fatalf("预览项数 = %d，期望 1", len(preview.Items))
+	}
+	// 传一个不存在的下标 = 一个都不选
+	res, err := svc.ImportApifoxAsProject("空导入", apifoxProjectFixture, []int{999})
+	if err != nil {
+		t.Fatalf("导入失败: %v", err)
+	}
+	if res.Stats.Endpoints != 0 {
+		t.Errorf("未选中任何叶子时不应导入接口，实际 %d", res.Stats.Endpoints)
+	}
+	var n int64
+	db.Model(&models.Project{}).Where("id = ?", res.Project.ID).Count(&n)
+	if n != 1 {
+		t.Error("项目本身仍应创建成功")
+	}
+}

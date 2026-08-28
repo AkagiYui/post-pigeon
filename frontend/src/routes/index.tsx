@@ -13,6 +13,8 @@ import {
 import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 
 import { ImportExportService, ProjectService } from "@/../bindings/PostPigeon/internal/services"
+import { ApifoxImportDialog } from "@/components/endpoint/ImportDialogs"
+import { type ImportKind, ImportWizardDialog } from "@/components/endpoint/ImportWizard"
 import { Button } from "@/components/ui/button"
 import { ContextMenu } from "@/components/ui/context-menu"
 import { Dialog } from "@/components/ui/dialog"
@@ -123,6 +125,10 @@ function HomePage() {
     authCredentials: number
   } | null>(null)
   const [projectToDelete, setProjectToDelete] = createSignal<Project | null>(null)
+  // 导入项目向导：这里只持有「框开着没、拿到的文档内容是什么」，预览与勾选由 Apifox 对话框自理
+  const [importWizardOpen, setImportWizardOpen] = createSignal(false)
+  const [apifoxJson, setApifoxJson] = createSignal("")
+  const [apifoxOpen, setApifoxOpen] = createSignal(false)
 
   // 加载项目列表
   const loadProjects = async () => {
@@ -194,24 +200,23 @@ function HomePage() {
     }
   }
 
-  // 导入项目：弹出文件选择，读取 JSON 后调用后端导入
-  const handleImport = async () => {
-    const input = document.createElement("input")
-    input.type = "file"
-    input.accept = "application/json,.json"
-    input.onchange = async () => {
-      const file = input.files?.[0]
-      if (!file) return
-      try {
-        const text = await file.text()
-        const project = await ImportExportService.ImportProject(text)
-        toastSuccess(t("importexport.imported"))
-        if (project) await loadProjects()
-      } catch (e) {
-        toastError(e, "error.op.importFailed")
-      }
+  // 导入项目：与「导入接口」共用同一个向导（文件 / URL / 粘贴文本三种来源）。
+  // 本应用自己的导出文件没什么可选的，直接导；Apifox 还要挑导入哪些接口、改项目名，
+  // 于是交给 ApifoxImportDialog 继续。
+  const handleWizardLoaded = async (kind: ImportKind, text: string) => {
+    setImportWizardOpen(false)
+    if (kind === "apifox") {
+      setApifoxJson(text)
+      setApifoxOpen(true)
+      return
     }
-    input.click()
+    try {
+      const project = await ImportExportService.ImportProject(text)
+      toastSuccess(t("importexport.imported"))
+      if (project) await loadProjects()
+    } catch (e) {
+      toastError(e, "error.op.importFailed")
+    }
   }
 
   // 导出项目：生成 JSON 并触发浏览器下载。includeSecrets 决定带不带凭据
@@ -336,7 +341,7 @@ function HomePage() {
         <div class="flex items-center justify-between mb-6 shrink-0">
           <h1 class="text-2xl font-bold">{t("project.title")}</h1>
           <div class="flex items-center gap-2">
-            <Button variant="outline" size="sm" onClick={handleImport}>
+            <Button variant="outline" size="sm" onClick={() => setImportWizardOpen(true)}>
               <Icon icon="lucide:upload" class="h-3.5 w-3.5" />
               {t("project.import")}
             </Button>
@@ -443,6 +448,21 @@ function HomePage() {
           </div>
         </div>
       </Dialog>
+
+      {/* 导入项目向导 + Apifox 预览（Apifox 不给项目 ID，表示「导入为新项目」） */}
+      <ImportWizardDialog
+        open={importWizardOpen()}
+        onClose={() => setImportWizardOpen(false)}
+        kinds={["project", "apifox"]}
+        title={t("project.importTitle")}
+        onLoaded={(kind, text) => { void handleWizardLoaded(kind, text) }}
+      />
+      <ApifoxImportDialog
+        open={apifoxOpen()}
+        onClose={() => setApifoxOpen(false)}
+        json={apifoxJson()}
+        onImported={() => loadProjects()}
+      />
 
       {/* 删除确认对话框 */}
       {/* 导出确认：项目里有凭据时才出现 */}

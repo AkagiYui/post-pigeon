@@ -284,7 +284,8 @@ function ApifoxStat(props: { label: string; value: number }) {
 export interface ApifoxImportDialogProps {
   open: boolean
   onClose: () => void
-  projectId: string
+  /** 导入目标项目；不传表示「导入为新项目」（首页入口），此时对话框里可以改项目名 */
+  projectId?: string
   json: string
   onImported: () => void | Promise<void>
 }
@@ -294,11 +295,17 @@ export function ApifoxImportDialog(props: ApifoxImportDialogProps) {
   const [selected, setSelected] = createSignal<Set<number>>(new Set())
   const [importing, setImporting] = createSignal(false)
   const [error, setError] = createSignal("")
+  /** 「导入为新项目」时的项目名，默认取导出文件的 $.info.name */
+  const [projectName, setProjectName] = createSignal("")
+
+  /** 没给目标项目 = 建新项目 */
+  const createsProject = () => !props.projectId
 
   createEffect(on(() => [props.open, props.json] as const, async ([open, json]) => {
     if (!open || !json) return
     setError("")
     setPreview(null)
+    setProjectName("")
     try {
       const result = await ApifoxService.PreviewApifox(json)
       // 非 Apifox 导出文件要明确提示，否则用户只会看到一份空预览
@@ -307,6 +314,7 @@ export function ApifoxImportDialog(props: ApifoxImportDialogProps) {
         return
       }
       setPreview(result)
+      setProjectName(result.projectName ?? "")
       setSelected(new Set((result?.items ?? []).map(item => item.index)))
     } catch (e) {
       toastError(e, "error.op.previewFailed")
@@ -318,7 +326,12 @@ export function ApifoxImportDialog(props: ApifoxImportDialogProps) {
     if (!props.json) return
     setImporting(true)
     try {
-      await ApifoxService.ImportApifox(props.projectId, props.json, Array.from(selected()))
+      const projectId = props.projectId
+      if (projectId) {
+        await ApifoxService.ImportApifox(projectId, props.json, Array.from(selected()))
+      } else {
+        await ApifoxService.ImportApifoxAsProject(projectName().trim(), props.json, Array.from(selected()))
+      }
       props.onClose()
       toastSuccess(t("importexport.imported"))
       await props.onImported()
@@ -331,7 +344,7 @@ export function ApifoxImportDialog(props: ApifoxImportDialogProps) {
   }
 
   return (
-    <Dialog open={props.open} onClose={props.onClose} title={t("apifox.importTitle")} closeOnEsc closeOnOverlayClick width="560px">
+    <Dialog open={props.open} onClose={props.onClose} title={createsProject() ? t("apifox.importAsProjectTitle") : t("apifox.importTitle")} closeOnEsc closeOnOverlayClick width="560px">
       <div class="px-6 py-4 flex flex-col h-[70vh] gap-3">
         <Show when={error()}>
           <div class="text-sm text-red-500 bg-red-50 dark:bg-red-950/30 px-3 py-2 rounded-md shrink-0">{error()}</div>
@@ -342,7 +355,20 @@ export function ApifoxImportDialog(props: ApifoxImportDialogProps) {
         <Show when={preview()}>
           {(data) => (
             <>
-              <p class="text-sm text-muted-foreground shrink-0">{t("apifox.summaryHint", { name: data().projectName })}</p>
+              <Show
+                when={createsProject()}
+                fallback={<p class="text-sm text-muted-foreground shrink-0">{t("apifox.summaryHint", { name: data().projectName })}</p>}
+              >
+                {/* 新建项目时项目名可改，默认就是导出文件里的 $.info.name */}
+                <div class="flex flex-col gap-1.5 shrink-0">
+                  <span class="text-xs font-medium text-muted-foreground">{t("apifox.projectName")}</span>
+                  <Input
+                    value={projectName()}
+                    onInput={(e) => setProjectName(e.currentTarget.value)}
+                    placeholder={data().projectName || t("apifox.projectName")}
+                  />
+                </div>
+              </Show>
               <div class="grid grid-cols-4 gap-2 text-sm shrink-0">
                 <ApifoxStat label={t("apifox.stat.modules")} value={data().modules} />
                 <ApifoxStat label={t("apifox.stat.endpoints")} value={data().endpoints} />
@@ -385,7 +411,7 @@ export function ApifoxImportDialog(props: ApifoxImportDialogProps) {
         </Show>
         <div class="flex justify-end gap-2 pt-2 shrink-0">
           <Button variant="outline" onClick={props.onClose}>{t("common.cancel")}</Button>
-          <Button onClick={confirm} disabled={!preview() || selected().size === 0 || importing()}>
+          <Button onClick={confirm} disabled={!preview() || selected().size === 0 || importing() || (createsProject() && !projectName().trim())}>
             {importing() ? t("common.saving") : t("apifox.confirmImport")}
           </Button>
         </div>

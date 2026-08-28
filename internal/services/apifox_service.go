@@ -567,6 +567,12 @@ func cloneFolders(folders []apifoxFolderRef) []apifoxFolderRef {
 	return out
 }
 
+// ApifoxProjectImportResult 「导入为新项目」的结果：新建的项目 + 导入统计。
+type ApifoxProjectImportResult struct {
+	Project *models.Project     `json:"project"`
+	Stats   *ApifoxImportResult `json:"stats"`
+}
+
 // ImportApifox 将 Apifox 导出内容导入到指定项目。
 // selectedIndexes 为空时导入全部叶子，否则仅导入对应下标的叶子（对应预览列表 Item.Index）。
 func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedIndexes []int) (*ApifoxImportResult, error) {
@@ -574,8 +580,8 @@ func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedI
 	if err != nil {
 		return nil, err
 	}
-	if exp.ApifoxProject == "" && exp.Schema.App != "apifox" {
-		return nil, fmt.Errorf("该文件不是有效的 Apifox 导出文件")
+	if err := assertApifoxExport(&exp); err != nil {
+		return nil, err
 	}
 
 	// 校验项目存在
@@ -586,73 +592,125 @@ func (s *ApifoxService) ImportApifox(projectID string, jsonStr string, selectedI
 
 	result := &ApifoxImportResult{}
 	err = s.db.Transaction(func(tx *gorm.DB) error {
-		ic := &importCtx{
-			tx:          tx,
-			projectID:   projectID,
-			moduleName:  map[string]string{},
-			moduleVars:  map[string][]apifoxModuleVar{},
-			moduleByID:  map[string]string{},
-			envByID:     map[string]string{},
-			result:      result,
-			selected:    map[int]bool{},
-			selectAll:   len(selectedIndexes) == 0,
-			folderCache: map[string]string{},
-			folderSort:  map[string]int{},
-			orderIn:     map[string]int{},
-			moduleInit:  map[string]bool{},
-			rootByMod:   map[string]apifoxCollectionRoot{},
-			rootFolder:  map[string]string{},
-			environs:    exp.Environments,
-		}
-		for _, i := range selectedIndexes {
-			ic.selected[i] = true
-		}
-		for _, m := range exp.ModuleSettings {
-			ic.moduleName[m.ID.String()] = m.Name
-			ic.moduleVars[m.ID.String()] = m.Variables
-		}
-		for _, root := range exp.APICollection {
-			ic.rootByMod[root.ModuleID.String()] = root
-		}
-
-		if err := ic.importEnvironments(exp.Environments); err != nil {
-			return err
-		}
-		ic.importGlobalVars(exp.GlobalVariables)
-		ic.importScripts(exp.CommonScripts)
-
-		// 逐叶子导入：文件夹按路径去重、按需创建（修复重复文件夹并跳过空目录）
-		leaves := buildLeaves(&exp, ic.moduleName)
-		for i := range leaves {
-			lf := &leaves[i]
-			if !ic.selectAll && !ic.selected[lf.Index] {
-				continue
-			}
-			moduleID := ic.ensureModuleForLeaf(lf)
-			folderID := ic.ensureFolderPath(moduleID, lf.Folders)
-			order := ic.nextOrder(moduleID, folderID)
-			switch lf.Kind {
-			case "http":
-				ic.createAPIEndpoint(moduleID, folderID, lf.Name, lf.api, order)
-			case "websocket":
-				ic.createWSEndpoint(moduleID, folderID, lf.Name, lf.api, order)
-			case "doc":
-				ic.createDocEndpoint(moduleID, folderID, lf.doc, order)
-			case "request":
-				ic.createRequestEndpoint(moduleID, folderID, *lf.request, order)
-			}
-		}
-
-		// 公共参数：并入默认模块的自动参数
-		ic.importCommonParameters(exp.CommonParameters)
-
-		return nil
+		return importApifoxInto(tx, projectID, &exp, selectedIndexes, result)
 	})
 	if err != nil {
 		return nil, err
 	}
 	slog.Info("Apifox 导入完成", "projectId", projectID, "endpoints", result.Endpoints, "modules", result.Modules)
 	return result, nil
+}
+
+// ImportApifoxAsProject 新建一个项目，并把整份 Apifox 导出内容导进去。
+// name 为空时取导出文件里的项目名（$.info.name）。建项目与导入在同一个事务里，
+// 导入中途失败不会留下一个空项目。
+//
+// 与 CreateProject 不同，这里不预置「默认模块 / 测试环境 / 正式环境」：
+// 模块与环境都应来自导出文件，预置的那几个只会变成需要用户手动清理的空壳。
+// 这与 ImportExportService.ImportProject（导入本项目自己的导出格式）口径一致。
+func (s *ApifoxService) ImportApifoxAsProject(name string, jsonStr string, selectedIndexes []int) (*ApifoxProjectImportResult, error) {
+	exp, err := parseApifoxExport(jsonStr)
+	if err != nil {
+		return nil, err
+	}
+	if err := assertApifoxExport(&exp); err != nil {
+		return nil, err
+	}
+
+	projectName := strings.TrimSpace(name)
+	if projectName == "" {
+		projectName = strings.TrimSpace(exp.Info.Name)
+	}
+	if projectName == "" {
+		projectName = "未命名项目"
+	}
+
+	project := &models.Project{Name: projectName, Description: exp.Info.Description}
+	stats := &ApifoxImportResult{}
+	err = s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(project).Error; err != nil {
+			return fmt.Errorf("创建项目失败: %w", err)
+		}
+		return importApifoxInto(tx, project.ID, &exp, selectedIndexes, stats)
+	})
+	if err != nil {
+		return nil, err
+	}
+	slog.Info("Apifox 已导入为新项目", "projectId", project.ID, "name", project.Name, "endpoints", stats.Endpoints)
+	return &ApifoxProjectImportResult{Project: project, Stats: stats}, nil
+}
+
+// assertApifoxExport 校验解析结果确实来自 Apifox。
+func assertApifoxExport(exp *apifoxExport) error {
+	if exp.ApifoxProject == "" && exp.Schema.App != "apifox" {
+		return fmt.Errorf("该文件不是有效的 Apifox 导出文件")
+	}
+	return nil
+}
+
+// importApifoxInto 在给定事务里把导出内容写进 projectID 指向的项目，统计写入 result。
+func importApifoxInto(tx *gorm.DB, projectID string, exp *apifoxExport, selectedIndexes []int, result *ApifoxImportResult) error {
+	ic := &importCtx{
+		tx:          tx,
+		projectID:   projectID,
+		moduleName:  map[string]string{},
+		moduleVars:  map[string][]apifoxModuleVar{},
+		moduleByID:  map[string]string{},
+		envByID:     map[string]string{},
+		result:      result,
+		selected:    map[int]bool{},
+		selectAll:   len(selectedIndexes) == 0,
+		folderCache: map[string]string{},
+		folderSort:  map[string]int{},
+		orderIn:     map[string]int{},
+		moduleInit:  map[string]bool{},
+		rootByMod:   map[string]apifoxCollectionRoot{},
+		rootFolder:  map[string]string{},
+		environs:    exp.Environments,
+	}
+	for _, i := range selectedIndexes {
+		ic.selected[i] = true
+	}
+	for _, m := range exp.ModuleSettings {
+		ic.moduleName[m.ID.String()] = m.Name
+		ic.moduleVars[m.ID.String()] = m.Variables
+	}
+	for _, root := range exp.APICollection {
+		ic.rootByMod[root.ModuleID.String()] = root
+	}
+
+	if err := ic.importEnvironments(exp.Environments); err != nil {
+		return err
+	}
+	ic.importGlobalVars(exp.GlobalVariables)
+	ic.importScripts(exp.CommonScripts)
+
+	// 逐叶子导入：文件夹按路径去重、按需创建（修复重复文件夹并跳过空目录）
+	leaves := buildLeaves(exp, ic.moduleName)
+	for i := range leaves {
+		lf := &leaves[i]
+		if !ic.selectAll && !ic.selected[lf.Index] {
+			continue
+		}
+		moduleID := ic.ensureModuleForLeaf(lf)
+		folderID := ic.ensureFolderPath(moduleID, lf.Folders)
+		order := ic.nextOrder(moduleID, folderID)
+		switch lf.Kind {
+		case "http":
+			ic.createAPIEndpoint(moduleID, folderID, lf.Name, lf.api, order)
+		case "websocket":
+			ic.createWSEndpoint(moduleID, folderID, lf.Name, lf.api, order)
+		case "doc":
+			ic.createDocEndpoint(moduleID, folderID, lf.doc, order)
+		case "request":
+			ic.createRequestEndpoint(moduleID, folderID, *lf.request, order)
+		}
+	}
+
+	// 公共参数：并入默认模块的自动参数
+	ic.importCommonParameters(exp.CommonParameters)
+
+	return nil
 }
 
 // ensureModuleForLeaf 解析叶子所属模块并按需应用模块级认证/操作/前置 URL（每模块仅一次）。
