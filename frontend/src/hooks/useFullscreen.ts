@@ -25,6 +25,13 @@ let initialized = false
  */
 export function useFullscreen() {
   onMount(() => {
+    // 只有原生窗口才谈得上全屏。server 模式（-tags server）下前端跑在普通浏览器里，
+    // 原生 webview 注入的 window._wails.environment 不存在，System.IsMac() 恒为假——
+    // 于是会走进下面的轮询分支，每 500ms 往 /wails/runtime 打一次 Window.IsFullscreen()
+    // 去问一个根本不存在的窗口。这里直接不订阅，保持「非全屏」即可：
+    // 浏览器里也没有原生标题栏需要留白。
+    if (!System.IsDesktop()) return
+
     // 避免重复初始化
     if (initialized) return
     initialized = true
