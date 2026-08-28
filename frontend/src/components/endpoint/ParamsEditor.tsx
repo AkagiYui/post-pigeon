@@ -1,6 +1,7 @@
 // 请求参数编辑器（受控组件）
-// 参数 tab 按 Query / Path / 全局 Query 三块区域自上而下排列（无"位置"选择）；
-// Path 参数由接口路径自动识别（形如 {id}），无占位符时整块隐藏、也没有添加按钮。
+// 参数 tab 按 Path / Query / 全局 Query 三块区域自上而下排列（无"位置"选择）；
+// Path 在最上：它由接口路径里的 {id} 占位符自动识别，是"这条路径本身要求填的东西"，
+// 数量固定且不可增删，比可有可无的 Query 更该先看到。无占位符时整块隐藏。
 // 全局 Query 参数继承自模块，值只读（在设置页修改），开关仅对本接口生效。
 // Cookie 参数由独立的 CookiesEditor 编辑。三者共享同一份 ParamRow[]（按 type 区分），
 // 各编辑器改动时都会回传「完整」列表以保持彼此数据不丢失。
@@ -40,7 +41,7 @@ function makeRow(type: ParamLocation): ParamRow {
 }
 
 /**
- * ParamsEditor 参数编辑器（Query / Path / 全局 Query 三分区）
+ * ParamsEditor 参数编辑器（Path / Query / 全局 Query 三分区）
  */
 export function ParamsEditor(props: ParamsEditorProps) {
   const rowsOf = (type: ParamLocation) => props.value.filter(p => p.type === type)
@@ -75,16 +76,6 @@ export function ParamsEditor(props: ParamsEditorProps) {
 
   return (
     <div class="h-full overflow-auto p-3 space-y-5">
-      {/* Query 参数 */}
-      <KeyValueTable
-        title={t("endpoint.param.queryParams")}
-        rows={rowsOf("query")}
-        makeRow={() => makeRow("query")}
-        onChange={rows => emit("query", rows)}
-        showRequired
-        showExample
-      />
-
       {/* Path 参数：仅当接口路径含 {name} 占位符时显示，名称只读、不能增删 */}
       <Show when={pathTokens().length > 0}>
         <KeyValueTable
@@ -98,6 +89,16 @@ export function ParamsEditor(props: ParamsEditorProps) {
           showExample
         />
       </Show>
+
+      {/* Query 参数 */}
+      <KeyValueTable
+        title={t("endpoint.param.queryParams")}
+        rows={rowsOf("query")}
+        makeRow={() => makeRow("query")}
+        onChange={rows => emit("query", rows)}
+        showRequired
+        showExample
+      />
 
       {/* 全局 Query 参数（继承自模块，值只读、开关仅对本接口生效）：无全局参数时整块隐藏 */}
       <Show when={(props.globalQueryParams?.length ?? 0) > 0}>
