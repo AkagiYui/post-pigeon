@@ -529,3 +529,212 @@ func TestApifoxImport_EmptyFoldersSkippedOnPartialImport(t *testing.T) {
 		t.Errorf("没选中任何接口时不该创建模块「订单」")
 	}
 }
+
+// countAll 统计一个项目下各类数据的条数，用于比对「导入一次」与「导入两次」。
+func countAll(t *testing.T, db *gorm.DB, projectID string) map[string]int64 {
+	t.Helper()
+	var modIDs, epIDs []string
+	db.Model(&models.Module{}).Where("project_id = ?", projectID).Pluck("id", &modIDs)
+	db.Model(&models.Endpoint{}).Where("module_id IN ?", modIDs).Pluck("id", &epIDs)
+
+	out := map[string]int64{}
+	count := func(key string, dest any, query string, args ...any) {
+		var n int64
+		db.Model(dest).Where(query, args...).Count(&n)
+		out[key] = n
+	}
+	count("模块", &models.Module{}, "project_id = ?", projectID)
+	count("环境", &models.Environment{}, "project_id = ?", projectID)
+	count("全局变量", &models.GlobalVariable{}, "project_id = ?", projectID)
+	count("脚本库", &models.ScriptLibrary{}, "project_id = ?", projectID)
+	count("文件夹", &models.Folder{}, "module_id IN ?", modIDs)
+	count("端点", &models.Endpoint{}, "module_id IN ?", modIDs)
+	count("模块参数", &models.ModuleParam{}, "module_id IN ?", modIDs)
+	count("模块变量", &models.ModuleVariable{}, "module_id IN ?", modIDs)
+	count("模块前置URL", &models.ModuleBaseURL{}, "module_id IN ?", modIDs)
+	if len(epIDs) > 0 {
+		count("端点参数", &models.EndpointParam{}, "endpoint_id IN ?", epIDs)
+		count("端点请求头", &models.EndpointHeader{}, "endpoint_id IN ?", epIDs)
+		count("端点请求体字段", &models.EndpointBodyField{}, "endpoint_id IN ?", epIDs)
+		count("端点认证", &models.EndpointAuth{}, "endpoint_id IN ?", epIDs)
+		count("响应示例", &models.ResponseExample{}, "endpoint_id IN ?", epIDs)
+		count("响应结构", &models.ResponseSchema{}, "endpoint_id IN ?", epIDs)
+	}
+	var envIDs []string
+	db.Model(&models.Environment{}).Where("project_id = ?", projectID).Pluck("id", &envIDs)
+	if len(envIDs) > 0 {
+		count("环境变量", &models.EnvironmentVariable{}, "environment_id IN ?", envIDs)
+	}
+	var opN int64
+	db.Model(&models.Operation{}).Count(&opN)
+	out["操作"] = opN
+	return out
+}
+
+// TestApifoxImport_Idempotent 同一份文件导入两次，结果必须与导入一次完全一致。
+// 用真实语料跑，覆盖面比任何手写夹具都大。
+func TestApifoxImport_Idempotent(t *testing.T) {
+	corpus := loadCorpus(t)
+
+	once := newTestDB(t)
+	p1 := mustCreateProject(t, once, "import-once")
+	if _, err := NewApifoxService(once).ImportApifox(p1.ID, corpus, nil); err != nil {
+		t.Fatalf("首次导入失败: %v", err)
+	}
+	want := countAll(t, once, p1.ID)
+
+	twice := newTestDB(t)
+	p2 := mustCreateProject(t, twice, "import-twice")
+	svc := NewApifoxService(twice)
+	for i := range 2 {
+		if _, err := svc.ImportApifox(p2.ID, corpus, nil); err != nil {
+			t.Fatalf("第 %d 次导入失败: %v", i+1, err)
+		}
+	}
+	got := countAll(t, twice, p2.ID)
+
+	for key, w := range want {
+		if got[key] != w {
+			t.Errorf("%s：导入两次 = %d，导入一次 = %d（应当幂等）", key, got[key], w)
+		}
+	}
+	t.Logf("一次导入的规模: %v", want)
+}
+
+// TestApifoxImport_MergeKeepsEndpointID 重新导入应原地更新已有接口，
+// 而不是删了重建——端点 ID 保持不变，挂在它上面的请求历史才不会失联。
+func TestApifoxImport_MergeKeepsEndpointID(t *testing.T) {
+	db := newTestDB(t)
+	p := mustCreateProject(t, db, "merge-id")
+	svc := NewApifoxService(db)
+
+	if _, err := svc.ImportApifox(p.ID, apifoxEmptyFolderFixture, nil); err != nil {
+		t.Fatalf("首次导入失败: %v", err)
+	}
+	var before models.Endpoint
+	if err := db.Where("path = ?", "/orders").First(&before).Error; err != nil {
+		t.Fatalf("未找到导入的接口: %v", err)
+	}
+	// 挂一条请求历史，验证它在重新导入后仍连着同一个端点
+	if err := db.Create(&models.RequestHistory{
+		ModuleID: before.ModuleID, EndpointID: &before.ID, Method: "POST", URL: "http://x/orders",
+	}).Error; err != nil {
+		t.Fatalf("建历史失败: %v", err)
+	}
+
+	if _, err := svc.ImportApifox(p.ID, apifoxEmptyFolderFixture, nil); err != nil {
+		t.Fatalf("再次导入失败: %v", err)
+	}
+	var after []models.Endpoint
+	db.Where("path = ?", "/orders").Find(&after)
+	if len(after) != 1 {
+		t.Fatalf("接口数 = %d，期望 1（应更新而非新建）", len(after))
+	}
+	if after[0].ID != before.ID {
+		t.Errorf("端点 ID 变了：%s → %s，请求历史会失联", before.ID, after[0].ID)
+	}
+	var histories int64
+	db.Model(&models.RequestHistory{}).Where("endpoint_id = ?", before.ID).Count(&histories)
+	if histories != 1 {
+		t.Errorf("请求历史 = %d 条，期望 1（不该因重新导入而丢）", histories)
+	}
+}
+
+// TestApifoxImport_MergeRefreshesContent 重新导入要能把上游的改动同步下来，
+// 且不会把同名参数叠成两份。
+func TestApifoxImport_MergeRefreshesContent(t *testing.T) {
+	db := newTestDB(t)
+	p := mustCreateProject(t, db, "merge-refresh")
+	svc := NewApifoxService(db)
+
+	const v1 = `{
+      "apifoxProject": "1.0.0",
+      "info": { "name": "P" },
+      "moduleSettings": [ { "id": "1", "name": "M" } ],
+      "apiCollection": [ { "name": "根目录", "moduleId": 1, "items": [
+        { "api": { "id": 1, "name": "旧名字", "method": "get", "path": "/thing",
+          "parameters": { "query": [ { "name": "a", "value": "1" } ] } } }
+      ] } ]
+    }`
+	// 同一个 method+path，改了名字、换了参数值
+	const v2 = `{
+      "apifoxProject": "1.0.0",
+      "info": { "name": "P" },
+      "moduleSettings": [ { "id": "1", "name": "M" } ],
+      "apiCollection": [ { "name": "根目录", "moduleId": 1, "items": [
+        { "api": { "id": 1, "name": "新名字", "method": "get", "path": "/thing",
+          "parameters": { "query": [ { "name": "a", "value": "2" } ] } } }
+      ] } ]
+    }`
+
+	if _, err := svc.ImportApifox(p.ID, v1, nil); err != nil {
+		t.Fatalf("导入 v1 失败: %v", err)
+	}
+	if _, err := svc.ImportApifox(p.ID, v2, nil); err != nil {
+		t.Fatalf("导入 v2 失败: %v", err)
+	}
+
+	var eps []models.Endpoint
+	db.Where("path = ?", "/thing").Find(&eps)
+	if len(eps) != 1 {
+		t.Fatalf("接口数 = %d，期望 1", len(eps))
+	}
+	if eps[0].Name != "新名字" {
+		t.Errorf("接口名 = %q，期望被上游改动刷新为「新名字」", eps[0].Name)
+	}
+	var params []models.EndpointParam
+	db.Where("endpoint_id = ?", eps[0].ID).Find(&params)
+	if len(params) != 1 {
+		t.Fatalf("参数数 = %d，期望 1（不该叠加）", len(params))
+	}
+	if params[0].Value != "2" {
+		t.Errorf("参数值 = %q，期望刷新为 2", params[0].Value)
+	}
+}
+
+// TestApifoxImport_SamePathDistinctEndpoints 同一目录下 method+path 相同、
+// 仅名称不同的两个接口必须各自建一条，不能被合并成一条；且重复导入仍然幂等。
+func TestApifoxImport_SamePathDistinctEndpoints(t *testing.T) {
+	const fixture = `{
+      "apifoxProject": "1.0.0",
+      "info": { "name": "P" },
+      "moduleSettings": [ { "id": "1", "name": "M" } ],
+      "apiCollection": [ { "name": "根目录", "moduleId": 1, "items": [
+        { "api": { "id": 1, "name": "登录-手机", "method": "post", "path": "/login" } },
+        { "api": { "id": 2, "name": "登录-邮箱", "method": "post", "path": "/login" } }
+      ] } ]
+    }`
+	db := newTestDB(t)
+	p := mustCreateProject(t, db, "same-path")
+	svc := NewApifoxService(db)
+
+	if _, err := svc.ImportApifox(p.ID, fixture, nil); err != nil {
+		t.Fatalf("首次导入失败: %v", err)
+	}
+	var eps []models.Endpoint
+	db.Where("path = ?", "/login").Order("sort_order ASC").Find(&eps)
+	if len(eps) != 2 {
+		t.Fatalf("接口数 = %d，期望 2（同 path 不同名的接口不该被合并）", len(eps))
+	}
+	names := []string{eps[0].Name, eps[1].Name}
+	if names[0] != "登录-手机" || names[1] != "登录-邮箱" {
+		t.Errorf("接口名 = %v，期望 [登录-手机 登录-邮箱]", names)
+	}
+
+	// 再导一次仍是 2 条，且各自对上原来那条
+	if _, err := svc.ImportApifox(p.ID, fixture, nil); err != nil {
+		t.Fatalf("再次导入失败: %v", err)
+	}
+	var again []models.Endpoint
+	db.Where("path = ?", "/login").Order("sort_order ASC").Find(&again)
+	if len(again) != 2 {
+		t.Fatalf("重复导入后接口数 = %d，期望仍是 2", len(again))
+	}
+	if again[0].ID != eps[0].ID || again[1].ID != eps[1].ID {
+		t.Errorf("重复导入后端点 ID 变了：%v → %v",
+			[]string{eps[0].ID, eps[1].ID}, []string{again[0].ID, again[1].ID})
+	}
+	if again[0].Name != "登录-手机" || again[1].Name != "登录-邮箱" {
+		t.Errorf("重复导入后接口名错位 = %v", []string{again[0].Name, again[1].Name})
+	}
+}

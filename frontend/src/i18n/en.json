@@ -309,7 +309,7 @@
   "apifox.importAsProjectTitle": "Import Apifox as New Project",
   "apifox.projectName": "Project name",
   "apifox.summaryHint": "The following will be imported from \"{name}\":",
-  "apifox.dedupHint": "Modules and environments with the same name are merged, not duplicated.",
+  "apifox.dedupHint": "Re-importing the same file creates no duplicates: existing endpoints are updated in place (matched by folder + method + path); modules, environments and variables are merged by name.",
   "apifox.stat.modules": "Modules",
   "apifox.stat.endpoints": "Endpoints",
   "apifox.stat.folders": "Folders",

@@ -359,8 +359,12 @@ type importCtx struct {
 	orderIn     map[string]int    // 端点所在容器 -> 下一个 sortOrder（容器 = moduleID|folderID）
 	moduleInit  map[string]bool   // apifoxModuleID 是否已应用模块级认证/操作/前置URL
 	rootByMod   map[string]apifoxCollectionRoot
-	rootFolder  map[string]string // moduleID -> __root 占位文件夹 ID
-	environs    []apifoxEnvironment
+	// claimed 记录本次导入已经写过的端点 ID。同一份文件里允许存在多个
+	// method+path 相同、只是名字不同的接口（如「登录-手机」「登录-邮箱」），
+	// 它们必须各自对应一条记录，不能都去认领同一个已有端点。
+	claimed    map[string]bool
+	rootFolder map[string]string // moduleID -> __root 占位文件夹 ID
+	environs   []apifoxEnvironment
 }
 
 // ensureRootFolder 返回模块的 __root 占位文件夹 ID（不存在则创建）。
@@ -727,6 +731,7 @@ func importApifoxInto(tx *gorm.DB, projectID string, exp *apifoxExport, selected
 		orderIn:     map[string]int{},
 		moduleInit:  map[string]bool{},
 		rootByMod:   map[string]apifoxCollectionRoot{},
+		claimed:     map[string]bool{},
 		rootFolder:  map[string]string{},
 		environs:    exp.Environments,
 	}
@@ -839,6 +844,16 @@ func (ic *importCtx) ensureFolderPath(moduleID string, folders []apifoxFolderRef
 			parentID = &idCopy
 			continue
 		}
+		// 项目里已有同名同父的目录就复用它（重复导入不再建出第二棵目录树）。
+		// 只补前置/后置操作，不动它的认证：导出文件没写认证时会解析成「继承」，
+		// 覆盖回去等于把用户在本地设的认证抹掉。
+		if existing, ok := ic.findFolder(moduleID, parentID, fr.Name); ok {
+			ic.createOperations(models.OperationOwnerFolder, existing.ID, fr.Pre, fr.Post)
+			ic.folderCache[key] = existing.ID
+			idCopy := existing.ID
+			parentID = &idCopy
+			continue
+		}
 		t, data := convertAuth(fr.Auth)
 		folder := models.Folder{
 			ModuleID: moduleID, ParentID: parentID, Name: fr.Name,
@@ -853,6 +868,21 @@ func (ic *importCtx) ensureFolderPath(moduleID string, folders []apifoxFolderRef
 		parentID = &idCopy
 	}
 	return parentID
+}
+
+// findFolder 查同模块、同父级、同名的文件夹。parentID 为 nil 时匹配根级。
+func (ic *importCtx) findFolder(moduleID string, parentID *string, name string) (models.Folder, bool) {
+	q := ic.tx.Where("module_id = ? AND name = ?", moduleID, name)
+	if parentID == nil {
+		q = q.Where("parent_id IS NULL")
+	} else {
+		q = q.Where("parent_id = ?", *parentID)
+	}
+	var folder models.Folder
+	if err := q.First(&folder).Error; err != nil {
+		return models.Folder{}, false
+	}
+	return folder, true
 }
 
 // nextOrder 返回某容器（模块+文件夹）内下一个端点排序号。
@@ -921,6 +951,70 @@ func (ic *importCtx) importModuleOperations(moduleID string, pre, post []apifoxP
 	ic.createOperations(models.OperationOwnerModule, moduleID, pre, post)
 }
 
+// upsertEndpoint 把一个端点写进项目：同容器里已有「同一个接口」就原地更新，否则新建。
+// 返回端点 ID 与是否为新建（新建才计入统计）。
+//
+// 何为「同一个接口」：同模块 + 同目录 + 同类型，再加上
+//   - 文档：同名称（文档没有 method/path 可比）
+//   - 其余：同 method + 同 path（改了名字仍认得出是它，这是接口更稳定的身份）
+//
+// 命中时保留原端点 ID，请求历史与已保存的响应因此不会因为重新导入而失联；
+// 内容则以导出文件为准整体覆盖，重新导入才能起到「同步上游改动」的作用。
+func (ic *importCtx) upsertEndpoint(ep *models.Endpoint) (string, bool) {
+	q := ic.tx.Where("module_id = ? AND type = ?", ep.ModuleID, ep.Type)
+	if ep.FolderID == nil {
+		q = q.Where("folder_id IS NULL")
+	} else {
+		q = q.Where("folder_id = ?", *ep.FolderID)
+	}
+	if ep.Type == string(models.EndpointTypeDoc) {
+		q = q.Where("name = ?", ep.Name)
+	} else {
+		q = q.Where("method = ? AND path = ?", ep.Method, ep.Path)
+	}
+
+	// 取全部候选而不是 First：同容器里可能有多条 method+path 相同的接口，
+	// 本次已认领过的要跳过，让后一条源接口去认下一个，避免它们被合并成一条。
+	var candidates []models.Endpoint
+	q.Order("sort_order ASC, id ASC").Find(&candidates)
+	var existing models.Endpoint
+	found := false
+	for _, c := range candidates {
+		if !ic.claimed[c.ID] {
+			existing, found = c, true
+			break
+		}
+	}
+	if !found {
+		ic.tx.Create(ep)
+		ic.claimed[ep.ID] = true
+		return ep.ID, true
+	}
+	ic.claimed[existing.ID] = true
+
+	// 原地更新：只覆盖导出文件描述得了的字段。代理 / TLS / 超时 / 跟随重定向
+	// 这些本地调试设置 Apifox 侧没有对应概念，保留用户自己调好的值。
+	ic.tx.Model(&existing).Updates(map[string]any{
+		"name": ep.Name, "method": ep.Method, "path": ep.Path,
+		"body_type": ep.BodyType, "body_content": ep.BodyContent, "content_type": ep.ContentType,
+		"doc_content": ep.DocContent, "status": ep.Status, "tags": ep.Tags,
+		"description": ep.Description, "sort_order": ep.SortOrder,
+	})
+	ic.clearEndpointChildren(existing.ID)
+	return existing.ID, false
+}
+
+// clearEndpointChildren 清掉端点上「由导入写入」的子数据，供覆盖前置空。
+// 不碰 Response（实际发过的响应）与 RequestHistory，那是用户跑出来的东西。
+func (ic *importCtx) clearEndpointChildren(endpointID string) {
+	ic.tx.Where("endpoint_id = ?", endpointID).Delete(&models.EndpointParam{})
+	ic.tx.Where("endpoint_id = ?", endpointID).Delete(&models.EndpointHeader{})
+	ic.tx.Where("endpoint_id = ?", endpointID).Delete(&models.EndpointBodyField{})
+	ic.tx.Where("endpoint_id = ?", endpointID).Delete(&models.EndpointAuth{})
+	ic.tx.Where("endpoint_id = ?", endpointID).Delete(&models.ResponseSchema{})
+	ic.tx.Where("endpoint_id = ?", endpointID).Delete(&models.ResponseExample{})
+}
+
 // createAPIEndpoint 创建一个 HTTP 端点及其所有关联数据。name 为已解析的接口名称。
 func (ic *importCtx) createAPIEndpoint(moduleID string, folderID *string, name string, api *apifoxAPI, sortOrder int) {
 	if api == nil {
@@ -946,14 +1040,16 @@ func (ic *importCtx) createAPIEndpoint(moduleID string, folderID *string, name s
 		InheritOperations: true,
 		SortOrder:         sortOrder,
 	}
-	ic.tx.Create(&ep)
-	ic.result.Endpoints++
+	id, created := ic.upsertEndpoint(&ep)
+	if created {
+		ic.result.Endpoints++
+	}
 
-	ic.createParamsAndHeaders(ep.ID, api.Parameters)
-	ic.createBodyFields(ep.ID, bodyFields)
-	ic.createEndpointAuth(ep.ID, authType, authData)
-	ic.createOperations(models.OperationOwnerEndpoint, ep.ID, api.PreProcessors, api.PostProcessors)
-	ic.createResponses(ep.ID, api.Responses, api.ResponseExamples)
+	ic.createParamsAndHeaders(id, api.Parameters)
+	ic.createBodyFields(id, bodyFields)
+	ic.createEndpointAuth(id, authType, authData)
+	ic.createOperations(models.OperationOwnerEndpoint, id, api.PreProcessors, api.PostProcessors)
+	ic.createResponses(id, api.Responses, api.ResponseExamples)
 }
 
 // createWSEndpoint 创建一个 WebSocket 端点。
@@ -966,8 +1062,9 @@ func (ic *importCtx) createWSEndpoint(moduleID string, folderID *string, name st
 		Type: string(models.EndpointTypeWebSocket), Method: "GET", Path: api.Path,
 		Timeout: 30000, InheritOperations: true, SortOrder: sortOrder,
 	}
-	ic.tx.Create(&ep)
-	ic.result.WebSockets++
+	if _, created := ic.upsertEndpoint(&ep); created {
+		ic.result.WebSockets++
+	}
 }
 
 // createDocEndpoint 创建一个文档类型端点（Markdown 内容）。
@@ -980,8 +1077,9 @@ func (ic *importCtx) createDocEndpoint(moduleID string, folderID *string, doc *a
 		Type: string(models.EndpointTypeDoc), Method: "GET", Path: "/",
 		DocContent: doc.Content, SortOrder: sortOrder, InheritOperations: false,
 	}
-	ic.tx.Create(&ep)
-	ic.result.Documents++
+	if _, created := ic.upsertEndpoint(&ep); created {
+		ic.result.Documents++
+	}
 }
 
 func (ic *importCtx) createParamsAndHeaders(endpointID string, p apifoxParameters) {
@@ -1021,7 +1119,15 @@ func (ic *importCtx) createEndpointAuth(endpointID, authType, authData string) {
 }
 
 // createOperations 将前置/后置处理器转换为操作。
+//
+// 整体替换而非追加，重复导入才不会把同一批操作叠出好几份。
+// 导出文件一个处理器都没有时不动已有记录：那多半是用户自己在本地加的，
+// 「文件里没写」不等于「要求删掉」。
 func (ic *importCtx) createOperations(ownerType models.OperationOwnerType, ownerID string, pre, post []apifoxProcessor) {
+	if len(pre) == 0 && len(post) == 0 {
+		return
+	}
+	ic.tx.Where("owner_type = ? AND owner_id = ?", ownerType, ownerID).Delete(&models.Operation{})
 	conv := func(procs []apifoxProcessor, stage models.OperationStage) {
 		order := 0
 		for _, p := range procs {
@@ -1080,11 +1186,13 @@ func (ic *importCtx) createRequestEndpoint(moduleID string, folderID *string, it
 		Path: item.Path, BodyType: bodyType, BodyContent: bodyContent, ContentType: contentType,
 		Timeout: 30000, InheritOperations: true, SortOrder: sortOrder,
 	}
-	ic.tx.Create(&ep)
-	ic.result.Endpoints++
-	ic.createParamsAndHeaders(ep.ID, item.Parameters)
-	ic.createBodyFields(ep.ID, bodyFields)
-	ic.createEndpointAuth(ep.ID, authType, authData)
+	id, created := ic.upsertEndpoint(&ep)
+	if created {
+		ic.result.Endpoints++
+	}
+	ic.createParamsAndHeaders(id, item.Parameters)
+	ic.createBodyFields(id, bodyFields)
+	ic.createEndpointAuth(id, authType, authData)
 }
 
 // importEnvironments 按名称去重创建环境及环境变量。
@@ -1100,6 +1208,14 @@ func (ic *importCtx) importEnvironments(envs []apifoxEnvironment) error {
 		}
 		ic.envByID[e.ID.String()] = env.ID
 		for i, v := range e.Variables {
+			if v.Name == "" {
+				continue
+			}
+			var existing models.EnvironmentVariable
+			if err := ic.tx.Where("environment_id = ? AND key = ?", env.ID, v.Name).First(&existing).Error; err == nil {
+				ic.tx.Model(&existing).Update("value", v.Value.String())
+				continue
+			}
 			ic.tx.Create(&models.EnvironmentVariable{
 				EnvironmentID: env.ID, Key: v.Name, Value: v.Value.String(), Enabled: true, SortOrder: i,
 			})
@@ -1129,16 +1245,16 @@ func (ic *importCtx) importEnvBaseURLs(envs []apifoxEnvironment, apifoxModuleID,
 	}
 }
 
-// importModuleVars 导入模块级变量；同名已存在时跳过（同一模块可能被多次 ensure）。
+// importModuleVars 导入模块级变量；同名已存在则更新其值。
 func (ic *importCtx) importModuleVars(moduleID string, vars []apifoxModuleVar) {
 	order := 0
 	for _, v := range vars {
 		if v.Name == "" {
 			continue
 		}
-		var count int64
-		ic.tx.Model(&models.ModuleVariable{}).Where("module_id = ? AND key = ?", moduleID, v.Name).Count(&count)
-		if count > 0 {
+		var existing models.ModuleVariable
+		if err := ic.tx.Where("module_id = ? AND key = ?", moduleID, v.Name).First(&existing).Error; err == nil {
+			ic.tx.Model(&existing).Update("value", v.Value.String())
 			continue
 		}
 		ic.tx.Create(&models.ModuleVariable{
@@ -1158,6 +1274,11 @@ func (ic *importCtx) importGlobalVars(sets []apifoxGlobalVarSet) {
 			if v.Name == "" {
 				continue
 			}
+			var existing models.GlobalVariable
+			if err := ic.tx.Where("project_id = ? AND key = ?", ic.projectID, v.Name).First(&existing).Error; err == nil {
+				ic.tx.Model(&existing).Update("value", v.Value.String())
+				continue
+			}
 			ic.tx.Create(&models.GlobalVariable{
 				ProjectID: ic.projectID, Key: v.Name, Value: v.Value.String(),
 				Description: v.Description, Enabled: true, SortOrder: order,
@@ -1173,8 +1294,14 @@ func (ic *importCtx) importScripts(scripts []apifoxCommonScript) {
 		if sc.Name == "" && sc.Content == "" {
 			continue
 		}
+		name := defaultStr(sc.Name, fmt.Sprintf("脚本%d", i+1))
+		var existing models.ScriptLibrary
+		if err := ic.tx.Where("project_id = ? AND name = ?", ic.projectID, name).First(&existing).Error; err == nil {
+			ic.tx.Model(&existing).Updates(map[string]any{"content": sc.Content, "description": sc.Description})
+			continue
+		}
 		ic.tx.Create(&models.ScriptLibrary{
-			ProjectID: ic.projectID, Name: defaultStr(sc.Name, fmt.Sprintf("脚本%d", i+1)),
+			ProjectID: ic.projectID, Name: name,
 			Content: sc.Content, Description: sc.Description, SortOrder: i,
 		})
 		ic.result.Scripts++
@@ -1194,6 +1321,12 @@ func (ic *importCtx) importCommonParameters(cp apifoxCommonParameters) {
 	create := func(list []apifoxParam, loc string) {
 		for _, p := range list {
 			if p.Name == "" {
+				continue
+			}
+			var existing models.ModuleParam
+			if err := ic.tx.Where("module_id = ? AND type = ? AND name = ?", moduleID, loc, p.Name).
+				First(&existing).Error; err == nil {
+				ic.tx.Model(&existing).Update("value", p.val())
 				continue
 			}
 			ic.tx.Create(&models.ModuleParam{

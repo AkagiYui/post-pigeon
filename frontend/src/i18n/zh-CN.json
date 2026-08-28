@@ -309,7 +309,7 @@
   "apifox.importAsProjectTitle": "Apifox 导入为新项目",
   "apifox.projectName": "项目名称",
   "apifox.summaryHint": "将从「{name}」导入以下内容：",
-  "apifox.dedupHint": "同名模块与环境将被合并去重，不会重复创建。",
+  "apifox.dedupHint": "重复导入同一份文件不会产生副本：已存在的接口按「同目录 + 同方法 + 同路径」原地更新，模块、环境、变量等按名称合并。",
   "apifox.stat.modules": "模块",
   "apifox.stat.endpoints": "接口",
   "apifox.stat.folders": "文件夹",
