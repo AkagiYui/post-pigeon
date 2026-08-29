@@ -32,6 +32,7 @@ import { EndpointSettingsEditor } from "./EndpointSettingsEditor"
 import { HeadersEditor } from "./HeadersEditor"
 import { OperationsEditor } from "./OperationsEditor"
 import { CookiesEditor, ParamsEditor } from "./ParamsEditor"
+import { shouldShowResponsePanel } from "./response-visibility"
 import { ResponseBodyToolbar, ResponsePanel } from "./ResponsePanel"
 import { StreamEventLog, WebSocketResponse } from "./StreamPanels"
 
@@ -658,12 +659,28 @@ export function EndpointDetail(props: EndpointDetailProps) {
               <Show
                 when={props.response}
                 fallback={
-                  <div class="relative h-full">
-                    <div class="absolute top-1.5 right-2 z-10"><LayoutToggle /></div>
-                    <div class="flex items-center justify-center h-full text-muted-foreground text-sm">
-                      {t("endpoint.sendToViewResponse")}
+                  <Show
+                    when={shouldShowResponsePanel(false, isWs(), wsStatus())}
+                    fallback={
+                      <div class="relative h-full">
+                        <div class="absolute top-1.5 right-2 z-10"><LayoutToggle /></div>
+                        <div class="flex items-center justify-center h-full text-muted-foreground text-sm">
+                          {t("endpoint.sendToViewResponse")}
+                        </div>
+                      </div>
+                    }
+                  >
+                    {/* WebSocket 连接和消息由全局 stream store 持有。切换接口后即使握手响应没有恢复，
+                      也要直接恢复消息面板，不能退回“未请求”占位。 */}
+                    <div class="flex flex-col h-full">
+                      <div class="flex justify-end px-2 py-1 border-b border-border shrink-0">
+                        <LayoutToggle />
+                      </div>
+                      <div class="flex-1 min-h-0">
+                        <WebSocketResponse connId={ep().id} />
+                      </div>
                     </div>
-                  </div>
+                  </Show>
                 }
               >
                 {/* SSE 流式响应：实时事件流。WebSocket 的正文由消息面板接管，其余仍走标准响应 Tabs。 */}
