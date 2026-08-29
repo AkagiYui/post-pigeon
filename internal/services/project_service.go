@@ -174,6 +174,19 @@ func (s *ProjectService) SaveProjectWSProtocolConversion(id string, mode string)
 		Update("ws_protocol_conversion", string(normalized)).Error
 }
 
+// SaveProjectRequestInheritance 保存项目级的五级继承请求选项。
+func (s *ProjectService) SaveProjectRequestInheritance(id, timeoutMode string, timeout int,
+	followRedirects, sendNoCacheHeaders *bool,
+) error {
+	timeout = models.NormalizeScopedTimeoutValue(timeoutMode, timeout)
+	return s.db.Model(&models.Project{}).Where("id = ?", id).Updates(map[string]any{
+		"timeout_mode":          models.PersistedTimeoutMode(timeoutMode),
+		"timeout":               timeout,
+		"follow_redirects":      followRedirects,
+		"send_no_cache_headers": sendNoCacheHeaders,
+	}).Error
+}
+
 // DeleteProject 删除项目及其所有关联数据
 func (s *ProjectService) DeleteProject(id string) error {
 	// 端点及其关联数据、文件夹、模块、环境与变量、全局变量、脚本库均由数据库外键
@@ -244,6 +257,10 @@ func (s *ProjectService) CloneProject(id string, newName string) (*models.Projec
 		TLSSettings:          src.TLSSettings,
 		URLEncoding:          src.URLEncoding,
 		WSProtocolConversion: src.WSProtocolConversion,
+		TimeoutMode:          src.TimeoutMode,
+		Timeout:              src.Timeout,
+		FollowRedirects:      src.FollowRedirects,
+		SendNoCacheHeaders:   src.SendNoCacheHeaders,
 	}
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {

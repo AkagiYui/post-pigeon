@@ -67,9 +67,14 @@ type Endpoint struct {
 	BodyContent string  `gorm:"type:text" json:"bodyContent"`
 	ContentType string  `json:"contentType"`
 	Timeout     int     `gorm:"default:30000" json:"timeout"`
-	// FollowRedirects 是否跟随 3xx 重定向。nil 表示继承上级（目前只有全局设置），
-	// 显式 true/false 才覆盖全局。注意不能带 gorm default，否则 nil 会被写成默认值而丢掉「继承」。
+	// TimeoutMode 为空/inherit 时继承文件夹或模块；unlimited 不限时；value 使用 Timeout。
+	// 数据库默认 value 兼容降级后的旧版本，新版本创建时 BeforeCreate 会显式改为 inherit。
+	TimeoutMode string `gorm:"type:text;default:value" json:"timeoutMode"`
+	// FollowRedirects 是否跟随 3xx 重定向。nil 表示逐层继承，显式 true/false 覆盖。
+	// 注意不能带 gorm default，否则 nil 会被写成默认值而丢掉「继承」。
 	FollowRedirects *bool `json:"followRedirects"`
+	// SendNoCacheHeaders nil 表示继承上级，显式 true/false 覆盖。
+	SendNoCacheHeaders *bool `json:"sendNoCacheHeaders"`
 	// 文档正文（Type=doc 时的 Markdown 内容）
 	DocContent string `gorm:"type:text" json:"docContent"`
 	// 接口元数据
@@ -89,11 +94,11 @@ type Endpoint struct {
 	// DisabledGlobalParams 本接口禁用的全局(模块)查询参数名列表，JSON 字符串数组。
 	// 仅影响本接口是否附加对应的模块自动参数，不改变模块级参数自身的启用状态。
 	DisabledGlobalParams string `gorm:"type:text" json:"disabledGlobalParams"`
-	// ProxyConfig 接口级代理选择（EndpointProxy 的 JSON）。空字符串表示 inherit（跟随项目）。
+	// ProxyConfig 接口级代理选择（EndpointProxy 的 JSON）。空字符串表示逐层继承。
 	ProxyConfig string `gorm:"type:text" json:"proxyConfig"`
-	// TLSConfig 接口级 TLS 选择（EndpointTLS 的 JSON）。空字符串表示 inherit（跟随项目）。
+	// TLSConfig 接口级 TLS 选择（EndpointTLS 的 JSON）。空字符串表示逐层继承。
 	TLSConfig string `gorm:"type:text" json:"tlsConfig"`
-	// URLEncoding 接口级 URL 自动编码档位（URLEncodingMode）。空字符串表示 inherit（跟随项目）。
+	// URLEncoding 接口级 URL 自动编码档位（URLEncodingMode）。空字符串表示逐层继承。
 	URLEncoding string `gorm:"type:text" json:"urlEncoding"`
 	// WSProtocolConversion WebSocket 协议头自动转换档位。空字符串表示继承文件夹或模块。
 	WSProtocolConversion string `gorm:"type:text" json:"wsProtocolConversion"`
@@ -123,6 +128,9 @@ type Endpoint struct {
 func (e *Endpoint) BeforeCreate(tx *gorm.DB) error {
 	if e.ID == "" {
 		e.ID = uuid.New().String()
+	}
+	if e.TimeoutMode == "" {
+		e.TimeoutMode = string(TimeoutInherit)
 	}
 	return nil
 }

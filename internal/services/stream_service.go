@@ -99,10 +99,11 @@ func (s *WebSocketService) Connect(connID, urlStr string, headers map[string]str
 	}
 
 	limits := models.DefaultRequestSettings
-	// 代理与 TLS：按端点(connID)反查模块→项目，沿「接口→项目→全局」解析后注入拨号传输。
+	// 代理与 TLS：按端点(connID)反查完整五级链后注入拨号传输。
 	if s.db != nil {
 		limits = getRequestSettings(s.db)
-		moduleID := moduleIDFromEndpoint(s.db, connID)
+		endpoint := endpointForRequest(s.db, connID, moduleIDFromEndpoint(s.db, connID))
+		path := loadRequestScopePath(s.db, endpoint)
 
 		var epProxy models.EndpointProxy
 		if strings.TrimSpace(proxyConfig) != "" {
@@ -113,8 +114,8 @@ func (s *WebSocketService) Connect(connID, urlStr string, headers map[string]str
 			_ = models.FromJSON(tlsConfig, &epTLS)
 		}
 
-		proxy := resolveProxy(resolveEffectiveProxy(s.db, moduleID, epProxy), nil)
-		transport, err := sharedTransport(proxy, resolveEffectiveTLS(s.db, moduleID, epTLS))
+		proxy := resolveProxy(resolveEffectiveProxyFromPath(s.db, path, epProxy), nil)
+		transport, err := sharedTransport(proxy, resolveEffectiveTLSFromPath(s.db, path, epTLS))
 		if err != nil {
 			cancel()
 			return err

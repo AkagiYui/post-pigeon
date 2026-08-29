@@ -10,7 +10,7 @@ import (
 
 // ProxyService 代理设置服务：管理全局与项目级代理设置，并为接口提供可选代理列表。
 //
-// 层级：接口(inherit/none/ref) → 项目(followGlobal/自选) → 全局(自选)。
+// 层级：接口(inherit/none/ref) → 逐层文件夹 → 模块 → 项目(followGlobal/自选) → 全局(自选)。
 // 全局与项目均维护一组代理条目（含内置的「系统代理」「不使用代理」及自定义条目），
 // 各自选择一个默认条目；接口只能引用项目/全局中已有的条目，不能自定义。
 type ProxyService struct {
@@ -92,23 +92,45 @@ func getProjectProxySettings(db *gorm.DB, projectID string) models.ScopeProxySet
 // ---- 代理解析（供 http_service 使用）----
 
 // resolveEffectiveProxy 解析某接口请求最终生效的代理条目。
-//   - 接口 inherit（默认）→ 解析项目链；项目 followGlobal → 全局默认条目。
+//   - 接口 inherit（默认）→ 逐层解析文件夹、模块与项目；项目 followGlobal → 全局默认条目。
 //   - 接口 none → 不使用代理。
-//   - 接口 ref → 引用项目/全局中的具体条目；引用失效时回退到 inherit 链。
+//   - 任一下级 ref → 引用项目/全局中的具体条目；引用失效时继续向上继承。
 //
 // moduleID 用于定位所属项目；为空（未保存请求）时项目链不可用，直接落到全局。
 func resolveEffectiveProxy(db *gorm.DB, moduleID string, ep models.EndpointProxy) models.ProxyConfig {
-	switch ep.Mode {
-	case string(models.EndpointProxyNone):
-		return models.ProxyConfig{ID: models.ProxyBuiltinNoneID, Mode: string(models.ProxyModeNone)}
-	case string(models.EndpointProxyRef):
-		if cfg, ok := lookupScopeProxy(db, moduleID, ep.RefScope, ep.RefID); ok {
+	return resolveEffectiveProxyForEndpoint(db, models.Endpoint{ModuleID: moduleID}, ep)
+}
+
+func resolveEffectiveProxyForEndpoint(db *gorm.DB, endpoint models.Endpoint, ep models.EndpointProxy) models.ProxyConfig {
+	return resolveEffectiveProxyFromPath(db, loadRequestScopePath(db, endpoint), ep)
+}
+
+func resolveEffectiveProxyFromPath(db *gorm.DB, path requestScopePath, ep models.EndpointProxy) models.ProxyConfig {
+	moduleID := path.Endpoint.ModuleID
+	if cfg, ok := resolveProxySelection(db, moduleID, ep); ok {
+		return cfg
+	}
+	for _, folder := range path.Folders {
+		if cfg, ok := resolveProxySelection(db, moduleID, parseEndpointProxy(folder.ProxyConfig)); ok {
 			return cfg
 		}
-		// 引用失效：回退到 inherit 链
 	}
-	// inherit（空或 "inherit"）与 ref 回退：解析项目/全局链
+	if cfg, ok := resolveProxySelection(db, moduleID, parseEndpointProxy(path.Module.ProxyConfig)); ok {
+		return cfg
+	}
 	return resolveScopeChain(db, moduleID)
+}
+
+func resolveProxySelection(db *gorm.DB, moduleID string, ep models.EndpointProxy) (models.ProxyConfig, bool) {
+	switch ep.Mode {
+	case string(models.EndpointProxyNone):
+		return models.ProxyConfig{ID: models.ProxyBuiltinNoneID, Mode: string(models.ProxyModeNone)}, true
+	case string(models.EndpointProxyRef):
+		if cfg, ok := lookupScopeProxy(db, moduleID, ep.RefScope, ep.RefID); ok {
+			return cfg, true
+		}
+	}
+	return models.ProxyConfig{}, false
 }
 
 // resolveScopeChain 解析「项目 → 全局」的默认代理条目。

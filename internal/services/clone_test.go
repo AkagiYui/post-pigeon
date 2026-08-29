@@ -61,6 +61,17 @@ func TestCloneProjectCopiesEverything(t *testing.T) {
 	db.Model(&models.Module{}).Where("id = ?", rp.moduleID).Update("ws_protocol_conversion", "on")
 	db.Model(&models.Folder{}).Where("id = ?", rp.folderID).Update("ws_protocol_conversion", "off")
 	db.Model(&models.Endpoint{}).Where("id = ?", rp.epFolder).Update("ws_protocol_conversion", "on")
+	// 其余五级请求设置也必须随各自作用域复制。
+	db.Model(&models.Project{}).Where("id = ?", rp.projectID).Updates(map[string]any{
+		"timeout_mode": "value", "timeout": 8100, "follow_redirects": false, "send_no_cache_headers": true,
+	})
+	db.Model(&models.Module{}).Where("id = ?", rp.moduleID).Updates(map[string]any{
+		"url_encoding": "whatwg", "proxy_config": `{"mode":"none"}`,
+	})
+	db.Model(&models.Folder{}).Where("id = ?", rp.folderID).Updates(map[string]any{
+		"tls_config": `{"mode":"insecure"}`, "timeout_mode": "unlimited",
+	})
+	db.Model(&models.Endpoint{}).Where("id = ?", rp.epFolder).Update("send_no_cache_headers", false)
 
 	// 登录态：会话 cookie 也该跟着克隆走
 	if err := db.Create(&models.StoredCookie{
@@ -82,20 +93,32 @@ func TestCloneProjectCopiesEverything(t *testing.T) {
 	if clone.WSProtocolConversion != "off" {
 		t.Errorf("项目级 WS 协议设置 = %q，期望 off", clone.WSProtocolConversion)
 	}
+	if clone.TimeoutMode != "value" || clone.Timeout != 8100 || clone.FollowRedirects == nil || *clone.FollowRedirects || clone.SendNoCacheHeaders == nil || !*clone.SendNoCacheHeaders {
+		t.Errorf("项目级请求继承设置未完整克隆: %+v", clone)
+	}
 	var clonedModule models.Module
 	db.Where("project_id = ?", clone.ID).Order("sort_order ASC").First(&clonedModule)
 	if clonedModule.WSProtocolConversion != "on" {
 		t.Errorf("模块级 WS 协议设置 = %q，期望 on", clonedModule.WSProtocolConversion)
+	}
+	if clonedModule.URLEncoding != "whatwg" || clonedModule.ProxyConfig != `{"mode":"none"}` {
+		t.Errorf("模块级请求继承设置未完整克隆: %+v", clonedModule)
 	}
 	var clonedFolder models.Folder
 	db.Where("module_id = ? AND name = ?", clonedModule.ID, "F").First(&clonedFolder)
 	if clonedFolder.WSProtocolConversion != "off" {
 		t.Errorf("文件夹级 WS 协议设置 = %q，期望 off", clonedFolder.WSProtocolConversion)
 	}
+	if clonedFolder.TLSConfig != `{"mode":"insecure"}` || clonedFolder.TimeoutMode != "unlimited" {
+		t.Errorf("文件夹级请求继承设置未完整克隆: %+v", clonedFolder)
+	}
 	var clonedEndpoint models.Endpoint
 	db.Where("folder_id = ? AND name = ?", clonedFolder.ID, "E-f").First(&clonedEndpoint)
 	if clonedEndpoint.WSProtocolConversion != "on" {
 		t.Errorf("接口级 WS 协议设置 = %q，期望 on", clonedEndpoint.WSProtocolConversion)
+	}
+	if clonedEndpoint.SendNoCacheHeaders == nil || *clonedEndpoint.SendNoCacheHeaders {
+		t.Errorf("接口级 no-cache 显式关闭未克隆: %+v", clonedEndpoint.SendNoCacheHeaders)
 	}
 
 	// 挂在项目下的每一张表都要逐表等量

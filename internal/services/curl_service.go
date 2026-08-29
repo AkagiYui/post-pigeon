@@ -51,6 +51,8 @@ type CurlRequest struct {
 // 留着 {{token}} 反而不可用。
 func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
 	vars := s.requestVars(data)
+	requestEndpoint := endpointForRequest(s.db, data.EndpointID, data.ModuleID)
+	requestPath := loadRequestScopePath(s.db, requestEndpoint)
 
 	fullURL := resolveVars(combineURL(data.BaseURL, data.Path), vars)
 	fullURL = applyPathParams(fullURL, data.Params, vars)
@@ -71,7 +73,7 @@ func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
 	if strings.TrimSpace(epEncoding) == "" {
 		epEncoding = savedEndpointURLEncoding(s.db, data.EndpointID)
 	}
-	urlEncoding := resolveURLEncoding(s.db, data.ModuleID, epEncoding)
+	urlEncoding := resolveURLEncodingFromPath(s.db, requestPath, epEncoding)
 	applyURLEncoding(parsed, query, urlEncoding)
 
 	method := strings.ToUpper(strings.TrimSpace(data.Method))
@@ -82,16 +84,16 @@ func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
 	// 每个参数单独一行、以 \ 续行，长命令仍然可读
 	lines := []string{fmt.Sprintf("curl -X %s %s", method, shellQuote(urlWithHost(parsed)))}
 
-	// 接口没显式设置时按全局设置渲染 -L（与 requestVars 一样，无库场景用默认值）
+	// 重定向、超时和 no-cache 与实际发送共用同一条五级继承链。
 	limits := models.DefaultRequestSettings
 	if s.db != nil {
 		limits = getRequestSettings(s.db)
 	}
-	if resolveFollowRedirects(data, limits) {
+	if resolveFollowRedirects(requestPath, data.FollowRedirects, limits.FollowRedirects) {
 		lines = append(lines, "-L")
 	}
-	if data.Timeout > 0 {
-		lines = append(lines, fmt.Sprintf("--max-time %g", float64(data.Timeout)/1000.0))
+	if timeout := resolveRequestTimeout(requestPath, data.TimeoutMode, data.Timeout, limits); timeout > 0 {
+		lines = append(lines, fmt.Sprintf("--max-time %g", timeout.Seconds()))
 	}
 
 	// 请求头：按名称排序，保证同一请求每次导出的命令一致（便于 diff）
@@ -100,6 +102,9 @@ func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
 		if h.Enabled && strings.TrimSpace(h.Name) != "" {
 			headers = append(headers, h)
 		}
+	}
+	if resolveSendNoCacheHeaders(requestPath, data.SendNoCacheHeaders, limits.SendNoCacheHeaders) && !hasHeader(headers, "Cache-Control") {
+		headers = append(headers, models.EndpointHeader{Name: "Cache-Control", Value: "no-cache", Enabled: true})
 	}
 	sort.SliceStable(headers, func(i, j int) bool { return headers[i].Name < headers[j].Name })
 	for _, h := range headers {

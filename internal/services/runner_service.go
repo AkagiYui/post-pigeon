@@ -246,12 +246,14 @@ func (s *RunnerService) runOne(endpoint models.Endpoint, opts RunOptions, iterat
 		BodyContent:   endpoint.BodyContent,
 		ContentType:   endpoint.ContentType,
 		Timeout:       endpoint.Timeout,
+		TimeoutMode:   endpoint.TimeoutMode,
 		// 运行器不跟随重定向设置以外的额外配置：其余（认证/参数/脚本/代理/TLS）
 		// 都由 SendRequest 依据已保存的端点自行解析，与手动发送完全一致
-		FollowRedirects: endpoint.FollowRedirects,
-		ProxyConfig:     endpoint.ProxyConfig,
-		TLSConfig:       endpoint.TLSConfig,
-		URLEncoding:     endpoint.URLEncoding,
+		FollowRedirects:    endpoint.FollowRedirects,
+		SendNoCacheHeaders: endpoint.SendNoCacheHeaders,
+		ProxyConfig:        endpoint.ProxyConfig,
+		TLSConfig:          endpoint.TLSConfig,
+		URLEncoding:        endpoint.URLEncoding,
 	})
 	if err != nil {
 		item.Error = err.Error()

@@ -44,11 +44,11 @@ type RequestSettings struct {
 	MaxStoredBodyBytes int64 `json:"maxStoredBodyBytes"`
 	// MaxWebSocketMessageBytes WebSocket 单帧最大字节数，0 表示不限制。
 	MaxWebSocketMessageBytes int64 `json:"maxWebSocketMessageBytes"`
-	// TimeoutMs 请求超时时间（毫秒），仅在接口自身未设置超时时兜底。
+	// TimeoutMs 请求超时时间（毫秒），是五级继承链的全局终点。
 	// 三态：nil 表示未设置（按 DefaultRequestTimeoutMs 处理），0 表示不限制超时，正数为具体时长。
 	TimeoutMs *int `json:"timeoutMs,omitempty"`
 	// FollowRedirects 是否自动跟随 3xx 重定向，默认开启。
-	// 这是全局开关：关掉之后所有请求都不跟随，接口级开关只能在其之上再关，不能反向打开。
+	// 项目、模块、逐层文件夹和接口都可以显式覆盖。
 	FollowRedirects bool `json:"followRedirects"`
 	// SendNoCacheHeaders 为每个请求补上 Cache-Control: no-cache，默认关闭。
 	// 请求自己显式带了 Cache-Control 时不覆盖。
@@ -61,7 +61,7 @@ type RequestSettings struct {
 	// 只在请求自身没有 User-Agent 请求头时才补：接口上显式写了（含显式留空以抑制该头）就以接口为准。
 	UserAgent string `json:"userAgent"`
 	// URLEncoding URL 自动编码的全局档位（URLEncodingMode）：rfc3986 / whatwg / off。
-	// 留空按 DefaultURLEncoding 处理。项目与接口可以在其上各自覆盖。
+	// 留空按 DefaultURLEncoding 处理，其余四级可以逐层覆盖。
 	URLEncoding string `json:"urlEncoding"`
 	// AutoConvertWSProtocol 是否为 WebSocket 接口自动把 http(s):// 转为 ws(s)://。
 	// 全局默认开启；项目、模块、文件夹和接口可逐级覆盖。

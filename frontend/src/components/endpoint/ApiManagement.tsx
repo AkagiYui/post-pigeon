@@ -85,8 +85,10 @@ interface UnsavedRequestData {
   bodyContent: string
   contentType: string
   timeout: number
-  /** 跟随重定向：null 表示继承上级（全局设置），true/false 为显式设置 */
+  timeoutMode: string
+  /** 跟随重定向：null 表示继承上级，true/false 为显式设置 */
   followRedirects: boolean | null
+  sendNoCacheHeaders: boolean | null
   baseUrl: string
   params: ParamRow[]
   headers: HeaderRow[]
@@ -526,6 +528,7 @@ export function ApiManagement(props: ApiManagementProps) {
       contentType: parsed.contentType || "",
       followRedirects: parsed.followRedirects,
       timeout: parsed.timeoutMs > 0 ? parsed.timeoutMs : 30000,
+      timeoutMode: parsed.timeoutMs > 0 ? "value" : "inherit",
       params: (parsed.params || []).map(p => ({
         id: crypto.randomUUID(), type: (p.type || "query") as ParamLocation,
         name: p.name, value: p.value, description: "", enabled: p.enabled,
@@ -640,7 +643,8 @@ export function ApiManagement(props: ApiManagementProps) {
           id: detail.id, name: detail.name, type: (detail.type as EndpointType) || "http",
           method: detail.method as HTTPMethod,
           path: detail.path, bodyType: detail.bodyType as BodyType, bodyContent: detail.bodyContent,
-          contentType: detail.contentType, timeout: detail.timeout, followRedirects: detail.followRedirects,
+          contentType: detail.contentType, timeout: detail.timeout, timeoutMode: detail.timeoutMode || "inherit",
+          followRedirects: detail.followRedirects, sendNoCacheHeaders: detail.sendNoCacheHeaders,
           baseUrl,
           params: fromParamModels(detail.params),
           headers: fromHeaderModels(detail.headers),
@@ -687,7 +691,8 @@ export function ApiManagement(props: ApiManagementProps) {
       if (unsaved) setEndpointData({
         id: unsaved.id, name: unsaved.name, type: unsaved.type ?? "http", method: unsaved.method, path: unsaved.path,
         bodyType: unsaved.bodyType, bodyContent: unsaved.bodyContent, contentType: unsaved.contentType,
-        timeout: unsaved.timeout, followRedirects: unsaved.followRedirects, baseUrl: unsaved.baseUrl,
+        timeout: unsaved.timeout, timeoutMode: unsaved.timeoutMode || "inherit",
+        followRedirects: unsaved.followRedirects, sendNoCacheHeaders: unsaved.sendNoCacheHeaders, baseUrl: unsaved.baseUrl,
         params: unsaved.params ?? [], headers: unsaved.headers ?? [],
         bodyFields: unsaved.bodyFields ?? [], auth: unsaved.auth ?? emptyAuth(),
         preRequestScript: unsaved.preRequestScript ?? "", postResponseScript: unsaved.postResponseScript ?? "",
@@ -740,7 +745,8 @@ export function ApiManagement(props: ApiManagementProps) {
     sendData.bodyType = ep.bodyType
     sendData.bodyContent = ep.bodyContent; sendData.contentType = ep.contentType
     sendData.bodyFields = toBodyFieldModels(ep.bodyFields); sendData.auth = toAuthModel(ep.auth)
-    sendData.timeout = ep.timeout; sendData.followRedirects = ep.followRedirects
+    sendData.timeout = ep.timeout; sendData.timeoutMode = ep.timeoutMode
+    sendData.followRedirects = ep.followRedirects; sendData.sendNoCacheHeaders = ep.sendNoCacheHeaders
     sendData.proxyConfig = ep.proxyConfig
     sendData.tlsConfig = ep.tlsConfig
     sendData.urlEncoding = ep.urlEncoding
@@ -852,7 +858,8 @@ export function ApiManagement(props: ApiManagementProps) {
       await EndpointService.SaveEndpointData({
         id: ep.id, name: ep.name, method: ep.method, path: ep.path,
         bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
-        timeout: ep.timeout, followRedirects: ep.followRedirects,
+        timeout: ep.timeout, timeoutMode: ep.timeoutMode, followRedirects: ep.followRedirects,
+        sendNoCacheHeaders: ep.sendNoCacheHeaders,
         preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
         type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
         description: ep.description, inheritOperations: ep.inheritOperations,
@@ -883,7 +890,8 @@ export function ApiManagement(props: ApiManagementProps) {
       const created = await EndpointService.CreateFullEndpoint(moduleId, folderId ?? null, {
         id: "", name, method: ep.method, path: ep.path,
         bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
-        timeout: ep.timeout, followRedirects: ep.followRedirects,
+        timeout: ep.timeout, timeoutMode: ep.timeoutMode, followRedirects: ep.followRedirects,
+        sendNoCacheHeaders: ep.sendNoCacheHeaders,
         preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
         type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
         description: ep.description, inheritOperations: ep.inheritOperations,
@@ -901,7 +909,8 @@ export function ApiManagement(props: ApiManagementProps) {
         await EndpointService.SaveEndpointData({
           id: created.id, name, method: ep.method, path: ep.path,
           bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
-          timeout: ep.timeout, followRedirects: ep.followRedirects,
+          timeout: ep.timeout, timeoutMode: ep.timeoutMode, followRedirects: ep.followRedirects,
+          sendNoCacheHeaders: ep.sendNoCacheHeaders,
           preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
           type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
           description: ep.description, inheritOperations: ep.inheritOperations,

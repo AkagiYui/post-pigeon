@@ -423,7 +423,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
   }
   const wsConnect = async () => {
     markConnecting(ep().id)
-    // 传入接口级代理选择：WebSocket 与普通请求一样按「接口→项目→全局」解析生效代理
+    // WebSocket 与普通请求一样按完整五级链解析生效代理与 TLS。
     try {
       await WebSocketService.Connect(
         ep().id,
@@ -595,7 +595,9 @@ export function EndpointDetail(props: EndpointDetailProps) {
                   case "settings": return <EndpointSettingsEditor
                     endpointType={ep().type}
                     timeout={ep().timeout}
+                    timeoutMode={ep().timeoutMode}
                     followRedirects={ep().followRedirects}
+                    sendNoCacheHeaders={ep().sendNoCacheHeaders}
                     status={ep().status}
                     tags={ep().tags}
                     description={ep().description}

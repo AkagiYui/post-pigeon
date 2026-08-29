@@ -40,6 +40,24 @@ const projectSettingsTabs = [
   { key: "cookies", icon: "lucide:cookie" },
 ]
 
+function InheritedBooleanField(props: { label: string, value: boolean | null, onChange: (value: boolean | null) => void }) {
+  return (
+    <div>
+      <label class="block text-sm font-medium text-foreground mb-1.5">{props.label}</label>
+      <Select
+        options={[
+          { value: "inherit", label: t("inherit.global") },
+          { value: "true", label: t("common.on") },
+          { value: "false", label: t("common.off") },
+        ]}
+        value={props.value == null ? "inherit" : String(props.value)}
+        onChange={(value) => props.onChange(value === "inherit" ? null : value === "true")}
+        class="w-44"
+      />
+    </div>
+  )
+}
+
 export const Route = createFileRoute("/project/$id/settings")({
   component: ProjectSettingsPage,
 })
@@ -60,15 +78,22 @@ function ProjectSettingsPage() {
   const [name, setName] = cache.createCachedSignal("name", "")
   const [description, setDescription] = cache.createCachedSignal("description", "")
   const [wsProtocolConversion, setWSProtocolConversion] = cache.createCachedSignal("wsProtocolConversion", "inherit")
+  const [timeoutMode, setTimeoutMode] = cache.createCachedSignal("timeoutMode", "inherit")
+  const [timeout, setTimeout] = cache.createCachedSignal("timeout", 30000)
+  const [followRedirects, setFollowRedirects] = cache.createCachedSignal<boolean | null>("followRedirects", null)
+  const [sendNoCacheHeaders, setSendNoCacheHeaders] = cache.createCachedSignal<boolean | null>("sendNoCacheHeaders", null)
   const [saving, setSaving] = createSignal(false)
   const [error, setError] = createSignal("")
   // 已保存的原始值，用于判断表单是否发生变动
   const [savedName, setSavedName] = createSignal("")
   const [savedDescription, setSavedDescription] = createSignal("")
   const [savedWSProtocolConversion, setSavedWSProtocolConversion] = createSignal("inherit")
+  const [savedRequestInheritance, setSavedRequestInheritance] = createSignal("")
+  const requestInheritanceKey = () => JSON.stringify([timeoutMode(), timeout(), followRedirects(), sendNoCacheHeaders()])
   const isDirty = () => name().trim() !== savedName()
     || description().trim() !== savedDescription()
     || wsProtocolConversion() !== savedWSProtocolConversion()
+	|| requestInheritanceKey() !== savedRequestInheritance()
 
   // ---- 克隆 / 删除（不进路由缓存：都是一次性的确认流程，离开页面就该重来） ----
   const [cloneOpen, setCloneOpen] = createSignal(false)
@@ -91,11 +116,17 @@ function ProjectSettingsPage() {
         setSavedName((project.name || "").trim())
         setSavedDescription((project.description || "").trim())
         const wsMode = project.wsProtocolConversion || "inherit"
+        const projectTimeoutMode = project.timeoutMode || "inherit"
         setSavedWSProtocolConversion(wsMode)
+        setSavedRequestInheritance(JSON.stringify([projectTimeoutMode, project.timeout || 0, project.followRedirects, project.sendNoCacheHeaders]))
         if (!restoredFromCache) {
           setName(project.name || "")
           setDescription(project.description || "")
           setWSProtocolConversion(wsMode)
+          setTimeoutMode(projectTimeoutMode)
+          setTimeout(project.timeout || 0)
+          setFollowRedirects(project.followRedirects)
+          setSendNoCacheHeaders(project.sendNoCacheHeaders)
         }
       }
     } catch (e) {
@@ -123,6 +154,7 @@ function ProjectSettingsPage() {
       const trimmedDescription = description().trim()
       await ProjectService.UpdateProject(id, trimmedName, trimmedDescription)
       await ProjectService.SaveProjectWSProtocolConversion(id, wsProtocolConversion())
+      await ProjectService.SaveProjectRequestInheritance(id, timeoutMode(), timeout(), followRedirects(), sendNoCacheHeaders())
       // 更新缓存的项目名称
       setProjectNames(prev => ({ ...prev, [id]: trimmedName }))
       // 更新已保存值，使按钮回到禁用状态
@@ -131,6 +163,7 @@ function ProjectSettingsPage() {
       setSavedName(trimmedName)
       setSavedDescription(trimmedDescription)
       setSavedWSProtocolConversion(wsProtocolConversion())
+      setSavedRequestInheritance(requestInheritanceKey())
     } catch (e) {
       toastError(e, "error.op.saveFailed")
       setError(t("project.saveFailed"))
@@ -293,6 +326,24 @@ function ProjectSettingsPage() {
                         class="w-64"
                       />
                       <p class="mt-1.5 text-xs text-muted-foreground">{t("wsProtocol.project.hint")}</p>
+                    </div>
+
+                    <div class="grid gap-4 border-t border-border pt-4 sm:grid-cols-2">
+                      <div>
+                        <label class="block text-sm font-medium text-foreground mb-1.5">{t("request.timeout")}</label>
+                        <div class="flex gap-2">
+                          <Select options={[
+                            { value: "inherit", label: t("inherit.global") },
+                            { value: "value", label: t("request.timeout.value") },
+                            { value: "unlimited", label: t("request.timeout.unlimited") },
+                          ]} value={timeoutMode()} onChange={(value) => { setTimeoutMode(value); if (value === "value" && timeout() <= 0) setTimeout(30000) }} class="w-44" />
+                          <Show when={timeoutMode() === "value"}>
+                            <Input type="number" min="1" value={String(timeout())} onInput={(e) => setTimeout(Math.max(1, Number(e.currentTarget.value) || 1))} class="w-32" />
+                          </Show>
+                        </div>
+                      </div>
+                      <InheritedBooleanField label={t("request.followRedirects")} value={followRedirects()} onChange={setFollowRedirects} />
+                      <InheritedBooleanField label={t("request.noCache")} value={sendNoCacheHeaders()} onChange={setSendNoCacheHeaders} />
                     </div>
 
                     {/* 操作按钮 */}

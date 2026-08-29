@@ -11,33 +11,25 @@ import (
 // resolveInheritedWSProtocolConversion 解析端点父级（文件夹链 → 模块 → 项目 → 全局）的最终开关。
 // 单独返回父级结果，前端编辑接口级档位时可以即时计算而无需先保存。
 func resolveInheritedWSProtocolConversion(db *gorm.DB, endpoint models.Endpoint) bool {
-	folderID := endpoint.FolderID
-	for folderID != nil && *folderID != "" {
-		var folder models.Folder
-		if err := db.Select("parent_id", "ws_protocol_conversion").Where("id = ?", *folderID).First(&folder).Error; err != nil {
-			break
-		}
+	path := loadRequestScopePath(db, endpoint)
+	for _, folder := range path.Folders {
 		switch models.NormalizeWSProtocolConversion(folder.WSProtocolConversion) {
 		case models.WSProtocolConversionOn:
 			return true
 		case models.WSProtocolConversionOff:
 			return false
 		}
-		folderID = folder.ParentID
 	}
-
-	var module models.Module
-	if err := db.Select("project_id", "ws_protocol_conversion").Where("id = ?", endpoint.ModuleID).First(&module).Error; err == nil {
-		switch models.NormalizeWSProtocolConversion(module.WSProtocolConversion) {
+	if path.Module.ID != "" {
+		switch models.NormalizeWSProtocolConversion(path.Module.WSProtocolConversion) {
 		case models.WSProtocolConversionOn:
 			return true
 		case models.WSProtocolConversionOff:
 			return false
 		}
 
-		var project models.Project
-		if err := db.Select("ws_protocol_conversion").Where("id = ?", module.ProjectID).First(&project).Error; err == nil {
-			switch models.NormalizeWSProtocolConversion(project.WSProtocolConversion) {
+		if path.Project.ID != "" {
+			switch models.NormalizeWSProtocolConversion(path.Project.WSProtocolConversion) {
 			case models.WSProtocolConversionOn:
 				return true
 			case models.WSProtocolConversionOff:

@@ -1,6 +1,6 @@
 package models
 
-// TLS 设置沿用与代理一致的三级模型：全局 → 项目（可跟随全局）→ 接口（inherit/strict/insecure）。
+// TLS 设置沿用与代理一致的五级模型；具体证书材料仍只保存在全局与项目。
 // 目的是让「自签证书的内网服务」「需要双向认证的接口」这类调试场景不必关掉整个应用的校验。
 
 // TLSMinVersion 允许的最低 TLS 版本。空串表示使用 Go 默认（当前为 TLS 1.2）。
@@ -33,7 +33,7 @@ type ScopeTLSSettings struct {
 type EndpointTLSMode string
 
 const (
-	// EndpointTLSInherit 跟随项目/全局设置（默认）。
+	// EndpointTLSInherit 逐层跟随文件夹、模块、项目与全局设置（默认）。
 	EndpointTLSInherit EndpointTLSMode = "inherit"
 	// EndpointTLSStrict 强制开启证书校验，忽略上级的 insecure 设置。
 	EndpointTLSStrict EndpointTLSMode = "strict"

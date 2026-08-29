@@ -17,8 +17,12 @@ export interface EndpointData {
   bodyContent: string
   contentType: string
   timeout: number
-  /** 跟随重定向：null 表示继承上级（全局设置），true/false 为显式设置 */
+  /** 超时模式：inherit / unlimited / value */
+  timeoutMode: string
+  /** 跟随重定向：null 表示继承上级，true/false 为显式设置 */
   followRedirects: boolean | null
+  /** 自动补 no-cache：null 表示继承上级 */
+  sendNoCacheHeaders: boolean | null
   baseUrl: string
   params: ParamRow[]
   headers: HeaderRow[]
@@ -40,9 +44,9 @@ export interface EndpointData {
   inheritOperations: boolean
   /** 本接口禁用的全局(模块) query 参数名列表（仅影响本接口） */
   disabledGlobalParams: string[]
-  /** 接口级代理选择（EndpointProxy 的 JSON，空或 mode=inherit 表示跟随项目） */
+  /** 接口级代理选择（EndpointProxy 的 JSON，空或 mode=inherit 表示逐层继承） */
   proxyConfig: string
-  /** 接口级 TLS 选择（EndpointTLS 的 JSON，空或 mode=inherit 表示跟随项目） */
+  /** 接口级 TLS 选择（EndpointTLS 的 JSON，空或 mode=inherit 表示逐层继承） */
   tlsConfig: string
   /** 接口级 URL 自动编码档位（rfc3986 / whatwg / off / inherit） */
   urlEncoding: string

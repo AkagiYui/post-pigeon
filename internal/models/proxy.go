@@ -57,7 +57,7 @@ type ScopeProxySettings struct {
 type EndpointProxyMode string
 
 const (
-	// EndpointProxyInherit 跟随项目设置（默认）。
+	// EndpointProxyInherit 逐层跟随文件夹、模块、项目与全局设置（默认）。
 	EndpointProxyInherit EndpointProxyMode = "inherit"
 	// EndpointProxyNone 不使用代理（直连）。
 	EndpointProxyNone EndpointProxyMode = "none"

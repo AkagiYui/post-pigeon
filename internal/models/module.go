@@ -19,9 +19,17 @@ type Module struct {
 	// EndpointDisplay 该模块下接口在树中的显示方式：name（名称，默认）或 url（路径）
 	EndpointDisplay string `gorm:"default:name" json:"endpointDisplay"`
 	// WSProtocolConversion WebSocket 协议头自动转换档位。空字符串表示继承项目。
-	WSProtocolConversion string    `gorm:"type:text" json:"wsProtocolConversion"`
-	CreatedAt            time.Time `json:"createdAt"`
-	UpdatedAt            time.Time `json:"updatedAt"`
+	WSProtocolConversion string `gorm:"type:text" json:"wsProtocolConversion"`
+	// 以下请求设置均为空/NULL时继承项目。
+	ProxyConfig        string    `gorm:"type:text" json:"proxyConfig"`
+	TLSConfig          string    `gorm:"type:text" json:"tlsConfig"`
+	URLEncoding        string    `gorm:"type:text" json:"urlEncoding"`
+	TimeoutMode        string    `gorm:"type:text;default:value" json:"timeoutMode"`
+	Timeout            int       `gorm:"default:0" json:"timeout"`
+	FollowRedirects    *bool     `json:"followRedirects"`
+	SendNoCacheHeaders *bool     `json:"sendNoCacheHeaders"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
 
 	// 关联（constraint:OnDelete:CASCADE 使删除模块时，数据库自动级联删除其下所有内容）
 	BaseURLs  []ModuleBaseURL  `gorm:"constraint:OnDelete:CASCADE" json:"baseUrls,omitempty"`
@@ -58,6 +66,9 @@ func (m *ModuleParam) BeforeCreate(tx *gorm.DB) error {
 func (m *Module) BeforeCreate(tx *gorm.DB) error {
 	if m.ID == "" {
 		m.ID = uuid.New().String()
+	}
+	if m.TimeoutMode == "" {
+		m.TimeoutMode = string(TimeoutInherit)
 	}
 	return nil
 }

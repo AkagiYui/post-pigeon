@@ -136,6 +136,9 @@ func adoptLegacyDB(db *gorm.DB) error {
 	if err := migrateFollowRedirectsToInherit(db); err != nil {
 		return fmt.Errorf("跟随重定向迁移失败: %w", err)
 	}
+	if err := migrateRequestSettingsFiveLevel(db); err != nil {
+		return fmt.Errorf("五级请求设置迁移失败: %w", err)
+	}
 
 	if err := stampGooseVersion(db); err != nil {
 		return fmt.Errorf("登记 goose 版本失败: %w", err)
@@ -281,6 +284,17 @@ func migrateScriptsToOperations(db *gorm.DB) error {
 // 再跑那条 SQL，这里补上同样的收敛，让两条路径得到一致的数据。
 func migrateFollowRedirectsToInherit(db *gorm.DB) error {
 	return db.Exec("UPDATE `endpoints` SET `follow_redirects` = NULL WHERE `follow_redirects` = 1").Error
+}
+
+// migrateRequestSettingsFiveLevel 与 00011 中旧数据的收敛逻辑等价。
+// 历史库由 AutoMigrate 直接补列并跳过 goose SQL，因此必须在 stamp 前显式执行。
+func migrateRequestSettingsFiveLevel(db *gorm.DB) error {
+	for _, table := range []string{"projects", "modules", "folders"} {
+		if err := db.Table(table).Where("1 = 1").Update("timeout_mode", "").Error; err != nil {
+			return err
+		}
+	}
+	return nil
 }
 
 // migrateProjectSortOrder 为现有项目初始化排序值

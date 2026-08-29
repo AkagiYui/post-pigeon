@@ -31,8 +31,19 @@ func TestImportExportRoundTrip(t *testing.T) {
 	}
 	folder, _ := fs.CreateFolder(m.ID, nil, "Docs")
 	e1, _ := es.CreateEndpoint(m.ID, nil, "List", "GET", "/list")
+	db.Model(&models.Project{}).Where("id = ?", p.ID).Updates(map[string]any{
+		"url_encoding": "off", "timeout_mode": "value", "timeout": 8100,
+		"follow_redirects": false, "send_no_cache_headers": true,
+	})
+	db.Model(&models.Module{}).Where("id = ?", m.ID).Updates(map[string]any{
+		"url_encoding": "whatwg", "proxy_config": `{"mode":"none"}`,
+	})
+	db.Model(&models.Folder{}).Where("id = ?", folder.ID).Updates(map[string]any{
+		"tls_config": `{"mode":"insecure"}`, "timeout_mode": "unlimited",
+	})
 	if err := es.SaveEndpointData(EndpointSaveData{
 		ID: e1.ID, Name: "List", Method: "GET", Path: "/list",
+		TimeoutMode: "unlimited", SendNoCacheHeaders: boolPointer(false),
 		Params:  []models.EndpointParam{{Type: "query", Name: "a", Value: "1", Enabled: true}},
 		Headers: []models.EndpointHeader{{Name: "H", Value: "h", Enabled: true}},
 		Auth:    &models.EndpointAuth{Type: "bearer", Data: models.ToJSON(models.BearerAuthData{Token: "tok"})},
@@ -61,6 +72,9 @@ func TestImportExportRoundTrip(t *testing.T) {
 	if np.Name != "源项目" {
 		t.Errorf("导入项目名 = %q", np.Name)
 	}
+	if np.URLEncoding != "off" || np.TimeoutMode != "value" || np.Timeout != 8100 || np.FollowRedirects == nil || *np.FollowRedirects || np.SendNoCacheHeaders == nil || !*np.SendNoCacheHeaders {
+		t.Errorf("项目级五级设置未完成导入导出: %+v", np)
+	}
 
 	// 校验结构：通过项目树
 	tree, err := ps.GetProjectTree(np.ID)
@@ -71,6 +85,11 @@ func TestImportExportRoundTrip(t *testing.T) {
 		t.Fatalf("导入后模块数 = %d，期望 1", len(tree))
 	}
 	mt := tree[0]
+	var importedModule models.Module
+	db.Where("id = ?", mt.ID).First(&importedModule)
+	if importedModule.URLEncoding != "whatwg" || importedModule.ProxyConfig != `{"mode":"none"}` {
+		t.Errorf("模块级五级设置未完成导入导出: %+v", importedModule)
+	}
 	// 模块直属端点 List
 	var foundList bool
 	for _, ep := range mt.Endpoints {
@@ -87,6 +106,11 @@ func TestImportExportRoundTrip(t *testing.T) {
 	}
 	if len(mt.Folders[0].Endpoints) != 1 || mt.Folders[0].Endpoints[0].Name != "Detail" {
 		t.Errorf("Docs 下端点 = %v，期望 [Detail]", endpointNames(mt.Folders[0].Endpoints))
+	}
+	var importedFolder models.Folder
+	db.Where("id = ?", mt.Folders[0].ID).First(&importedFolder)
+	if importedFolder.TLSConfig != `{"mode":"insecure"}` || importedFolder.TimeoutMode != "unlimited" {
+		t.Errorf("文件夹级五级设置未完成导入导出: %+v", importedFolder)
 	}
 
 	// 校验 List 端点的关联数据是否一并导入
@@ -108,6 +132,9 @@ func TestImportExportRoundTrip(t *testing.T) {
 	}
 	if detail.Auth == nil || detail.Auth.Type != "bearer" {
 		t.Errorf("导入后 List 认证 = %+v，期望 bearer", detail.Auth)
+	}
+	if detail.TimeoutMode != "unlimited" || detail.SendNoCacheHeaders == nil || *detail.SendNoCacheHeaders {
+		t.Errorf("接口级五级设置未完成导入导出: %+v", detail.Endpoint)
 	}
 
 	// 校验环境与变量

@@ -24,6 +24,13 @@ type ModuleSettings struct {
 	AuthType             string                  `json:"authType"`
 	AuthData             string                  `json:"authData"`
 	WSProtocolConversion string                  `json:"wsProtocolConversion"`
+	ProxyConfig          string                  `json:"proxyConfig"`
+	TLSConfig            string                  `json:"tlsConfig"`
+	URLEncoding          string                  `json:"urlEncoding"`
+	TimeoutMode          string                  `json:"timeoutMode"`
+	Timeout              int                     `json:"timeout"`
+	FollowRedirects      *bool                   `json:"followRedirects"`
+	SendNoCacheHeaders   *bool                   `json:"sendNoCacheHeaders"`
 	Params               []models.ModuleParam    `json:"params"`
 	Variables            []models.ModuleVariable `json:"variables"`
 	Operations           []models.Operation      `json:"operations"`
@@ -34,6 +41,13 @@ type FolderSettings struct {
 	AuthType             string             `json:"authType"`
 	AuthData             string             `json:"authData"`
 	WSProtocolConversion string             `json:"wsProtocolConversion"`
+	ProxyConfig          string             `json:"proxyConfig"`
+	TLSConfig            string             `json:"tlsConfig"`
+	URLEncoding          string             `json:"urlEncoding"`
+	TimeoutMode          string             `json:"timeoutMode"`
+	Timeout              int                `json:"timeout"`
+	FollowRedirects      *bool              `json:"followRedirects"`
+	SendNoCacheHeaders   *bool              `json:"sendNoCacheHeaders"`
 	Operations           []models.Operation `json:"operations"`
 }
 
@@ -47,6 +61,13 @@ func (s *ScopeSettingsService) GetModuleSettings(moduleID string) (*ModuleSettin
 		AuthType:             defaultAuthType(m.AuthType, "none"),
 		AuthData:             m.AuthData,
 		WSProtocolConversion: string(models.NormalizeWSProtocolConversion(m.WSProtocolConversion)),
+		ProxyConfig:          normalizedProxySelection(m.ProxyConfig),
+		TLSConfig:            normalizedTLSSelection(m.TLSConfig),
+		URLEncoding:          string(models.NormalizeURLEncoding(m.URLEncoding)),
+		TimeoutMode:          string(models.NormalizeTimeoutMode(m.TimeoutMode)),
+		Timeout:              m.Timeout,
+		FollowRedirects:      m.FollowRedirects,
+		SendNoCacheHeaders:   m.SendNoCacheHeaders,
 	}
 	s.db.Where("module_id = ?", moduleID).Order("sort_order ASC").Find(&settings.Params)
 	s.db.Where("module_id = ?", moduleID).Order("sort_order ASC").Find(&settings.Variables)
@@ -61,6 +82,13 @@ func (s *ScopeSettingsService) SaveModuleSettings(moduleID string, settings Modu
 		if err := tx.Model(&models.Module{}).Where("id = ?", moduleID).Updates(map[string]any{
 			"auth_type": defaultAuthType(settings.AuthType, "none"), "auth_data": settings.AuthData,
 			"ws_protocol_conversion": persistedWSProtocolConversion(settings.WSProtocolConversion),
+			"proxy_config":           persistedProxySelection(settings.ProxyConfig),
+			"tls_config":             persistedTLSSelection(settings.TLSConfig),
+			"url_encoding":           persistedURLEncoding(settings.URLEncoding),
+			"timeout_mode":           models.PersistedTimeoutMode(settings.TimeoutMode),
+			"timeout":                models.NormalizeScopedTimeoutValue(settings.TimeoutMode, settings.Timeout),
+			"follow_redirects":       settings.FollowRedirects,
+			"send_no_cache_headers":  settings.SendNoCacheHeaders,
 		}).Error; err != nil {
 			return err
 		}
@@ -147,6 +175,13 @@ func (s *ScopeSettingsService) GetFolderSettings(folderID string) (*FolderSettin
 		AuthType:             defaultAuthType(f.AuthType, "inherit"),
 		AuthData:             f.AuthData,
 		WSProtocolConversion: string(models.NormalizeWSProtocolConversion(f.WSProtocolConversion)),
+		ProxyConfig:          normalizedProxySelection(f.ProxyConfig),
+		TLSConfig:            normalizedTLSSelection(f.TLSConfig),
+		URLEncoding:          string(models.NormalizeURLEncoding(f.URLEncoding)),
+		TimeoutMode:          string(models.NormalizeTimeoutMode(f.TimeoutMode)),
+		Timeout:              f.Timeout,
+		FollowRedirects:      f.FollowRedirects,
+		SendNoCacheHeaders:   f.SendNoCacheHeaders,
 	}
 	s.db.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerFolder, folderID).
 		Order("stage ASC, sort_order ASC").Find(&settings.Operations)
@@ -159,6 +194,13 @@ func (s *ScopeSettingsService) SaveFolderSettings(folderID string, settings Fold
 		if err := tx.Model(&models.Folder{}).Where("id = ?", folderID).Updates(map[string]any{
 			"auth_type": defaultAuthType(settings.AuthType, "inherit"), "auth_data": settings.AuthData,
 			"ws_protocol_conversion": persistedWSProtocolConversion(settings.WSProtocolConversion),
+			"proxy_config":           persistedProxySelection(settings.ProxyConfig),
+			"tls_config":             persistedTLSSelection(settings.TLSConfig),
+			"url_encoding":           persistedURLEncoding(settings.URLEncoding),
+			"timeout_mode":           models.PersistedTimeoutMode(settings.TimeoutMode),
+			"timeout":                models.NormalizeScopedTimeoutValue(settings.TimeoutMode, settings.Timeout),
+			"follow_redirects":       settings.FollowRedirects,
+			"send_no_cache_headers":  settings.SendNoCacheHeaders,
 		}).Error; err != nil {
 			return err
 		}
@@ -196,6 +238,46 @@ func defaultAuthType(v, def string) string {
 func persistedWSProtocolConversion(mode string) string {
 	normalized := models.NormalizeWSProtocolConversion(mode)
 	if normalized == models.WSProtocolConversionInherit {
+		return ""
+	}
+	return string(normalized)
+}
+
+func normalizedProxySelection(raw string) string {
+	config := parseEndpointProxy(raw)
+	if config.Mode == string(models.EndpointProxyNone) || config.Mode == string(models.EndpointProxyRef) {
+		return models.ToJSON(config)
+	}
+	return models.ToJSON(models.EndpointProxy{Mode: string(models.EndpointProxyInherit)})
+}
+
+func persistedProxySelection(raw string) string {
+	config := parseEndpointProxy(raw)
+	if config.Mode == string(models.EndpointProxyNone) || config.Mode == string(models.EndpointProxyRef) {
+		return models.ToJSON(config)
+	}
+	return ""
+}
+
+func normalizedTLSSelection(raw string) string {
+	config := parseEndpointTLS(raw)
+	if config.Mode == string(models.EndpointTLSStrict) || config.Mode == string(models.EndpointTLSInsecure) {
+		return models.ToJSON(config)
+	}
+	return models.ToJSON(models.EndpointTLS{Mode: string(models.EndpointTLSInherit)})
+}
+
+func persistedTLSSelection(raw string) string {
+	config := parseEndpointTLS(raw)
+	if config.Mode == string(models.EndpointTLSStrict) || config.Mode == string(models.EndpointTLSInsecure) {
+		return models.ToJSON(config)
+	}
+	return ""
+}
+
+func persistedURLEncoding(mode string) string {
+	normalized := models.NormalizeURLEncoding(mode)
+	if normalized == models.URLEncodingInherit {
 		return ""
 	}
 	return string(normalized)

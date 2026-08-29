@@ -191,13 +191,16 @@ type SendRequestData struct {
 	BodyFields    []models.EndpointBodyField `json:"bodyFields"`
 	Auth          *models.EndpointAuth       `json:"auth"`
 	Timeout       int                        `json:"timeout"`
-	// FollowRedirects nil 表示继承全局设置，显式 true/false 才覆盖
-	FollowRedirects *bool `json:"followRedirects"`
-	// ProxyConfig 接口级代理选择（EndpointProxy 的 JSON）。空表示 inherit（跟随项目/全局）。
+	// TimeoutMode: inherit / unlimited / value。空值兼容旧调用方：Timeout>0 视为显式值。
+	TimeoutMode string `json:"timeoutMode"`
+	// FollowRedirects / SendNoCacheHeaders nil 表示继承父级，显式 true/false 才覆盖。
+	FollowRedirects    *bool `json:"followRedirects"`
+	SendNoCacheHeaders *bool `json:"sendNoCacheHeaders"`
+	// ProxyConfig 接口级代理选择（EndpointProxy 的 JSON）。空表示逐层继承。
 	ProxyConfig string `json:"proxyConfig"`
-	// TLSConfig 接口级 TLS 选择（EndpointTLS 的 JSON）。空表示 inherit（跟随项目/全局）。
+	// TLSConfig 接口级 TLS 选择（EndpointTLS 的 JSON）。空表示逐层继承。
 	TLSConfig string `json:"tlsConfig"`
-	// URLEncoding 接口级 URL 自动编码档位。空表示 inherit（跟随项目/全局）。
+	// URLEncoding 接口级 URL 自动编码档位。空表示逐层继承。
 	URLEncoding string `json:"urlEncoding"`
 	// DisabledGlobalParams / Operations / InheritOperations 携带当前编辑态。
 	// 已保存端点未保存就直接发送时，应以界面当前值为准，而不是回读数据库旧值。
@@ -399,25 +402,28 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		query.Add(q.Key, resolveVars(q.Value, vars))
 	}
 
-	// URL 自动编码：档位沿「接口 → 项目 → 全局」解析，据此转义路径与查询串。
+	requestEndpoint := models.Endpoint{ModuleID: data.ModuleID}
+	if loadedEndpoint != nil {
+		requestEndpoint = *loadedEndpoint
+	}
+	requestPath := loadRequestScopePath(s.db, requestEndpoint)
+
+	// URL 自动编码：档位沿「接口 → 文件夹链 → 模块 → 项目 → 全局」解析。
 	// 自定义转义会把最终路径挂到 Opaque 上，那之后 parsedURL.String() 就拿不到主机了，
 	// 所以先留一份标准形态的 URL 交给 http.NewRequest 做解析与校验。
-	urlEncoding := resolveURLEncoding(s.db, data.ModuleID, endpointURLEncoding(data, loadedEndpoint))
+	urlEncoding := resolveURLEncodingFromPath(s.db, requestPath, endpointURLEncoding(data, loadedEndpoint))
 	applyURLEncoding(parsedURL, query, urlEncoding)
 	standardURL := *parsedURL
 	standardURL.Opaque = ""
 
-	// 全局请求设置：超时兜底、重定向开关、no-cache 头与后面的响应体限额都取自这里
+	// 全局请求设置既是继承链终点，也提供响应体等安全上限。
 	limits := getRequestSettings(s.db)
 
 	// 创建请求。
 	// 超时用「取消 + 计时器」实现，而非 context.WithTimeout：普通请求受超时约束整个收发；
 	// 一旦判定为流式响应（text/event-stream），停止计时器，让连接长存（超时仅约束到响应头）。
-	// 接口自身没设超时时取全局设置；两者的 0 都表示「不限制超时」，此时不起计时器。
-	timeout := time.Duration(data.Timeout) * time.Millisecond
-	if data.Timeout <= 0 {
-		timeout = requestTimeout(limits)
-	}
+	// 超时沿五级链解析；unlimited 最终得到 0，此时不起计时器。
+	timeout := resolveRequestTimeout(requestPath, data.TimeoutMode, data.Timeout, limits)
 	ctx, cancel := context.WithCancel(context.Background())
 	// timedOut 用于把「超时取消」与「用户取消」区分开，好让前端拿到不同的错误码
 	var timedOut atomic.Bool
@@ -456,8 +462,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		}
 	}
 
-	// 全局「发送无缓存头」：请求自己没写 Cache-Control 时才补，避免盖掉用户的显式设置
-	if limits.SendNoCacheHeaders && req.Header.Get("Cache-Control") == "" {
+	// 五级「发送无缓存头」：请求自己没写 Cache-Control 时才补，避免盖掉用户的显式设置。
+	if resolveSendNoCacheHeaders(requestPath, data.SendNoCacheHeaders, limits.SendNoCacheHeaders) && req.Header.Get("Cache-Control") == "" {
 		req.Header.Set("Cache-Control", "no-cache")
 	}
 
@@ -489,7 +495,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	}
 
 	// 解析接口级代理选择：优先取本次请求携带的选择，其次取已保存端点上的选择。
-	// 空则为 inherit（跟随项目 → 全局）。据此沿层级解析出最终生效的代理条目并构建代理函数。
+	// 空则沿文件夹、模块、项目与全局继承，据此构建最终代理函数。
 	epProxyJSON := data.ProxyConfig
 	if strings.TrimSpace(epProxyJSON) == "" && loadedEndpoint != nil {
 		epProxyJSON = loadedEndpoint.ProxyConfig
@@ -498,9 +504,9 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	if strings.TrimSpace(epProxyJSON) != "" {
 		_ = models.FromJSON(epProxyJSON, &epProxy)
 	}
-	effectiveProxy := resolveProxy(resolveEffectiveProxy(s.db, data.ModuleID, epProxy), vars)
+	effectiveProxy := resolveProxy(resolveEffectiveProxyFromPath(s.db, requestPath, epProxy), vars)
 
-	// 解析接口级 TLS 选择（inherit / strict / insecure），同样沿「接口 → 项目 → 全局」链。
+	// 解析接口级 TLS 选择（inherit / strict / insecure），同样沿五级链。
 	epTLSJSON := data.TLSConfig
 	if strings.TrimSpace(epTLSJSON) == "" && loadedEndpoint != nil {
 		epTLSJSON = loadedEndpoint.TLSConfig
@@ -509,7 +515,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	if strings.TrimSpace(epTLSJSON) != "" {
 		_ = models.FromJSON(epTLSJSON, &epTLS)
 	}
-	effectiveTLS := resolveEffectiveTLS(s.db, data.ModuleID, epTLS)
+	effectiveTLS := resolveEffectiveTLSFromPath(s.db, requestPath, epTLS)
 
 	// 取「代理 + TLS」对应的共享 Transport：相同配置的请求复用同一个连接池，
 	// 连接得以复用（timing.Reused 才有意义），且开启了 HTTP/2 协商。
@@ -526,8 +532,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		Transport: transport,
 	}
 
-	// 处理重定向：接口没显式设置时跟随全局设置
-	if !resolveFollowRedirects(data, limits) {
+	// 处理重定向：沿接口、文件夹链、模块、项目、全局解析。
+	if !resolveFollowRedirects(requestPath, data.FollowRedirects, limits.FollowRedirects) {
 		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
 			return http.ErrUseLastResponse
 		}
@@ -760,15 +766,6 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	s.enqueuePersist(persistJob{data: data, resp: responseData})
 
 	return responseData, nil
-}
-
-// resolveFollowRedirects 解析本次请求是否跟随重定向：
-// 接口级为 nil 表示继承，取全局设置；显式 true/false 则覆盖全局。
-func resolveFollowRedirects(data SendRequestData, limits models.RequestSettings) bool {
-	if data.FollowRedirects != nil {
-		return *data.FollowRedirects
-	}
-	return limits.FollowRedirects
 }
 
 // readBodyWithLimit 读取响应体，最多 limit 字节；limit<=0 表示不限制。

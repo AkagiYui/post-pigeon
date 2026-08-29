@@ -248,7 +248,7 @@ func (s *ImportExportService) ExportProject(projectID string, includeSecrets boo
 	}
 
 	data := ExportData{
-		Version:      "1.0",
+		Version:      "1.1",
 		ExportedAt:   time.Now(),
 		Project:      project,
 		Environments: environments,
@@ -330,8 +330,16 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// 创建项目（生成新 ID 避免冲突）
 		project = &models.Project{
-			Name:        data.Project.Name,
-			Description: data.Project.Description,
+			Name:                 data.Project.Name,
+			Description:          data.Project.Description,
+			ProxySettings:        data.Project.ProxySettings,
+			TLSSettings:          data.Project.TLSSettings,
+			URLEncoding:          data.Project.URLEncoding,
+			WSProtocolConversion: data.Project.WSProtocolConversion,
+			TimeoutMode:          data.Project.TimeoutMode,
+			Timeout:              data.Project.Timeout,
+			FollowRedirects:      data.Project.FollowRedirects,
+			SendNoCacheHeaders:   data.Project.SendNoCacheHeaders,
 		}
 		if err := tx.Create(project).Error; err != nil {
 			return fmt.Errorf("创建项目失败: %w", err)
@@ -372,9 +380,20 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 		// 导入模块
 		for _, me := range data.Modules {
 			newModule := models.Module{
-				ProjectID: project.ID,
-				Name:      me.Name,
-				SortOrder: me.SortOrder,
+				ProjectID:            project.ID,
+				Name:                 me.Name,
+				SortOrder:            me.SortOrder,
+				AuthType:             me.AuthType,
+				AuthData:             me.AuthData,
+				EndpointDisplay:      me.EndpointDisplay,
+				WSProtocolConversion: me.WSProtocolConversion,
+				ProxyConfig:          me.ProxyConfig,
+				TLSConfig:            me.TLSConfig,
+				URLEncoding:          me.URLEncoding,
+				TimeoutMode:          me.TimeoutMode,
+				Timeout:              me.Timeout,
+				FollowRedirects:      me.FollowRedirects,
+				SendNoCacheHeaders:   me.SendNoCacheHeaders,
 			}
 			if err := tx.Create(&newModule).Error; err != nil {
 				return err
@@ -396,12 +415,12 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 			}
 
 			// 导入文件夹
-			if err := s.importFolders(tx, newModule.ID, nil, me.Folders); err != nil {
+			if err := s.importFolders(tx, newModule.ID, nil, me.Folders, data.Version); err != nil {
 				return err
 			}
 
 			// 导入直属端点
-			if err := s.importEndpoints(tx, newModule.ID, nil, me.Endpoints); err != nil {
+			if err := s.importEndpoints(tx, newModule.ID, nil, me.Endpoints, data.Version); err != nil {
 				return err
 			}
 		}
@@ -418,25 +437,35 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 }
 
 // importFolders 递归导入文件夹
-func (s *ImportExportService) importFolders(tx *gorm.DB, moduleID string, parentID *string, folders []FolderExport) error {
+func (s *ImportExportService) importFolders(tx *gorm.DB, moduleID string, parentID *string, folders []FolderExport, version string) error {
 	for _, fe := range folders {
 		newFolder := models.Folder{
-			ModuleID:  moduleID,
-			ParentID:  parentID,
-			Name:      fe.Name,
-			SortOrder: fe.SortOrder,
+			ModuleID:             moduleID,
+			ParentID:             parentID,
+			Name:                 fe.Name,
+			SortOrder:            fe.SortOrder,
+			AuthType:             fe.AuthType,
+			AuthData:             fe.AuthData,
+			WSProtocolConversion: fe.WSProtocolConversion,
+			ProxyConfig:          fe.ProxyConfig,
+			TLSConfig:            fe.TLSConfig,
+			URLEncoding:          fe.URLEncoding,
+			TimeoutMode:          fe.TimeoutMode,
+			Timeout:              fe.Timeout,
+			FollowRedirects:      fe.FollowRedirects,
+			SendNoCacheHeaders:   fe.SendNoCacheHeaders,
 		}
 		if err := tx.Create(&newFolder).Error; err != nil {
 			return err
 		}
 
 		// 递归导入子文件夹
-		if err := s.importFolders(tx, moduleID, &newFolder.ID, fe.Children); err != nil {
+		if err := s.importFolders(tx, moduleID, &newFolder.ID, fe.Children, version); err != nil {
 			return err
 		}
 
 		// 导入端点
-		if err := s.importEndpoints(tx, moduleID, &newFolder.ID, fe.Endpoints); err != nil {
+		if err := s.importEndpoints(tx, moduleID, &newFolder.ID, fe.Endpoints, version); err != nil {
 			return err
 		}
 	}
@@ -444,21 +473,27 @@ func (s *ImportExportService) importFolders(tx *gorm.DB, moduleID string, parent
 }
 
 // importEndpoints 导入端点
-func (s *ImportExportService) importEndpoints(tx *gorm.DB, moduleID string, folderID *string, endpoints []EndpointExport) error {
+func (s *ImportExportService) importEndpoints(tx *gorm.DB, moduleID string, folderID *string, endpoints []EndpointExport, version string) error {
 	for _, ee := range endpoints {
 		newEndpoint := models.Endpoint{
-			ModuleID:          moduleID,
-			FolderID:          folderID,
-			Name:              ee.Name,
-			Method:            ee.Method,
-			Path:              ee.Path,
-			BodyType:          ee.BodyType,
-			BodyContent:       ee.BodyContent,
-			ContentType:       ee.ContentType,
-			Timeout:           ee.Timeout,
-			FollowRedirects:   ee.FollowRedirects,
-			InheritOperations: ee.InheritOperations,
-			SortOrder:         ee.SortOrder,
+			ModuleID:             moduleID,
+			FolderID:             folderID,
+			Name:                 ee.Name,
+			Method:               ee.Method,
+			Path:                 ee.Path,
+			BodyType:             ee.BodyType,
+			BodyContent:          ee.BodyContent,
+			ContentType:          ee.ContentType,
+			Timeout:              ee.Timeout,
+			TimeoutMode:          importTimeoutMode(version, ee.TimeoutMode, ee.Timeout),
+			FollowRedirects:      ee.FollowRedirects,
+			SendNoCacheHeaders:   ee.SendNoCacheHeaders,
+			ProxyConfig:          ee.ProxyConfig,
+			TLSConfig:            ee.TLSConfig,
+			URLEncoding:          ee.URLEncoding,
+			WSProtocolConversion: ee.WSProtocolConversion,
+			InheritOperations:    ee.InheritOperations,
+			SortOrder:            ee.SortOrder,
 		}
 		if err := tx.Create(&newEndpoint).Error; err != nil {
 			return err
@@ -520,4 +555,12 @@ func (s *ImportExportService) importEndpoints(tx *gorm.DB, moduleID string, fold
 		}
 	}
 	return nil
+}
+
+func importTimeoutMode(version, mode string, timeout int) string {
+	// 1.0 及更早的导出没有 timeoutMode，里面的 endpoint.timeout 一直是显式值。
+	if (version == "" || version == "1.0") && mode == "" && timeout > 0 {
+		return string(models.TimeoutValue)
+	}
+	return mode
 }

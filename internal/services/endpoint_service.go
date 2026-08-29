@@ -115,8 +115,10 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 			"body_type":              data.BodyType,
 			"body_content":           data.BodyContent,
 			"content_type":           data.ContentType,
-			"timeout":                data.Timeout,
+			"timeout":                models.NormalizeScopedTimeoutValue(data.TimeoutMode, data.Timeout),
+			"timeout_mode":           models.PersistedTimeoutMode(data.TimeoutMode),
 			"follow_redirects":       data.FollowRedirects,
+			"send_no_cache_headers":  data.SendNoCacheHeaders,
 			"pre_request_script":     data.PreRequestScript,
 			"post_response_script":   data.PostResponseScript,
 			"doc_content":            data.DocContent,
@@ -320,8 +322,10 @@ type EndpointSaveData struct {
 	BodyContent string `json:"bodyContent"`
 	ContentType string `json:"contentType"`
 	Timeout     int    `json:"timeout"`
-	// FollowRedirects nil 表示继承上级（全局设置）
+	TimeoutMode string `json:"timeoutMode"`
+	// FollowRedirects / SendNoCacheHeaders nil 表示继承上级。
 	FollowRedirects    *bool  `json:"followRedirects"`
+	SendNoCacheHeaders *bool  `json:"sendNoCacheHeaders"`
 	PreRequestScript   string `json:"preRequestScript"`
 	PostResponseScript string `json:"postResponseScript"`
 	// 新增元数据与文档/操作
@@ -417,8 +421,10 @@ func (s *EndpointService) CreateFullEndpoint(moduleID string, folderID *string, 
 		BodyType:             data.BodyType,
 		BodyContent:          data.BodyContent,
 		ContentType:          data.ContentType,
-		Timeout:              data.Timeout,
+		Timeout:              models.NormalizeScopedTimeoutValue(data.TimeoutMode, data.Timeout),
+		TimeoutMode:          models.PersistedTimeoutMode(data.TimeoutMode),
 		FollowRedirects:      data.FollowRedirects,
+		SendNoCacheHeaders:   data.SendNoCacheHeaders,
 		DocContent:           data.DocContent,
 		Status:               data.Status,
 		Tags:                 data.Tags,

@@ -13,8 +13,8 @@ import (
 
 // URL 自动编码：把接口路径与查询参数里的中文等特殊字符转成百分号编码。
 //
-// 档位沿「接口 → 项目 → 全局」三层解析，每层都可以选 inherit 交给上一层，
-// 与代理 / TLS 的层级模型一致。三个档位的差别只在「哪些字符要转义」：
+// 档位沿「接口 → 逐层文件夹 → 模块 → 项目 → 全局」解析，每层都可以选 inherit。
+// 三个档位的差别只在「哪些字符要转义」：
 //
 //	                        rfc3986  whatwg  off
 //	非 ASCII、控制字符          转义     转义   转义(控制字符)/原样(非 ASCII)
@@ -216,19 +216,35 @@ func urlWithHost(u *url.URL) string {
 	return b.String()
 }
 
-// ---- 档位解析（接口 → 项目 → 全局）----
+// ---- 档位解析（接口 → 文件夹链 → 模块 → 项目 → 全局）----
 
 // resolveURLEncoding 解析一次请求最终生效的 URL 自动编码档位。
-// endpointMode 为接口上存的档位（空或 inherit 表示跟随项目）。
+// endpointMode 为接口上存的档位（空或 inherit 表示逐层继承）。
 func resolveURLEncoding(db *gorm.DB, moduleID, endpointMode string) models.URLEncodingMode {
+	return resolveURLEncodingForEndpoint(db, models.Endpoint{ModuleID: moduleID}, endpointMode)
+}
+
+func resolveURLEncodingForEndpoint(db *gorm.DB, endpoint models.Endpoint, endpointMode string) models.URLEncodingMode {
+	return resolveURLEncodingFromPath(db, loadRequestScopePath(db, endpoint), endpointMode)
+}
+
+func resolveURLEncodingFromPath(db *gorm.DB, path requestScopePath, endpointMode string) models.URLEncodingMode {
 	if mode := models.NormalizeURLEncoding(endpointMode); mode != models.URLEncodingInherit {
 		return mode
 	}
 	if db == nil {
 		return models.DefaultURLEncoding
 	}
-	if projectID := projectIDFromModule(db, moduleID); projectID != "" {
-		if mode := getProjectURLEncoding(db, projectID); mode != models.URLEncodingInherit {
+	for _, folder := range path.Folders {
+		if mode := models.NormalizeURLEncoding(folder.URLEncoding); mode != models.URLEncodingInherit {
+			return mode
+		}
+	}
+	if mode := models.NormalizeURLEncoding(path.Module.URLEncoding); mode != models.URLEncodingInherit {
+		return mode
+	}
+	if path.Project.ID != "" {
+		if mode := models.NormalizeURLEncoding(path.Project.URLEncoding); mode != models.URLEncodingInherit {
 			return mode
 		}
 	}

@@ -1,13 +1,14 @@
 // 模块 / 文件夹级设置对话框：默认认证、自动参数与模块变量（仅模块）、前置/后置操作。
 // 认证与操作对该级别下所有接口（递归）继承生效。
 import { Icon } from "@iconify-icon/solid"
-import { createEffect, createSignal } from "solid-js"
+import { createEffect, createSignal, Show } from "solid-js"
 
-import { ModuleParam, ModuleVariable } from "@/../bindings/PostPigeon/internal/models"
-import { FolderSettings, ModuleSettings, ScopeSettingsService } from "@/../bindings/PostPigeon/internal/services"
+import { ModuleParam, ModuleVariable, SelectableProxy } from "@/../bindings/PostPigeon/internal/models"
+import { FolderSettings, ModuleSettings, ProxyService, ScopeSettingsService } from "@/../bindings/PostPigeon/internal/services"
 import { AuthEditor } from "@/components/endpoint/AuthEditor"
 import { authDataToState, authStateToData, fromOperationModels, toOperationModels } from "@/components/endpoint/endpoint-data"
 import { type AuthState, emptyAuth, type OperationRow } from "@/components/endpoint/EndpointDetail"
+import { proxyJSONFromKey, proxyKeyFromJSON, tlsJSONFromMode, tlsModeFromJSON } from "@/components/endpoint/EndpointSettingsEditor"
 import { OperationsEditor } from "@/components/endpoint/OperationsEditor"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -27,6 +28,15 @@ import { toastError } from "@/stores/toast"
 interface ParamRow { id: string; type: string; name: string; value: string; enabled: boolean }
 interface VarRow { id: string; key: string; value: string; description: string; enabled: boolean; isSecret: boolean }
 
+function ScopeSelect(props: { label: string, value: string, options: { value: string, label: string }[], onChange: (value: string) => void }) {
+  return (
+    <div class="grid grid-cols-[9rem_1fr] items-center gap-3">
+      <label class="text-sm font-medium">{props.label}</label>
+      <Select options={props.options} value={props.value} onChange={props.onChange} size="sm" class="w-full" />
+    </div>
+  )
+}
+
 export interface ScopeSettingsDialogProps {
   open: boolean
   onClose: () => void
@@ -40,6 +50,14 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
   const [tab, setTab] = createSignal("auth")
   const [auth, setAuth] = createSignal<AuthState>(emptyAuth())
   const [wsProtocolConversion, setWSProtocolConversion] = createSignal("inherit")
+  const [proxyConfig, setProxyConfig] = createSignal("")
+  const [tlsConfig, setTLSConfig] = createSignal("")
+  const [urlEncoding, setURLEncoding] = createSignal("inherit")
+  const [timeoutMode, setTimeoutMode] = createSignal("inherit")
+  const [timeout, setTimeout] = createSignal(30000)
+  const [followRedirects, setFollowRedirects] = createSignal<boolean | null>(null)
+  const [sendNoCacheHeaders, setSendNoCacheHeaders] = createSignal<boolean | null>(null)
+  const [selectableProxies, setSelectableProxies] = createSignal<SelectableProxy[]>([])
   const [operations, setOperations] = createSignal<OperationRow[]>([])
   const [params, setParams] = createSignal<ParamRow[]>([])
   const [vars, setVars] = createSignal<VarRow[]>([])
@@ -52,10 +70,18 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
     if (!props.open || !props.scopeId || loadedFor() === key) return
     setLoadedFor(key)
     try {
+      setSelectableProxies((await ProxyService.ListSelectableProxies(props.projectId)) || [])
       if (props.scopeType === "module") {
         const s = await ScopeSettingsService.GetModuleSettings(props.scopeId)
         setAuth(authDataToState(s?.authType || "none", s?.authData || ""))
         setWSProtocolConversion(s?.wsProtocolConversion || "inherit")
+        setProxyConfig(s?.proxyConfig || "")
+        setTLSConfig(s?.tlsConfig || "")
+        setURLEncoding(s?.urlEncoding || "inherit")
+        setTimeoutMode(s?.timeoutMode || "inherit")
+        setTimeout(s?.timeout || 0)
+        setFollowRedirects(s?.followRedirects ?? null)
+        setSendNoCacheHeaders(s?.sendNoCacheHeaders ?? null)
         setOperations(fromOperationModels(s?.operations))
         setParams((s?.params || []).map(p => ({ id: crypto.randomUUID(), type: p.type || "query", name: p.name, value: p.value, enabled: p.enabled })))
         setVars((s?.variables || []).map(v => ({ id: crypto.randomUUID(), key: v.key, value: v.value, description: v.description, enabled: v.enabled, isSecret: v.isSecret })))
@@ -63,6 +89,13 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
         const s = await ScopeSettingsService.GetFolderSettings(props.scopeId)
         setAuth(authDataToState(s?.authType || "inherit", s?.authData || ""))
         setWSProtocolConversion(s?.wsProtocolConversion || "inherit")
+        setProxyConfig(s?.proxyConfig || "")
+        setTLSConfig(s?.tlsConfig || "")
+        setURLEncoding(s?.urlEncoding || "inherit")
+        setTimeoutMode(s?.timeoutMode || "inherit")
+        setTimeout(s?.timeout || 0)
+        setFollowRedirects(s?.followRedirects ?? null)
+        setSendNoCacheHeaders(s?.sendNoCacheHeaders ?? null)
         setOperations(fromOperationModels(s?.operations))
       }
     } catch (e) { toastError(e, "error.op.loadFailed") }
@@ -79,9 +112,9 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
       if (props.scopeType === "module") {
         const mp = params().filter(p => p.name.trim()).map(p => new ModuleParam({ type: p.type, name: p.name, value: p.value, enabled: p.enabled }))
         const mv = vars().filter(v => v.key.trim()).map(v => new ModuleVariable({ key: v.key.trim(), value: v.value, description: v.description, enabled: v.enabled, isSecret: v.isSecret }))
-        await ScopeSettingsService.SaveModuleSettings(props.scopeId, new ModuleSettings({ authType, authData, wsProtocolConversion: wsProtocolConversion(), params: mp, variables: mv, operations: ops }))
+        await ScopeSettingsService.SaveModuleSettings(props.scopeId, new ModuleSettings({ authType, authData, wsProtocolConversion: wsProtocolConversion(), proxyConfig: proxyConfig(), tlsConfig: tlsConfig(), urlEncoding: urlEncoding(), timeoutMode: timeoutMode(), timeout: timeout(), followRedirects: followRedirects(), sendNoCacheHeaders: sendNoCacheHeaders(), params: mp, variables: mv, operations: ops }))
       } else {
-        await ScopeSettingsService.SaveFolderSettings(props.scopeId, new FolderSettings({ authType, authData, wsProtocolConversion: wsProtocolConversion(), operations: ops }))
+        await ScopeSettingsService.SaveFolderSettings(props.scopeId, new FolderSettings({ authType, authData, wsProtocolConversion: wsProtocolConversion(), proxyConfig: proxyConfig(), tlsConfig: tlsConfig(), urlEncoding: urlEncoding(), timeoutMode: timeoutMode(), timeout: timeout(), followRedirects: followRedirects(), sendNoCacheHeaders: sendNoCacheHeaders(), operations: ops }))
       }
       setLoadedFor("")
       props.onClose()
@@ -108,6 +141,17 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
   const removeVar = (id: string) => setVars(prev => prev.filter(v => v.id !== id))
   const updateVar = (id: string, field: keyof VarRow, value: string | boolean) => setVars(prev => prev.map(v => v.id === id ? { ...v, [field]: value } : v))
 
+  const booleanOptions = () => [
+    { value: "inherit", label: t("inherit.parent") },
+    { value: "true", label: t("common.on") },
+    { value: "false", label: t("common.off") },
+  ]
+  const proxyOptions = () => [
+    { value: "inherit", label: t("inherit.parent") },
+    { value: "none", label: t("proxy.endpoint.none") },
+    ...selectableProxies().map(p => ({ value: `ref:${p.scope}:${p.id}`, label: `${p.scope === "project" ? t("proxy.scope.project") : t("proxy.scope.global")} / ${p.name}` })),
+  ]
+
   return (
     <Dialog open={props.open} onClose={props.onClose} title={t("scope.settingsTitle", { name: props.scopeName })} closeOnEsc closeOnOverlayClick width="640px">
       <div class="flex flex-col h-[70vh]">
@@ -115,20 +159,35 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
           <Tabs variant="line" tabs={tabs()} value={tab()} onChange={setTab}>
             {(key) => {
               if (key === "general") return (
-                <div class="p-3 space-y-2">
-                  <label class="block text-sm font-medium">{t("wsProtocol.title")}</label>
-                  <Select
-                    options={[
-                      { value: "inherit", label: t("wsProtocol.inherit.parent") },
-                      { value: "on", label: t("wsProtocol.on") },
-                      { value: "off", label: t("wsProtocol.off") },
-                    ]}
-                    value={wsProtocolConversion()}
-                    onChange={setWSProtocolConversion}
-                    size="sm"
-                    class="w-64"
-                  />
-                  <p class="text-xs text-muted-foreground">{t("wsProtocol.scope.hint")}</p>
+                <div class="p-3 space-y-4 overflow-auto h-full">
+                  <ScopeSelect label={t("request.timeout")} value={timeoutMode()} options={[
+                    { value: "inherit", label: t("inherit.parent") },
+                    { value: "value", label: t("request.timeout.value") },
+                    { value: "unlimited", label: t("request.timeout.unlimited") },
+                  ]} onChange={(value) => { setTimeoutMode(value); if (value === "value" && timeout() <= 0) setTimeout(30000) }} />
+                  <Show when={timeoutMode() === "value"}>
+                    <Input type="number" min="1" value={String(timeout())} onInput={(e) => setTimeout(Math.max(1, Number(e.currentTarget.value) || 1))} class="w-40" />
+                  </Show>
+                  <ScopeSelect label={t("request.followRedirects")} value={followRedirects() == null ? "inherit" : String(followRedirects())} onChange={(v) => setFollowRedirects(v === "inherit" ? null : v === "true")} options={booleanOptions()} />
+                  <ScopeSelect label={t("request.noCache")} value={sendNoCacheHeaders() == null ? "inherit" : String(sendNoCacheHeaders())} onChange={(v) => setSendNoCacheHeaders(v === "inherit" ? null : v === "true")} options={booleanOptions()} />
+                  <ScopeSelect label={t("proxy.endpoint.label")} value={proxyKeyFromJSON(proxyConfig())} onChange={(v) => setProxyConfig(proxyJSONFromKey(v))} options={proxyOptions()} />
+                  <ScopeSelect label={t("tls.endpoint.label")} value={tlsModeFromJSON(tlsConfig())} onChange={(v) => setTLSConfig(tlsJSONFromMode(v))} options={[
+                    { value: "inherit", label: t("inherit.parent") },
+                    { value: "strict", label: t("tls.endpoint.strict") },
+                    { value: "insecure", label: t("tls.endpoint.insecure") },
+                  ]} />
+                  <ScopeSelect label={t("urlEncoding.title")} value={urlEncoding()} onChange={setURLEncoding} options={[
+                    { value: "inherit", label: t("inherit.parent") },
+                    { value: "rfc3986", label: t("urlEncoding.rfc3986") },
+                    { value: "whatwg", label: t("urlEncoding.whatwg") },
+                    { value: "off", label: t("urlEncoding.off") },
+                  ]} />
+                  <ScopeSelect label={t("wsProtocol.title")} value={wsProtocolConversion()} onChange={setWSProtocolConversion} options={[
+                    { value: "inherit", label: t("wsProtocol.inherit.parent") },
+                    { value: "on", label: t("wsProtocol.on") },
+                    { value: "off", label: t("wsProtocol.off") },
+                  ]} />
+                  <p class="text-xs text-muted-foreground">{t("inherit.folderChain.hint")}</p>
                 </div>
               )
               if (key === "auth") return <AuthEditor value={auth()} onChange={setAuth} />

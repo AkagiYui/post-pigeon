@@ -10,7 +10,7 @@ import (
 
 // TLSService 管理全局与项目级 TLS 设置。
 //
-// 层级与代理一致：接口(inherit/strict/insecure) → 项目(followGlobal/自定义) → 全局。
+// 层级与代理一致：接口(inherit/strict/insecure) → 逐层文件夹 → 模块 → 项目 → 全局。
 // 接口级只能选择「跟随 / 强制校验 / 跳过校验」，证书这类具体材料只在项目与全局配置，
 // 避免同一份证书在几十个接口上重复粘贴。
 type TLSService struct {
@@ -76,9 +76,17 @@ func getProjectTLSSettings(db *gorm.DB, projectID string) models.ScopeTLSSetting
 // resolveEffectiveTLS 解析某接口请求最终生效的 TLS 选项。
 //   - 接口 strict → 强制校验证书，但仍沿用上级的 CA / 客户端证书。
 //   - 接口 insecure → 跳过证书校验。
-//   - 接口 inherit（默认）→ 项目（followGlobal 时落到全局）。
+//   - 接口 inherit（默认）→ 逐层文件夹 → 模块 → 项目（followGlobal 时落到全局）。
 func resolveEffectiveTLS(db *gorm.DB, moduleID string, ep models.EndpointTLS) tlsOptions {
-	scope := resolveTLSScopeChain(db, moduleID)
+	return resolveEffectiveTLSForEndpoint(db, models.Endpoint{ModuleID: moduleID}, ep)
+}
+
+func resolveEffectiveTLSForEndpoint(db *gorm.DB, endpoint models.Endpoint, ep models.EndpointTLS) tlsOptions {
+	return resolveEffectiveTLSFromPath(db, loadRequestScopePath(db, endpoint), ep)
+}
+
+func resolveEffectiveTLSFromPath(db *gorm.DB, path requestScopePath, ep models.EndpointTLS) tlsOptions {
+	scope := resolveTLSScopeChain(db, path.Endpoint.ModuleID)
 
 	opts := tlsOptions{
 		InsecureSkipVerify: scope.InsecureSkipVerify,
@@ -87,7 +95,20 @@ func resolveEffectiveTLS(db *gorm.DB, moduleID string, ep models.EndpointTLS) tl
 		ClientKey:          scope.ClientKey,
 		MinVersion:         scope.MinVersion,
 	}
-	switch ep.Mode {
+	mode := ep.Mode
+	if mode != string(models.EndpointTLSStrict) && mode != string(models.EndpointTLSInsecure) {
+		for _, folder := range path.Folders {
+			candidate := parseEndpointTLS(folder.TLSConfig).Mode
+			if candidate == string(models.EndpointTLSStrict) || candidate == string(models.EndpointTLSInsecure) {
+				mode = candidate
+				break
+			}
+		}
+	}
+	if mode != string(models.EndpointTLSStrict) && mode != string(models.EndpointTLSInsecure) {
+		mode = parseEndpointTLS(path.Module.TLSConfig).Mode
+	}
+	switch mode {
 	case string(models.EndpointTLSStrict):
 		opts.InsecureSkipVerify = false
 	case string(models.EndpointTLSInsecure):

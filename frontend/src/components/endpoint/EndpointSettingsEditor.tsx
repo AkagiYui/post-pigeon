@@ -11,19 +11,21 @@ import { toastError } from "@/stores/toast"
 export interface EndpointSettingsEditorProps {
   endpointType?: string
   timeout: number
-  /** 跟随重定向：null 表示继承上级（全局设置） */
+  timeoutMode: string
+  /** 跟随重定向：null 表示继承上级 */
   followRedirects: boolean | null
+  sendNoCacheHeaders: boolean | null
   /** 接口状态：developing / testing / released / deprecated */
   status: string
   /** 标签（JSON 字符串数组） */
   tags: string
   /** 接口描述 */
   description: string
-  /** 接口级代理选择（EndpointProxy 的 JSON，空表示 inherit 跟随项目） */
+  /** 接口级代理选择（EndpointProxy 的 JSON，空表示逐层继承） */
   proxyConfig?: string
-  /** 接口级 TLS 选择（EndpointTLS 的 JSON，空表示 inherit 跟随项目） */
+  /** 接口级 TLS 选择（EndpointTLS 的 JSON，空表示逐层继承） */
   tlsConfig?: string
-  /** 接口级 URL 自动编码档位（空表示 inherit 跟随项目） */
+  /** 接口级 URL 自动编码档位（空表示逐层继承） */
   urlEncoding?: string
   /** 接口级 WebSocket 协议头自动转换档位（空表示 inherit 跟随上级） */
   wsProtocolConversion?: string
@@ -31,7 +33,9 @@ export interface EndpointSettingsEditorProps {
   projectId?: string
   onChange?: (data: {
     timeout?: number
+    timeoutMode?: string
     followRedirects?: boolean | null
+    sendNoCacheHeaders?: boolean | null
     status?: string
     tags?: string
     description?: string
@@ -43,7 +47,7 @@ export interface EndpointSettingsEditorProps {
 }
 
 /** 将接口 TLS JSON 转为下拉选择的 key */
-function tlsModeFromJSON(json?: string): string {
+export function tlsModeFromJSON(json?: string): string {
   if (!json || !json.trim()) return "inherit"
   try {
     const parsed = JSON.parse(json) as { mode?: string }
@@ -65,7 +69,19 @@ const followRedirectsOptions = () => [
   { value: "false", label: t("endpoint.followRedirects.off") },
 ]
 
-/** 接口级 URL 自动编码选项：比项目级多一个「跟随项目设置」 */
+const inheritedBooleanOptions = () => [
+  { value: "inherit", label: t("inherit.parent") },
+  { value: "true", label: t("common.on") },
+  { value: "false", label: t("common.off") },
+]
+
+const timeoutModeOptions = () => [
+  { value: "inherit", label: t("inherit.parent") },
+  { value: "value", label: t("request.timeout.value") },
+  { value: "unlimited", label: t("request.timeout.unlimited") },
+]
+
+/** 接口级 URL 自动编码选项。 */
 const urlEncodingOptions = () => [
   { value: "inherit", label: t("urlEncoding.inherit.project") },
   { value: "rfc3986", label: t("urlEncoding.rfc3986") },
@@ -87,7 +103,7 @@ const tlsOptions = () => [
 ]
 
 /** 将接口代理 JSON 转为下拉选择的 key */
-function proxyKeyFromJSON(json?: string): string {
+export function proxyKeyFromJSON(json?: string): string {
   if (!json || !json.trim()) return "inherit"
   try {
     const p = JSON.parse(json)
@@ -152,7 +168,7 @@ export function EndpointSettingsEditor(props: EndpointSettingsEditorProps) {
     }
   }))
 
-  // 代理下拉选项：跟随项目 / 不使用 / 引用项目或全局中的具体条目
+  // 代理下拉选项：继承上级 / 不使用 / 引用项目或全局中的具体条目
   const proxyOptions = () => {
     const scopeLabel = (s: string) => s === "project" ? t("proxy.scope.project") : t("proxy.scope.global")
     return [
@@ -200,11 +216,21 @@ export function EndpointSettingsEditor(props: EndpointSettingsEditorProps) {
       {/* 请求设置 */}
       <div class="flex items-center gap-3">
         <label class="text-sm font-medium w-28 shrink-0">{t("endpoint.timeout")} (ms)</label>
-        <Input
-          type="number"
-          value={props.timeout.toString()}
-          onInput={(e) => props.onChange?.({ timeout: parseInt(e.currentTarget.value) || 30000 })}
-          class="w-32"
+        <div class="flex items-center gap-2">
+          <Select options={timeoutModeOptions()} value={props.timeoutMode || "inherit"} onChange={(v) => props.onChange?.({ timeoutMode: v, ...(v === "value" && props.timeout <= 0 ? { timeout: 30000 } : {}) })} size="sm" class="w-40" />
+          <Show when={props.timeoutMode === "value"}>
+            <Input type="number" min="1" value={props.timeout.toString()} onInput={(e) => props.onChange?.({ timeout: Math.max(1, parseInt(e.currentTarget.value) || 1) })} class="w-32" />
+          </Show>
+        </div>
+      </div>
+      <div class="flex items-center gap-3">
+        <label class="text-sm font-medium w-28 shrink-0">{t("request.noCache")}</label>
+        <Select
+          options={inheritedBooleanOptions()}
+          value={props.sendNoCacheHeaders == null ? "inherit" : String(props.sendNoCacheHeaders)}
+          onChange={(v) => props.onChange?.({ sendNoCacheHeaders: v === "inherit" ? null : v === "true" })}
+          size="sm"
+          class="w-64"
         />
       </div>
       <div class="flex items-center gap-3">

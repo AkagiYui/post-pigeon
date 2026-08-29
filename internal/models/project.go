@@ -21,9 +21,15 @@ type Project struct {
 	// URLEncoding 项目级 URL 自动编码档位（URLEncodingMode）。空字符串表示跟随全局。
 	URLEncoding string `gorm:"type:text" json:"urlEncoding"`
 	// WSProtocolConversion WebSocket 协议头自动转换档位。空字符串表示继承全局。
-	WSProtocolConversion string    `gorm:"type:text" json:"wsProtocolConversion"`
-	CreatedAt            time.Time `json:"createdAt"`
-	UpdatedAt            time.Time `json:"updatedAt"`
+	WSProtocolConversion string `gorm:"type:text" json:"wsProtocolConversion"`
+	// TimeoutMode/Timeout 项目级超时；空模式继承全局，unlimited 不限时，value 使用 Timeout 毫秒。
+	TimeoutMode string `gorm:"type:text;default:value" json:"timeoutMode"`
+	Timeout     int    `gorm:"default:0" json:"timeout"`
+	// FollowRedirects/SendNoCacheHeaders 为 nil 时继承全局。
+	FollowRedirects    *bool     `json:"followRedirects"`
+	SendNoCacheHeaders *bool     `json:"sendNoCacheHeaders"`
+	CreatedAt          time.Time `json:"createdAt"`
+	UpdatedAt          time.Time `json:"updatedAt"`
 
 	// 关联（constraint:OnDelete:CASCADE 使删除项目时，数据库自动级联删除其下所有内容）
 	Modules         []Module         `gorm:"constraint:OnDelete:CASCADE" json:"-"`
@@ -36,6 +42,10 @@ type Project struct {
 func (p *Project) BeforeCreate(tx *gorm.DB) error {
 	if p.ID == "" {
 		p.ID = uuid.New().String()
+	}
+	// 数据库默认 value 是为旧版本降级后插入数据保留旧行为；新版本创建的作用域默认继承。
+	if p.TimeoutMode == "" {
+		p.TimeoutMode = string(TimeoutInherit)
 	}
 	return nil
 }

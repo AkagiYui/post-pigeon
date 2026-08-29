@@ -5,7 +5,7 @@ import "strings"
 // URL 自动编码：对接口路径与查询参数里的中文等特殊字符自动做百分号编码。
 //
 // 层级与代理 / TLS 一致，只是这里三层都只选一个档位，没有额外的配置材料：
-// 接口(inherit) → 项目(inherit) → 全局。哪一层选了具体档位，就从那一层生效。
+// 接口 → 逐层文件夹 → 模块 → 项目 → 全局。哪一层选了具体档位，就从那一层生效。
 //
 // 三个档位抄自 Apifox 的同名设置（isDefaultUrlEncoding）：
 //   - rfc3986：编码得最狠，除「字母数字 - _ . ~」与路径里合法的保留字符外一律转义。
@@ -18,7 +18,7 @@ import "strings"
 type URLEncodingMode string
 
 const (
-	// URLEncodingInherit 跟随上一层（接口 → 项目 → 全局）。全局层不接受该值。
+	// URLEncodingInherit 跟随上一层。全局层不接受该值。
 	URLEncodingInherit URLEncodingMode = "inherit"
 	// URLEncodingRFC3986 遵循 RFC 3986。
 	URLEncodingRFC3986 URLEncodingMode = "rfc3986"

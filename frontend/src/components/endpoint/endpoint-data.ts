@@ -26,6 +26,8 @@ import { extractPathParams } from "@/lib/utils"
 /** 端点默认字段（新字段的默认值集中在此，供各处构造 EndpointData 时展开使用） */
 export const endpointDefaults = {
   type: "http" as EndpointType,
+  timeoutMode: "inherit",
+  sendNoCacheHeaders: null as boolean | null,
   docContent: "", status: "", tags: "", description: "",
   inheritOperations: true, operations: [] as OperationRow[],
   disabledGlobalParams: [] as string[],
