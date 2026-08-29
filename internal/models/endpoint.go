@@ -95,6 +95,8 @@ type Endpoint struct {
 	TLSConfig string `gorm:"type:text" json:"tlsConfig"`
 	// URLEncoding 接口级 URL 自动编码档位（URLEncodingMode）。空字符串表示 inherit（跟随项目）。
 	URLEncoding string `gorm:"type:text" json:"urlEncoding"`
+	// WSProtocolConversion WebSocket 协议头自动转换档位。空字符串表示继承文件夹或模块。
+	WSProtocolConversion string `gorm:"type:text" json:"wsProtocolConversion"`
 	// PreRequestScript 前置脚本，请求发送前执行（JavaScript）——旧字段，保留以兼容历史数据
 	PreRequestScript string `gorm:"type:text" json:"preRequestScript"`
 	// PostResponseScript 后置脚本，响应返回后执行（JavaScript）——旧字段，保留以兼容历史数据

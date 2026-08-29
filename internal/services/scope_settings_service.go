@@ -21,18 +21,20 @@ func NewScopeSettingsService(db *gorm.DB) *ScopeSettingsService {
 
 // ModuleSettings 模块级设置
 type ModuleSettings struct {
-	AuthType   string                  `json:"authType"`
-	AuthData   string                  `json:"authData"`
-	Params     []models.ModuleParam    `json:"params"`
-	Variables  []models.ModuleVariable `json:"variables"`
-	Operations []models.Operation      `json:"operations"`
+	AuthType             string                  `json:"authType"`
+	AuthData             string                  `json:"authData"`
+	WSProtocolConversion string                  `json:"wsProtocolConversion"`
+	Params               []models.ModuleParam    `json:"params"`
+	Variables            []models.ModuleVariable `json:"variables"`
+	Operations           []models.Operation      `json:"operations"`
 }
 
 // FolderSettings 文件夹级设置
 type FolderSettings struct {
-	AuthType   string             `json:"authType"`
-	AuthData   string             `json:"authData"`
-	Operations []models.Operation `json:"operations"`
+	AuthType             string             `json:"authType"`
+	AuthData             string             `json:"authData"`
+	WSProtocolConversion string             `json:"wsProtocolConversion"`
+	Operations           []models.Operation `json:"operations"`
 }
 
 // GetModuleSettings 读取模块设置
@@ -41,7 +43,11 @@ func (s *ScopeSettingsService) GetModuleSettings(moduleID string) (*ModuleSettin
 	if err := s.db.Where("id = ?", moduleID).First(&m).Error; err != nil {
 		return nil, fmt.Errorf("模块不存在: %w", err)
 	}
-	settings := &ModuleSettings{AuthType: defaultAuthType(m.AuthType, "none"), AuthData: m.AuthData}
+	settings := &ModuleSettings{
+		AuthType:             defaultAuthType(m.AuthType, "none"),
+		AuthData:             m.AuthData,
+		WSProtocolConversion: string(models.NormalizeWSProtocolConversion(m.WSProtocolConversion)),
+	}
 	s.db.Where("module_id = ?", moduleID).Order("sort_order ASC").Find(&settings.Params)
 	s.db.Where("module_id = ?", moduleID).Order("sort_order ASC").Find(&settings.Variables)
 	s.db.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerModule, moduleID).
@@ -54,6 +60,7 @@ func (s *ScopeSettingsService) SaveModuleSettings(moduleID string, settings Modu
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&models.Module{}).Where("id = ?", moduleID).Updates(map[string]any{
 			"auth_type": defaultAuthType(settings.AuthType, "none"), "auth_data": settings.AuthData,
+			"ws_protocol_conversion": persistedWSProtocolConversion(settings.WSProtocolConversion),
 		}).Error; err != nil {
 			return err
 		}
@@ -136,7 +143,11 @@ func (s *ScopeSettingsService) GetFolderSettings(folderID string) (*FolderSettin
 	if err := s.db.Where("id = ?", folderID).First(&f).Error; err != nil {
 		return nil, fmt.Errorf("文件夹不存在: %w", err)
 	}
-	settings := &FolderSettings{AuthType: defaultAuthType(f.AuthType, "inherit"), AuthData: f.AuthData}
+	settings := &FolderSettings{
+		AuthType:             defaultAuthType(f.AuthType, "inherit"),
+		AuthData:             f.AuthData,
+		WSProtocolConversion: string(models.NormalizeWSProtocolConversion(f.WSProtocolConversion)),
+	}
 	s.db.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerFolder, folderID).
 		Order("stage ASC, sort_order ASC").Find(&settings.Operations)
 	return settings, nil
@@ -147,6 +158,7 @@ func (s *ScopeSettingsService) SaveFolderSettings(folderID string, settings Fold
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&models.Folder{}).Where("id = ?", folderID).Updates(map[string]any{
 			"auth_type": defaultAuthType(settings.AuthType, "inherit"), "auth_data": settings.AuthData,
+			"ws_protocol_conversion": persistedWSProtocolConversion(settings.WSProtocolConversion),
 		}).Error; err != nil {
 			return err
 		}
@@ -179,4 +191,12 @@ func defaultAuthType(v, def string) string {
 		return def
 	}
 	return v
+}
+
+func persistedWSProtocolConversion(mode string) string {
+	normalized := models.NormalizeWSProtocolConversion(mode)
+	if normalized == models.WSProtocolConversionInherit {
+		return ""
+	}
+	return string(normalized)
 }

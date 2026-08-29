@@ -163,6 +163,17 @@ func (s *ProjectService) SaveProjectURLEncoding(id string, mode string) error {
 		Update("url_encoding", string(normalized)).Error
 }
 
+// SaveProjectWSProtocolConversion 保存项目级 WebSocket 协议头自动转换档位。
+// inherit 与未知值存为空串，表示跟随全局。
+func (s *ProjectService) SaveProjectWSProtocolConversion(id string, mode string) error {
+	normalized := models.NormalizeWSProtocolConversion(mode)
+	if normalized == models.WSProtocolConversionInherit {
+		normalized = ""
+	}
+	return s.db.Model(&models.Project{}).Where("id = ?", id).
+		Update("ws_protocol_conversion", string(normalized)).Error
+}
+
 // DeleteProject 删除项目及其所有关联数据
 func (s *ProjectService) DeleteProject(id string) error {
 	// 端点及其关联数据、文件夹、模块、环境与变量、全局变量、脚本库均由数据库外键
@@ -204,7 +215,7 @@ func (s *ProjectService) DeleteProject(id string) error {
 
 // CloneProject 克隆项目：把源项目原样复制成一个新项目，除名字外与源项目完全一致。
 // 覆盖挂在项目下的每一张表——模块、目录、接口及其参数/请求头/认证/响应示例与定义、
-// 前置后置操作、环境与变量、模块变量、全局变量、脚本库、项目级代理与 TLS 设置，
+// 前置后置操作、环境与变量、模块变量、全局变量、脚本库、项目级代理/TLS/WS 协议设置，
 // 以及运行状态：Cookie（会话跟着走，克隆件不必重新登录）、上次响应、请求历史。
 // newName 为空时用「源名称 + 副本」。
 func (s *ProjectService) CloneProject(id string, newName string) (*models.Project, error) {
@@ -226,12 +237,13 @@ func (s *ProjectService) CloneProject(id string, newName string) (*models.Projec
 	s.db.Model(&models.Project{}).Select("COALESCE(MAX(sort_order), 0)").Scan(&maxSort)
 
 	dst := &models.Project{
-		Name:          name,
-		Description:   src.Description,
-		SortOrder:     maxSort + 1,
-		ProxySettings: src.ProxySettings,
-		TLSSettings:   src.TLSSettings,
-		URLEncoding:   src.URLEncoding,
+		Name:                 name,
+		Description:          src.Description,
+		SortOrder:            maxSort + 1,
+		ProxySettings:        src.ProxySettings,
+		TLSSettings:          src.TLSSettings,
+		URLEncoding:          src.URLEncoding,
+		WSProtocolConversion: src.WSProtocolConversion,
 	}
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {

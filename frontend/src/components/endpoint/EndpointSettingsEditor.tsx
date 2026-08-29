@@ -1,5 +1,5 @@
 // 端点设置编辑器：超时、重定向、代理，以及接口元数据（状态 / 标签 / 描述）
-import { createEffect, createSignal, on } from "solid-js"
+import { createEffect, createSignal, on, Show } from "solid-js"
 
 import { SelectableProxy } from "@/../bindings/PostPigeon/internal/models"
 import { ProxyService } from "@/../bindings/PostPigeon/internal/services"
@@ -9,6 +9,7 @@ import { t } from "@/hooks/useI18n"
 import { toastError } from "@/stores/toast"
 
 export interface EndpointSettingsEditorProps {
+  endpointType?: string
   timeout: number
   /** 跟随重定向：null 表示继承上级（全局设置） */
   followRedirects: boolean | null
@@ -24,6 +25,8 @@ export interface EndpointSettingsEditorProps {
   tlsConfig?: string
   /** 接口级 URL 自动编码档位（空表示 inherit 跟随项目） */
   urlEncoding?: string
+  /** 接口级 WebSocket 协议头自动转换档位（空表示 inherit 跟随上级） */
+  wsProtocolConversion?: string
   /** 所属项目 ID，用于拉取可选代理列表 */
   projectId?: string
   onChange?: (data: {
@@ -35,6 +38,7 @@ export interface EndpointSettingsEditorProps {
     proxyConfig?: string
     tlsConfig?: string
     urlEncoding?: string
+    wsProtocolConversion?: string
   }) => void
 }
 
@@ -67,6 +71,12 @@ const urlEncodingOptions = () => [
   { value: "rfc3986", label: t("urlEncoding.rfc3986") },
   { value: "whatwg", label: t("urlEncoding.whatwg") },
   { value: "off", label: t("urlEncoding.off") },
+]
+
+const wsProtocolConversionOptions = () => [
+  { value: "inherit", label: t("wsProtocol.inherit.parent") },
+  { value: "on", label: t("wsProtocol.on") },
+  { value: "off", label: t("wsProtocol.off") },
 ]
 
 /** 接口级证书校验选项 */
@@ -185,7 +195,6 @@ export function EndpointSettingsEditor(props: EndpointSettingsEditorProps) {
           class="flex-1 resize-y min-h-16 px-2 py-1.5"
         />
       </div>
-
       <div class="h-px bg-border" />
 
       {/* 请求设置 */}
@@ -242,6 +251,21 @@ export function EndpointSettingsEditor(props: EndpointSettingsEditorProps) {
           <p class="max-w-160 text-xs text-muted-foreground">{t("urlEncoding.hint")}</p>
         </div>
       </div>
+      <Show when={props.endpointType === "websocket"}>
+        <div class="flex items-start gap-3">
+          <label class="text-sm font-medium w-28 shrink-0 pt-1.5">{t("wsProtocol.title")}</label>
+          <div class="space-y-1.5">
+            <Select
+              options={wsProtocolConversionOptions()}
+              value={props.wsProtocolConversion || "inherit"}
+              onChange={(v) => props.onChange?.({ wsProtocolConversion: v })}
+              size="sm"
+              class="w-64"
+            />
+            <p class="max-w-160 text-xs text-muted-foreground">{t("wsProtocol.hint")}</p>
+          </div>
+        </div>
+      </Show>
     </div>
   )
 }

@@ -32,6 +32,8 @@ export const endpointDefaults = {
   proxyConfig: "",
   tlsConfig: "",
   urlEncoding: "",
+  wsProtocolConversion: "",
+  inheritedWsProtocolConversion: true,
   examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
 }
 

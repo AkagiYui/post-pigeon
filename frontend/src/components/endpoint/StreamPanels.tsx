@@ -12,13 +12,6 @@ import { cn } from "@/lib/utils"
 import { clearStream, streamMessages, streamStatus } from "@/stores/stream"
 import { toastError } from "@/stores/toast"
 
-/** 组合 WebSocket URL（路径自带协议头时视为绝对地址） */
-export function wsUrl(baseUrl: string, path: string): string {
-  if (!baseUrl) return path
-  if (/^[a-z]+:\/\//i.test(path)) return path
-  return `${baseUrl.replace(/\/$/, "")}/${path.replace(/^\//, "")}`
-}
-
 export function StatusDot(props: { status: string }) {
   const color = () => ({
     open: "bg-green-500", connecting: "bg-amber-500", error: "bg-red-500", closed: "bg-gray-400", idle: "bg-gray-400",

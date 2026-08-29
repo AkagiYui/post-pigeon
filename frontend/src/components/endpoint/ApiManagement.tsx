@@ -103,6 +103,8 @@ interface UnsavedRequestData {
   proxyConfig: string
   tlsConfig: string
   urlEncoding: string
+  wsProtocolConversion: string
+  inheritedWsProtocolConversion: boolean
   operations: OperationRow[]
   examples: ResponseExample[]
   schemas: ResponseSchema[]
@@ -653,6 +655,8 @@ export function ApiManagement(props: ApiManagementProps) {
           proxyConfig: detail.proxyConfig || "",
           tlsConfig: detail.tlsConfig || "",
           urlEncoding: detail.urlEncoding || "",
+          wsProtocolConversion: detail.wsProtocolConversion || "",
+          inheritedWsProtocolConversion: detail.inheritedWsProtocolConversion ?? true,
           operations: fromOperationModels(detail.operations),
           examples: detail.examples || [], schemas: detail.schemas || [],
         } as EndpointData)
@@ -693,6 +697,8 @@ export function ApiManagement(props: ApiManagementProps) {
         proxyConfig: unsaved.proxyConfig ?? "",
         tlsConfig: unsaved.tlsConfig ?? "",
         urlEncoding: unsaved.urlEncoding ?? "",
+        wsProtocolConversion: unsaved.wsProtocolConversion ?? "",
+        inheritedWsProtocolConversion: unsaved.inheritedWsProtocolConversion ?? true,
         operations: unsaved.operations ?? [], examples: unsaved.examples ?? [], schemas: unsaved.schemas ?? [],
       } as EndpointData)
     }
@@ -854,6 +860,7 @@ export function ApiManagement(props: ApiManagementProps) {
         proxyConfig: ep.proxyConfig,
         tlsConfig: ep.tlsConfig,
         urlEncoding: ep.urlEncoding,
+        wsProtocolConversion: ep.wsProtocolConversion,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations),
@@ -884,6 +891,7 @@ export function ApiManagement(props: ApiManagementProps) {
         proxyConfig: ep.proxyConfig,
         tlsConfig: ep.tlsConfig,
         urlEncoding: ep.urlEncoding,
+        wsProtocolConversion: ep.wsProtocolConversion,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
@@ -901,6 +909,7 @@ export function ApiManagement(props: ApiManagementProps) {
           proxyConfig: ep.proxyConfig,
           tlsConfig: ep.tlsConfig,
           urlEncoding: ep.urlEncoding,
+          wsProtocolConversion: ep.wsProtocolConversion,
           params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
           headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
           operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
@@ -910,7 +919,11 @@ export function ApiManagement(props: ApiManagementProps) {
         setRequestTabs(pt => pt.map(t => t.id === ct.id ? { id: created.id, name, method: ep.method as HTTPMethod, saved: true, dirty: false } : t))
         setEndpointData({ id: created.id, name } as EndpointData)
         setUnsavedRequests(p => { const n = { ...p }; delete n[ct.id]; return n })
-        setActiveTabId(created.id); setSaveDialogOpen(false); await loadTree()
+        setActiveTabId(created.id)
+        setSaveDialogOpen(false)
+        await loadTree()
+        // 重新读取一次，拿到新归属位置对应的五级继承结果（尤其是 WS 协议自动转换）。
+        await loadSavedEndpointData(created.id)
       }
     } catch (e) { toastError(e, "error.op.saveFailed") } finally { setSaving(false) }
   }

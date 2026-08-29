@@ -56,6 +56,11 @@ func TestCloneProjectCopiesEverything(t *testing.T) {
 	db := newTestDB(t)
 	rp := buildRichProject(t, db)
 	ps := NewProjectService(db)
+	// 五级 WS 协议转换设置也属于项目配置，克隆后各层应原样保留。
+	db.Model(&models.Project{}).Where("id = ?", rp.projectID).Update("ws_protocol_conversion", "off")
+	db.Model(&models.Module{}).Where("id = ?", rp.moduleID).Update("ws_protocol_conversion", "on")
+	db.Model(&models.Folder{}).Where("id = ?", rp.folderID).Update("ws_protocol_conversion", "off")
+	db.Model(&models.Endpoint{}).Where("id = ?", rp.epFolder).Update("ws_protocol_conversion", "on")
 
 	// 登录态：会话 cookie 也该跟着克隆走
 	if err := db.Create(&models.StoredCookie{
@@ -73,6 +78,24 @@ func TestCloneProjectCopiesEverything(t *testing.T) {
 	}
 	if clone.Name != "克隆出来的项目" {
 		t.Errorf("克隆项目名 = %q，期望「克隆出来的项目」", clone.Name)
+	}
+	if clone.WSProtocolConversion != "off" {
+		t.Errorf("项目级 WS 协议设置 = %q，期望 off", clone.WSProtocolConversion)
+	}
+	var clonedModule models.Module
+	db.Where("project_id = ?", clone.ID).Order("sort_order ASC").First(&clonedModule)
+	if clonedModule.WSProtocolConversion != "on" {
+		t.Errorf("模块级 WS 协议设置 = %q，期望 on", clonedModule.WSProtocolConversion)
+	}
+	var clonedFolder models.Folder
+	db.Where("module_id = ? AND name = ?", clonedModule.ID, "F").First(&clonedFolder)
+	if clonedFolder.WSProtocolConversion != "off" {
+		t.Errorf("文件夹级 WS 协议设置 = %q，期望 off", clonedFolder.WSProtocolConversion)
+	}
+	var clonedEndpoint models.Endpoint
+	db.Where("folder_id = ? AND name = ?", clonedFolder.ID, "E-f").First(&clonedEndpoint)
+	if clonedEndpoint.WSProtocolConversion != "on" {
+		t.Errorf("接口级 WS 协议设置 = %q，期望 on", clonedEndpoint.WSProtocolConversion)
 	}
 
 	// 挂在项目下的每一张表都要逐表等量

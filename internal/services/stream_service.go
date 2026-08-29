@@ -87,9 +87,10 @@ func (s *WebSocketService) ServiceShutdown() error {
 
 // Connect 建立一个 WebSocket 连接。connID 由前端生成（对已保存端点即端点 ID），
 // 用于区分不同标签页的连接，并据此解析该端点的生效代理与 TLS 设置。
-// proxyConfig / tlsConfig 为接口级选择（可空）。
-func (s *WebSocketService) Connect(connID, urlStr string, headers map[string]string, proxyConfig, tlsConfig string) error {
+// proxyConfig / tlsConfig 为接口级选择（可空）。autoConvertWSProtocol 为当前编辑态按五级继承算出的最终开关。
+func (s *WebSocketService) Connect(connID, urlStr string, headers map[string]string, proxyConfig, tlsConfig string, autoConvertWSProtocol bool) error {
 	s.Close(connID) // 若已存在同 ID 连接，先关闭
+	urlStr = convertHTTPToWSProtocol(urlStr, autoConvertWSProtocol)
 
 	ctx, cancel := context.WithCancel(context.Background())
 	opts := &websocket.DialOptions{HTTPHeader: http.Header{}}

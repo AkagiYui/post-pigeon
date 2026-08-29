@@ -152,6 +152,7 @@ export function RequestLimitsSettings() {
   const [followRedirects, setFollowRedirects] = createSignal(true)
   const [sendNoCache, setSendNoCache] = createSignal(false)
   const [allowJsonComments, setAllowJsonComments] = createSignal(true)
+  const [autoConvertWSProtocol, setAutoConvertWSProtocol] = createSignal(true)
   const [userAgent, setUserAgent] = createSignal("")
   const [urlEncoding, setUrlEncoding] = createSignal("rfc3986")
   const [maxResponseMiB, setMaxResponseMiB] = createSignal(32)
@@ -176,6 +177,7 @@ export function RequestLimitsSettings() {
         setFollowRedirects(request.followRedirects)
         setSendNoCache(request.sendNoCacheHeaders)
         setAllowJsonComments(request.allowJsonComments)
+        setAutoConvertWSProtocol(request.autoConvertWsProtocol)
         setUserAgent(request.userAgent)
         setUrlEncoding(request.urlEncoding || "rfc3986")
         setMaxResponseMiB(toMiB(request.maxResponseBytes))
@@ -203,6 +205,7 @@ export function RequestLimitsSettings() {
         followRedirects: followRedirects(),
         sendNoCacheHeaders: sendNoCache(),
         allowJsonComments: allowJsonComments(),
+        autoConvertWsProtocol: autoConvertWSProtocol(),
         // 留空即「未设置」，由后端发送内置默认 UA
         userAgent: userAgent().trim(),
         urlEncoding: urlEncoding(),
@@ -281,6 +284,12 @@ export function RequestLimitsSettings() {
           hint={t("request.jsonComments.hint")}
           checked={allowJsonComments()}
           onChange={setAllowJsonComments}
+        />
+        <ToggleField
+          label={t("wsProtocol.title")}
+          hint={t("wsProtocol.global.hint")}
+          checked={autoConvertWSProtocol()}
+          onChange={setAutoConvertWSProtocol}
         />
 
         <SelectField

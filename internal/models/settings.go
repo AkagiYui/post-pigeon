@@ -63,6 +63,9 @@ type RequestSettings struct {
 	// URLEncoding URL 自动编码的全局档位（URLEncodingMode）：rfc3986 / whatwg / off。
 	// 留空按 DefaultURLEncoding 处理。项目与接口可以在其上各自覆盖。
 	URLEncoding string `json:"urlEncoding"`
+	// AutoConvertWSProtocol 是否为 WebSocket 接口自动把 http(s):// 转为 ws(s)://。
+	// 全局默认开启；项目、模块、文件夹和接口可逐级覆盖。
+	AutoConvertWSProtocol bool `json:"autoConvertWsProtocol"`
 }
 
 // DefaultUserAgent 未自定义 User-Agent 时请求默认携带的值。
@@ -105,6 +108,7 @@ var (
 		SendNoCacheHeaders:       false,
 		AllowJSONComments:        true,
 		URLEncoding:              string(DefaultURLEncoding),
+		AutoConvertWSProtocol:    true,
 	}
 	DefaultHistorySettings = HistorySettings{
 		RetentionDays:    30,

@@ -46,6 +46,10 @@ export interface EndpointData {
   tlsConfig: string
   /** 接口级 URL 自动编码档位（rfc3986 / whatwg / off / inherit） */
   urlEncoding: string
+  /** 接口级 WebSocket 协议头自动转换档位（inherit / on / off） */
+  wsProtocolConversion: string
+  /** 不考虑接口自身覆盖时，由文件夹/模块/项目/全局计算出的开关 */
+  inheritedWsProtocolConversion: boolean
   /** 前置/后置操作列表 */
   operations: OperationRow[]
   /** 响应示例（不在此编辑，仅透传保存以免丢失） */

@@ -39,6 +39,7 @@ export interface ScopeSettingsDialogProps {
 export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
   const [tab, setTab] = createSignal("auth")
   const [auth, setAuth] = createSignal<AuthState>(emptyAuth())
+  const [wsProtocolConversion, setWSProtocolConversion] = createSignal("inherit")
   const [operations, setOperations] = createSignal<OperationRow[]>([])
   const [params, setParams] = createSignal<ParamRow[]>([])
   const [vars, setVars] = createSignal<VarRow[]>([])
@@ -54,12 +55,14 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
       if (props.scopeType === "module") {
         const s = await ScopeSettingsService.GetModuleSettings(props.scopeId)
         setAuth(authDataToState(s?.authType || "none", s?.authData || ""))
+        setWSProtocolConversion(s?.wsProtocolConversion || "inherit")
         setOperations(fromOperationModels(s?.operations))
         setParams((s?.params || []).map(p => ({ id: crypto.randomUUID(), type: p.type || "query", name: p.name, value: p.value, enabled: p.enabled })))
         setVars((s?.variables || []).map(v => ({ id: crypto.randomUUID(), key: v.key, value: v.value, description: v.description, enabled: v.enabled, isSecret: v.isSecret })))
       } else {
         const s = await ScopeSettingsService.GetFolderSettings(props.scopeId)
         setAuth(authDataToState(s?.authType || "inherit", s?.authData || ""))
+        setWSProtocolConversion(s?.wsProtocolConversion || "inherit")
         setOperations(fromOperationModels(s?.operations))
       }
     } catch (e) { toastError(e, "error.op.loadFailed") }
@@ -76,9 +79,9 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
       if (props.scopeType === "module") {
         const mp = params().filter(p => p.name.trim()).map(p => new ModuleParam({ type: p.type, name: p.name, value: p.value, enabled: p.enabled }))
         const mv = vars().filter(v => v.key.trim()).map(v => new ModuleVariable({ key: v.key.trim(), value: v.value, description: v.description, enabled: v.enabled, isSecret: v.isSecret }))
-        await ScopeSettingsService.SaveModuleSettings(props.scopeId, new ModuleSettings({ authType, authData, params: mp, variables: mv, operations: ops }))
+        await ScopeSettingsService.SaveModuleSettings(props.scopeId, new ModuleSettings({ authType, authData, wsProtocolConversion: wsProtocolConversion(), params: mp, variables: mv, operations: ops }))
       } else {
-        await ScopeSettingsService.SaveFolderSettings(props.scopeId, new FolderSettings({ authType, authData, operations: ops }))
+        await ScopeSettingsService.SaveFolderSettings(props.scopeId, new FolderSettings({ authType, authData, wsProtocolConversion: wsProtocolConversion(), operations: ops }))
       }
       setLoadedFor("")
       props.onClose()
@@ -86,8 +89,12 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
   }
 
   const tabs = () => {
-    const base = [{ key: "auth", label: t("endpoint.auth") }, { key: "operations", label: t("endpoint.operations") }]
-    if (props.scopeType === "module") base.splice(1, 0, { key: "params", label: t("scope.autoParams") }, { key: "variables", label: t("scope.variables") })
+    const base = [
+      { key: "general", label: t("settings.general") },
+      { key: "auth", label: t("endpoint.auth") },
+      { key: "operations", label: t("endpoint.operations") },
+    ]
+    if (props.scopeType === "module") base.splice(2, 0, { key: "params", label: t("scope.autoParams") }, { key: "variables", label: t("scope.variables") })
     return base
   }
 
@@ -107,6 +114,23 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
         <div class="flex-1 min-h-0">
           <Tabs variant="line" tabs={tabs()} value={tab()} onChange={setTab}>
             {(key) => {
+              if (key === "general") return (
+                <div class="p-3 space-y-2">
+                  <label class="block text-sm font-medium">{t("wsProtocol.title")}</label>
+                  <Select
+                    options={[
+                      { value: "inherit", label: t("wsProtocol.inherit.parent") },
+                      { value: "on", label: t("wsProtocol.on") },
+                      { value: "off", label: t("wsProtocol.off") },
+                    ]}
+                    value={wsProtocolConversion()}
+                    onChange={setWSProtocolConversion}
+                    size="sm"
+                    class="w-64"
+                  />
+                  <p class="text-xs text-muted-foreground">{t("wsProtocol.scope.hint")}</p>
+                </div>
+              )
               if (key === "auth") return <AuthEditor value={auth()} onChange={setAuth} />
               if (key === "operations") return <OperationsEditor operations={operations()} onChange={setOperations} projectId={props.projectId} />
               if (key === "params") return (

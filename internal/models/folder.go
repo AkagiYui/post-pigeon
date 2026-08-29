@@ -15,10 +15,12 @@ type Folder struct {
 	Name      string  `gorm:"not null" json:"name"`
 	SortOrder int     `gorm:"default:0" json:"sortOrder"`
 	// AuthType/AuthData 文件夹级默认认证，供下级接口 inherit
-	AuthType  string    `gorm:"default:inherit" json:"authType"` // inherit, none, basic, bearer, apikey
-	AuthData  string    `gorm:"type:text" json:"authData"`
-	CreatedAt time.Time `json:"createdAt"`
-	UpdatedAt time.Time `json:"updatedAt"`
+	AuthType string `gorm:"default:inherit" json:"authType"` // inherit, none, basic, bearer, apikey
+	AuthData string `gorm:"type:text" json:"authData"`
+	// WSProtocolConversion WebSocket 协议头自动转换档位。空字符串表示继承上级文件夹或模块。
+	WSProtocolConversion string    `gorm:"type:text" json:"wsProtocolConversion"`
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt"`
 
 	// 关联（constraint:OnDelete:CASCADE 使删除文件夹时，数据库自动级联删除子文件夹及其下端点）
 	Children  []Folder   `gorm:"foreignKey:ParentID;constraint:OnDelete:CASCADE" json:"children,omitempty"`

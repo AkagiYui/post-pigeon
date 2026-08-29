@@ -20,6 +20,7 @@ import { formatFromContentType } from "@/lib/format"
 import { getStatusInfo, statusClass } from "@/lib/http-status"
 import { formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS } from "@/lib/types"
 import { byteLength, cn, downloadTextFile, extensionForContentType, hasURLScheme } from "@/lib/utils"
+import { convertHTTPToWSProtocol, effectiveWSProtocolConversion, wsUrl } from "@/lib/ws-protocol"
 import { responseLayout, setResponseLayout } from "@/stores/app"
 import { markConnecting, streamStatus } from "@/stores/stream"
 import { toastError } from "@/stores/toast"
@@ -32,7 +33,7 @@ import { HeadersEditor } from "./HeadersEditor"
 import { OperationsEditor } from "./OperationsEditor"
 import { CookiesEditor, ParamsEditor } from "./ParamsEditor"
 import { ResponseBodyToolbar, ResponsePanel } from "./ResponsePanel"
-import { StreamEventLog, WebSocketResponse, wsUrl } from "./StreamPanels"
+import { StreamEventLog, WebSocketResponse } from "./StreamPanels"
 
 /** HTTP 方法选项（用于 Combobox） */
 const methodOptions: ComboboxOption[] = [
@@ -140,6 +141,7 @@ const tabStateStore = new Map<string, { requestTab: string; responseTab: string 
  */
 function EnvironmentBadge(props: {
   baseUrl: string
+  autoConvertWSProtocol?: boolean
   environmentBaseUrls?: EnvironmentBaseURLOption[]
   currentEnvironmentId?: string
   onEnvironmentChange?: (environmentId: string) => void
@@ -148,6 +150,7 @@ function EnvironmentBadge(props: {
   // 菜单定位（基于 trigger 元素底部左对齐）
   const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
   let badgeRef: HTMLSpanElement | undefined
+  const displayBaseUrl = (url: string) => convertHTTPToWSProtocol(url, !!props.autoConvertWSProtocol)
 
   // 点击 Badge 时计算 trigger 位置并弹出菜单
   const handleBadgeClick = (e: MouseEvent) => {
@@ -187,11 +190,11 @@ function EnvironmentBadge(props: {
             : "text-muted-foreground hover:bg-hover",
         )}
         onClick={handleBadgeClick}
-        title={props.baseUrl || t("endpoint.baseUrl.notSet")}
+        title={displayBaseUrl(props.baseUrl) || t("endpoint.baseUrl.notSet")}
       >
         {/* 图标始终显示；标题在空间不足时被挤压隐藏，仅剩图标 */}
         <Icon icon="lucide:link-2" class="h-3 w-3 shrink-0" />
-        <span class="truncate min-w-0">{props.baseUrl || t("endpoint.baseUrl.notSet")}</span>
+        <span class="truncate min-w-0">{displayBaseUrl(props.baseUrl) || t("endpoint.baseUrl.notSet")}</span>
       </span>
 
       {/* 环境选择下拉菜单 */}
@@ -228,7 +231,7 @@ function EnvironmentBadge(props: {
                     </Show>
                   </span>
                   {/* 中间：前置 URL（常规字体，弹性撑满） */}
-                  <span class="truncate text-sm flex-1 min-w-0">{item.baseUrl || "/"}</span>
+                  <span class="truncate text-sm flex-1 min-w-0">{displayBaseUrl(item.baseUrl) || "/"}</span>
                   {/* 右侧：环境名称（低对比度） */}
                   <span class="text-xs text-muted-foreground shrink-0">{item.environmentName}</span>
                 </div>
@@ -408,6 +411,10 @@ export function EndpointDetail(props: EndpointDetailProps) {
 
   // ---- WebSocket：连接/断开由顶部请求行的按钮驱动，连接存活于 Go 侧 ----
   const isWs = () => ep().type === "websocket"
+  const autoConvertWSProtocol = () => isWs() && effectiveWSProtocolConversion(
+    ep().wsProtocolConversion,
+    ep().inheritedWsProtocolConversion,
+  )
   const wsStatus = () => streamStatus(ep().id)
   const wsHeaders = (): Record<string, string> => {
     const h: Record<string, string> = {}
@@ -417,7 +424,16 @@ export function EndpointDetail(props: EndpointDetailProps) {
   const wsConnect = async () => {
     markConnecting(ep().id)
     // 传入接口级代理选择：WebSocket 与普通请求一样按「接口→项目→全局」解析生效代理
-    try { await WebSocketService.Connect(ep().id, wsUrl(ep().baseUrl, ep().path), wsHeaders(), ep().proxyConfig || "", ep().tlsConfig || "") } catch (e) { toastError(e, "error.op.connectFailed") }
+    try {
+      await WebSocketService.Connect(
+        ep().id,
+        wsUrl(ep().baseUrl, ep().path, autoConvertWSProtocol()),
+        wsHeaders(),
+        ep().proxyConfig || "",
+        ep().tlsConfig || "",
+        autoConvertWSProtocol(),
+      )
+    } catch (e) { toastError(e, "error.op.connectFailed") }
   }
   const wsDisconnect = async () => { try { await WebSocketService.Close(ep().id) } catch (e) { toastError(e) } }
   // 停止流式响应（响应体为 text/event-stream 的流式 HTTP 响应）
@@ -474,6 +490,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
             <Show when={!hasURLScheme(ep().path)}>
               <EnvironmentBadge
                 baseUrl={ep().baseUrl}
+                autoConvertWSProtocol={autoConvertWSProtocol()}
                 environmentBaseUrls={props.environmentBaseUrls}
                 currentEnvironmentId={props.currentEnvironmentId}
                 onEnvironmentChange={props.onEnvironmentChange}
@@ -576,6 +593,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                     projectId={props.projectId}
                   />
                   case "settings": return <EndpointSettingsEditor
+                    endpointType={ep().type}
                     timeout={ep().timeout}
                     followRedirects={ep().followRedirects}
                     status={ep().status}
@@ -584,6 +602,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                     proxyConfig={ep().proxyConfig}
                     tlsConfig={ep().tlsConfig}
                     urlEncoding={ep().urlEncoding}
+                    wsProtocolConversion={ep().wsProtocolConversion}
                     projectId={props.projectId}
                     onChange={(patch) => props.onChange?.(patch)}
                   />

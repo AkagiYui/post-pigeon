@@ -19,9 +19,11 @@ type Project struct {
 	// TLSSettings 项目级 TLS 设置（ScopeTLSSettings 的 JSON）。空字符串表示跟随全局。
 	TLSSettings string `gorm:"type:text" json:"tlsSettings"`
 	// URLEncoding 项目级 URL 自动编码档位（URLEncodingMode）。空字符串表示跟随全局。
-	URLEncoding string    `gorm:"type:text" json:"urlEncoding"`
-	CreatedAt   time.Time `json:"createdAt"`
-	UpdatedAt   time.Time `json:"updatedAt"`
+	URLEncoding string `gorm:"type:text" json:"urlEncoding"`
+	// WSProtocolConversion WebSocket 协议头自动转换档位。空字符串表示继承全局。
+	WSProtocolConversion string    `gorm:"type:text" json:"wsProtocolConversion"`
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt"`
 
 	// 关联（constraint:OnDelete:CASCADE 使删除项目时，数据库自动级联删除其下所有内容）
 	Modules         []Module         `gorm:"constraint:OnDelete:CASCADE" json:"-"`

@@ -17,9 +17,11 @@ type Module struct {
 	AuthType string `gorm:"default:none" json:"authType"` // none, basic, bearer, apikey
 	AuthData string `gorm:"type:text" json:"authData"`
 	// EndpointDisplay 该模块下接口在树中的显示方式：name（名称，默认）或 url（路径）
-	EndpointDisplay string    `gorm:"default:name" json:"endpointDisplay"`
-	CreatedAt       time.Time `json:"createdAt"`
-	UpdatedAt       time.Time `json:"updatedAt"`
+	EndpointDisplay string `gorm:"default:name" json:"endpointDisplay"`
+	// WSProtocolConversion WebSocket 协议头自动转换档位。空字符串表示继承项目。
+	WSProtocolConversion string    `gorm:"type:text" json:"wsProtocolConversion"`
+	CreatedAt            time.Time `json:"createdAt"`
+	UpdatedAt            time.Time `json:"updatedAt"`
 
 	// 关联（constraint:OnDelete:CASCADE 使删除模块时，数据库自动级联删除其下所有内容）
 	BaseURLs  []ModuleBaseURL  `gorm:"constraint:OnDelete:CASCADE" json:"baseUrls,omitempty"`

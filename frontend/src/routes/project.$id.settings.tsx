@@ -15,6 +15,7 @@ import { URLEncodingSettings } from "@/components/settings/URLEncodingSettings"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 import { SideTabs } from "@/components/ui/tabs"
 import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
@@ -58,12 +59,16 @@ function ProjectSettingsPage() {
   const [activeTab, setActiveTab] = cache.createCachedSignal("activeTab", "basic")
   const [name, setName] = cache.createCachedSignal("name", "")
   const [description, setDescription] = cache.createCachedSignal("description", "")
+  const [wsProtocolConversion, setWSProtocolConversion] = cache.createCachedSignal("wsProtocolConversion", "inherit")
   const [saving, setSaving] = createSignal(false)
   const [error, setError] = createSignal("")
   // 已保存的原始值，用于判断表单是否发生变动
   const [savedName, setSavedName] = createSignal("")
   const [savedDescription, setSavedDescription] = createSignal("")
-  const isDirty = () => name().trim() !== savedName() || description().trim() !== savedDescription()
+  const [savedWSProtocolConversion, setSavedWSProtocolConversion] = createSignal("inherit")
+  const isDirty = () => name().trim() !== savedName()
+    || description().trim() !== savedDescription()
+    || wsProtocolConversion() !== savedWSProtocolConversion()
 
   // ---- 克隆 / 删除（不进路由缓存：都是一次性的确认流程，离开页面就该重来） ----
   const [cloneOpen, setCloneOpen] = createSignal(false)
@@ -85,9 +90,12 @@ function ProjectSettingsPage() {
       if (project) {
         setSavedName((project.name || "").trim())
         setSavedDescription((project.description || "").trim())
+        const wsMode = project.wsProtocolConversion || "inherit"
+        setSavedWSProtocolConversion(wsMode)
         if (!restoredFromCache) {
           setName(project.name || "")
           setDescription(project.description || "")
+          setWSProtocolConversion(wsMode)
         }
       }
     } catch (e) {
@@ -114,6 +122,7 @@ function ProjectSettingsPage() {
       const trimmedName = name().trim()
       const trimmedDescription = description().trim()
       await ProjectService.UpdateProject(id, trimmedName, trimmedDescription)
+      await ProjectService.SaveProjectWSProtocolConversion(id, wsProtocolConversion())
       // 更新缓存的项目名称
       setProjectNames(prev => ({ ...prev, [id]: trimmedName }))
       // 更新已保存值，使按钮回到禁用状态
@@ -121,6 +130,7 @@ function ProjectSettingsPage() {
       setDescription(trimmedDescription)
       setSavedName(trimmedName)
       setSavedDescription(trimmedDescription)
+      setSavedWSProtocolConversion(wsProtocolConversion())
     } catch (e) {
       toastError(e, "error.op.saveFailed")
       setError(t("project.saveFailed"))
@@ -265,6 +275,24 @@ function ProjectSettingsPage() {
                         placeholder={t("project.description")}
                         disabled={saving()}
                       />
+                    </div>
+
+                    {/* WebSocket 协议头自动转换 */}
+                    <div>
+                      <label class="block text-sm font-medium text-foreground mb-1.5">
+                        {t("wsProtocol.title")}
+                      </label>
+                      <Select
+                        options={[
+                          { value: "inherit", label: t("wsProtocol.inherit.global") },
+                          { value: "on", label: t("wsProtocol.on") },
+                          { value: "off", label: t("wsProtocol.off") },
+                        ]}
+                        value={wsProtocolConversion()}
+                        onChange={setWSProtocolConversion}
+                        class="w-64"
+                      />
+                      <p class="mt-1.5 text-xs text-muted-foreground">{t("wsProtocol.project.hint")}</p>
                     </div>
 
                     {/* 操作按钮 */}
