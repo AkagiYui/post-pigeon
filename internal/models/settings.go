@@ -44,6 +44,12 @@ type RequestSettings struct {
 	MaxStoredBodyBytes int64 `json:"maxStoredBodyBytes"`
 	// MaxWebSocketMessageBytes WebSocket 单帧最大字节数，0 表示不限制。
 	MaxWebSocketMessageBytes int64 `json:"maxWebSocketMessageBytes"`
+	// MaxStreamEventBytes 单个 SSE 事件（含字段与 data）最大字节数，0 表示不限制。
+	MaxStreamEventBytes int64 `json:"maxStreamEventBytes"`
+	// MaxStreamBytes 一条 SSE 连接累计读取的最大字节数，0 表示不限制。
+	MaxStreamBytes int64 `json:"maxStreamBytes"`
+	// MaxStreamEvents 一条 SSE 连接最多展示的事件数，0 表示不限制。
+	MaxStreamEvents int `json:"maxStreamEvents"`
 	// TimeoutMs 请求超时时间（毫秒），是五级继承链的全局终点。
 	// 三态：nil 表示未设置（按 DefaultRequestTimeoutMs 处理），0 表示不限制超时，正数为具体时长。
 	TimeoutMs *int `json:"timeoutMs,omitempty"`
@@ -104,6 +110,9 @@ var (
 		MaxResponseBytes:         32 << 20,
 		MaxStoredBodyBytes:       1 << 20,
 		MaxWebSocketMessageBytes: 32 << 20,
+		MaxStreamEventBytes:      1 << 20,
+		MaxStreamBytes:           32 << 20,
+		MaxStreamEvents:          10000,
 		FollowRedirects:          true,
 		SendNoCacheHeaders:       false,
 		AllowJSONComments:        true,

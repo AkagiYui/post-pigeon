@@ -158,6 +158,9 @@ export function RequestLimitsSettings() {
   const [maxResponseMiB, setMaxResponseMiB] = createSignal(32)
   const [maxStoredMiB, setMaxStoredMiB] = createSignal(1)
   const [maxWSMiB, setMaxWSMiB] = createSignal(32)
+  const [maxStreamEventMiB, setMaxStreamEventMiB] = createSignal(1)
+  const [maxStreamMiB, setMaxStreamMiB] = createSignal(32)
+  const [maxStreamEvents, setMaxStreamEvents] = createSignal(10000)
   const [retentionDays, setRetentionDays] = createSignal(30)
   const [maxRows, setMaxRows] = createSignal(2000)
   const [maskSensitive, setMaskSensitive] = createSignal(true)
@@ -183,6 +186,9 @@ export function RequestLimitsSettings() {
         setMaxResponseMiB(toMiB(request.maxResponseBytes))
         setMaxStoredMiB(toMiB(request.maxStoredBodyBytes))
         setMaxWSMiB(toMiB(request.maxWebSocketMessageBytes))
+        setMaxStreamEventMiB(toMiB(request.maxStreamEventBytes))
+        setMaxStreamMiB(toMiB(request.maxStreamBytes))
+        setMaxStreamEvents(request.maxStreamEvents)
       }
       if (history) {
         setRetentionDays(history.retentionDays)
@@ -212,6 +218,9 @@ export function RequestLimitsSettings() {
         maxResponseBytes: fromMiB(maxResponseMiB()),
         maxStoredBodyBytes: fromMiB(maxStoredMiB()),
         maxWebSocketMessageBytes: fromMiB(maxWSMiB()),
+        maxStreamEventBytes: fromMiB(maxStreamEventMiB()),
+        maxStreamBytes: fromMiB(maxStreamMiB()),
+        maxStreamEvents: Math.max(0, Math.round(maxStreamEvents())),
       }))
       await SettingsService.SaveHistorySettings(new HistorySettings({
         retentionDays: Math.max(0, Math.round(retentionDays())),
@@ -328,6 +337,27 @@ export function RequestLimitsSettings() {
           unit="MiB"
           value={maxWSMiB()}
           onChange={setMaxWSMiB}
+        />
+        <NumberField
+          label={t("request.maxStreamEvent")}
+          hint={t("request.maxStreamEvent.hint")}
+          unit="MiB"
+          value={maxStreamEventMiB()}
+          onChange={setMaxStreamEventMiB}
+        />
+        <NumberField
+          label={t("request.maxStream")}
+          hint={t("request.maxStream.hint")}
+          unit="MiB"
+          value={maxStreamMiB()}
+          onChange={setMaxStreamMiB}
+        />
+        <NumberField
+          label={t("request.maxStreamEvents")}
+          hint={t("request.maxStreamEvents.hint")}
+          unit={t("history.unit.rows")}
+          value={maxStreamEvents()}
+          onChange={setMaxStreamEvents}
         />
 
         <div class="border-t border-border pt-4">

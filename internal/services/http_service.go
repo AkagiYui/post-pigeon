@@ -551,7 +551,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		}
 		s.persistModuleVarChanges(data.ModuleID, stores.Collection)
 		// 后台读取事件流并推送，读到 EOF/停止后清理连接
-		safego.Go("http.streamResponse", func() { s.streamResponse(resp, streamID, cancel) })
+		streamLimits := sseReadLimitsFromSettings(limits)
+		safego.Go("http.streamResponse", func() { s.streamResponse(resp, streamID, cancel, streamLimits) })
 
 		out := &HTTPResponseData{
 			StatusCode:    resp.StatusCode,
@@ -830,91 +831,139 @@ type sseEvent struct {
 	HasComment bool
 }
 
+type sseReadLimits struct {
+	MaxEventBytes int64
+	MaxTotalBytes int64
+	MaxEvents     int
+}
+
+func sseReadLimitsFromSettings(settings models.RequestSettings) sseReadLimits {
+	return sseReadLimits{
+		MaxEventBytes: settings.MaxStreamEventBytes,
+		MaxTotalBytes: settings.MaxStreamBytes,
+		MaxEvents:     settings.MaxStreamEvents,
+	}
+}
+
 // parseSSE 从 reader 读取 event-stream。它遵循 SSE 的 field/value 规则：仅移除冒号后的一个空格，
 // 多个 data 行用换行连接；event/id/retry 与注释不会被混入正文。
-func parseSSE(reader *bufio.Reader, emit func(sseEvent)) error {
+func parseSSE(reader io.Reader, limits sseReadLimits, emit func(sseEvent)) error {
+	scanner := bufio.NewScanner(reader)
+	maxLineBytes := int(^uint(0) >> 1)
+	if limits.MaxEventBytes > 0 && limits.MaxEventBytes < int64(maxLineBytes) {
+		// 给换行与字段名留出余量；总事件大小仍在下面精确检查。
+		maxLineBytes = int(limits.MaxEventBytes) + 1
+	}
+	scanner.Buffer(make([]byte, 64<<10), maxLineBytes)
 	var dataLines []string
 	var eventName, eventID string
 	var hasEventID bool
 	var retry int
 	var hasRetry bool
 	firstLine := true
+	var eventBytes, totalBytes int64
+	eventCount := 0
 
-	flush := func() {
+	emitItem := func(item sseEvent) error {
+		if limits.MaxEvents > 0 && eventCount >= limits.MaxEvents {
+			return fmt.Errorf("SSE event limit reached (%d events)", limits.MaxEvents)
+		}
+		eventCount++
+		emit(item)
+		return nil
+	}
+
+	flush := func() error {
 		if len(dataLines) == 0 {
 			eventName, eventID, hasEventID, retry, hasRetry = "", "", false, 0, false
-			return
+			eventBytes = 0
+			return nil
 		}
 		if eventName == "" {
 			eventName = "message"
 		}
-		emit(sseEvent{
+		err := emitItem(sseEvent{
 			Data: strings.Join(dataLines, "\n"), Event: eventName,
 			EventID: eventID, HasEventID: hasEventID, Retry: retry, HasRetry: hasRetry,
 		})
 		dataLines = nil
 		eventName, eventID, hasEventID, retry, hasRetry = "", "", false, 0, false
+		eventBytes = 0
+		return err
 	}
 
-	for {
-		line, err := reader.ReadString('\n')
-		if len(line) > 0 {
-			line = strings.TrimSuffix(line, "\n")
-			line = strings.TrimSuffix(line, "\r")
-			if firstLine {
-				line = strings.TrimPrefix(line, "\ufeff")
-				firstLine = false
-			}
-			if line == "" {
-				flush()
-			} else if strings.HasPrefix(line, ":") {
-				comment := strings.TrimPrefix(line, ":")
-				if strings.HasPrefix(comment, " ") {
-					comment = strings.TrimPrefix(comment, " ")
-				}
-				emit(sseEvent{Comment: comment, HasComment: true})
-			} else {
-				field, value, found := strings.Cut(line, ":")
-				if !found {
-					value = ""
-				}
-				if strings.HasPrefix(value, " ") {
-					value = strings.TrimPrefix(value, " ")
-				}
-				switch field {
-				case "data":
-					dataLines = append(dataLines, value)
-				case "event":
-					eventName = value
-				case "id":
-					// 含 NUL 的 id 必须忽略，避免污染 Last-Event-ID。
-					if !strings.ContainsRune(value, '\x00') {
-						eventID, hasEventID = value, true
-					}
-				case "retry":
-					if milliseconds, parseErr := strconv.Atoi(value); parseErr == nil && milliseconds >= 0 {
-						retry, hasRetry = milliseconds, true
-					}
-				}
-			}
+	for scanner.Scan() {
+		line := scanner.Text()
+		totalBytes += int64(len(scanner.Bytes())) + 1
+		if limits.MaxTotalBytes > 0 && totalBytes > limits.MaxTotalBytes {
+			return fmt.Errorf("SSE stream byte limit reached (%d bytes)", limits.MaxTotalBytes)
 		}
-		if err != nil {
-			flush()
-			return err
+		eventBytes += int64(len(scanner.Bytes())) + 1
+		if limits.MaxEventBytes > 0 && eventBytes > limits.MaxEventBytes {
+			return fmt.Errorf("SSE event byte limit reached (%d bytes)", limits.MaxEventBytes)
+		}
+		if firstLine {
+			line = strings.TrimPrefix(line, "\ufeff")
+			firstLine = false
+		}
+		if line == "" {
+			if err := flush(); err != nil {
+				return err
+			}
+		} else if strings.HasPrefix(line, ":") {
+			comment := strings.TrimPrefix(line, ":")
+			if strings.HasPrefix(comment, " ") {
+				comment = strings.TrimPrefix(comment, " ")
+			}
+			if err := emitItem(sseEvent{Comment: comment, HasComment: true}); err != nil {
+				return err
+			}
+			eventBytes = 0
+		} else {
+			field, value, found := strings.Cut(line, ":")
+			if !found {
+				value = ""
+			}
+			if strings.HasPrefix(value, " ") {
+				value = strings.TrimPrefix(value, " ")
+			}
+			switch field {
+			case "data":
+				dataLines = append(dataLines, value)
+			case "event":
+				eventName = value
+			case "id":
+				// 含 NUL 的 id 必须忽略，避免污染 Last-Event-ID。
+				if !strings.ContainsRune(value, '\x00') {
+					eventID, hasEventID = value, true
+				}
+			case "retry":
+				if milliseconds, parseErr := strconv.Atoi(value); parseErr == nil && milliseconds >= 0 {
+					retry, hasRetry = milliseconds, true
+				}
+			}
 		}
 	}
+	if err := scanner.Err(); err != nil {
+		if limits.MaxEventBytes > 0 {
+			// Scanner 在超长单行时会先于字段解析报错；把它归类为用户可理解的事件上限。
+			return fmt.Errorf("SSE event byte limit reached (%d bytes): %w", limits.MaxEventBytes, err)
+		}
+		return fmt.Errorf("read SSE stream: %w", err)
+	}
+	return flush()
 }
 
 // streamResponse 持续读取 text/event-stream 响应体，按 SSE 帧解析后经 http:stream 事件推送。
 // 读到 EOF 或被取消（StopStream）后清理连接。cancel 用于结束时释放请求上下文。
-func (s *HTTPService) streamResponse(resp *http.Response, connID string, cancel context.CancelFunc) {
+func (s *HTTPService) streamResponse(resp *http.Response, connID string, cancel context.CancelFunc, limits sseReadLimits) {
 	defer resp.Body.Close()
 	defer cancel()
 	defer s.unregisterStream(connID)
 
 	emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "open", Data: fmt.Sprintf("%d", resp.StatusCode), Timestamp: nowMillis()})
 
-	err := parseSSE(bufio.NewReader(resp.Body), func(item sseEvent) {
+	err := parseSSE(resp.Body, limits, func(item sseEvent) {
 		kind := "message"
 		if item.HasComment {
 			kind = "comment"

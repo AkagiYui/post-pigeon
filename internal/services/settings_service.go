@@ -186,6 +186,15 @@ func normalizeRequestSettings(s *models.RequestSettings) {
 	if s.MaxWebSocketMessageBytes < 0 {
 		s.MaxWebSocketMessageBytes = 0
 	}
+	if s.MaxStreamEventBytes < 0 {
+		s.MaxStreamEventBytes = 0
+	}
+	if s.MaxStreamBytes < 0 {
+		s.MaxStreamBytes = 0
+	}
+	if s.MaxStreamEvents < 0 {
+		s.MaxStreamEvents = 0
+	}
 	// 0 表示不限制超时；负数是非法输入，按「未设置」处理而不是「永不超时」
 	if s.TimeoutMs != nil && *s.TimeoutMs < 0 {
 		s.TimeoutMs = nil

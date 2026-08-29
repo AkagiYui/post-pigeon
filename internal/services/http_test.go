@@ -1,7 +1,6 @@
 package services
 
 import (
-	"bufio"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -99,9 +98,9 @@ func TestParseSSEPreservesProtocolFields(t *testing.T) {
 		"id: bad\x00id\n" +
 		"data: final\n"
 	var got []sseEvent
-	err := parseSSE(bufio.NewReader(strings.NewReader(input)), func(event sseEvent) { got = append(got, event) })
-	if err != io.EOF {
-		t.Fatalf("parseSSE err=%v, want EOF", err)
+	err := parseSSE(strings.NewReader(input), sseReadLimits{}, func(event sseEvent) { got = append(got, event) })
+	if err != nil {
+		t.Fatalf("parseSSE err=%v", err)
 	}
 	if len(got) != 3 {
 		t.Fatalf("event count=%d, want 3: %#v", len(got), got)
@@ -115,6 +114,19 @@ func TestParseSSEPreservesProtocolFields(t *testing.T) {
 	}
 	if event := got[2]; event.Event != "message" || event.HasEventID || event.Data != "final" {
 		t.Errorf("final SSE event=%+v", event)
+	}
+}
+
+func TestParseSSEHonorsResourceLimits(t *testing.T) {
+	input := "data: abc\n\ndata: def\n\n"
+	if err := parseSSE(strings.NewReader(input), sseReadLimits{MaxEventBytes: 6}, func(sseEvent) {}); err == nil || !strings.Contains(err.Error(), "event byte limit") {
+		t.Fatalf("event byte limit err=%v", err)
+	}
+	if err := parseSSE(strings.NewReader(input), sseReadLimits{MaxTotalBytes: 10}, func(sseEvent) {}); err == nil || !strings.Contains(err.Error(), "stream byte limit") {
+		t.Fatalf("stream byte limit err=%v", err)
+	}
+	if err := parseSSE(strings.NewReader(input), sseReadLimits{MaxEvents: 1}, func(sseEvent) {}); err == nil || !strings.Contains(err.Error(), "event limit") {
+		t.Fatalf("event count limit err=%v", err)
 	}
 }
 
