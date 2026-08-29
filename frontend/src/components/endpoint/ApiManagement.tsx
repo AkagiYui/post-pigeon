@@ -38,6 +38,7 @@ import {
 } from "@/components/endpoint/endpoint-data"
 import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type HeaderRow, type OperationRow, type ParamRow, type ResponseData, type TimingData } from "@/components/endpoint/EndpointDetail"
 import { EndpointTree, type TreeNode } from "@/components/endpoint/EndpointTree"
+import { resolveEnvironmentBaseURLs } from "@/components/endpoint/environment-base-urls"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
 import {
   ApifoxImportDialog,
@@ -60,7 +61,7 @@ import { copyText } from "@/lib/clipboard"
 import { errorMessage } from "@/lib/errors"
 import { type BodyType, type EndpointType, type HTTPMethod, type ParamLocation } from "@/lib/types"
 import { cn, downloadTextFile } from "@/lib/utils"
-import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, notifyBaseUrlsChanged, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
+import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, notifyBaseUrlsChanged, projectEnvironments, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
 import { clearStream } from "@/stores/stream"
 import { toastError, toastSuccess, toastWarning } from "@/stores/toast"
 
@@ -194,6 +195,7 @@ export function ApiManagement(props: ApiManagementProps) {
   const [postmanJson, setPostmanJson] = createSignal("")
   // 当前端点相关的派生数据
   const [environmentBaseUrls, setEnvironmentBaseUrls] = createSignal<EnvironmentBaseURLOption[]>([])
+  let savedEndpointLoadToken = 0
   const [globalQueryParams, setGlobalQueryParams] = createSignal<{ name: string; value: string }[]>([])
   const [inheritedOpCounts, setInheritedOpCounts] = createSignal<{ pre: number; post: number }>({ pre: 0, post: 0 })
   // 模块/文件夹设置对话框
@@ -219,27 +221,42 @@ export function ApiManagement(props: ApiManagementProps) {
   // 组件卸载时自动保存所有注册的缓存状态
   cache.autoSaveAll()
 
-  // ---- 环境切换或 baseUrl 设置变更时，响应式更新当前端点的 baseUrl ----
+  const loadModuleEnvironmentState = async (moduleId: string) => {
+    const urls = await ModuleService.GetModuleBaseURLs(moduleId)
+    return resolveEnvironmentBaseURLs(
+      getProjectEnvironments(props.projectId),
+      urls,
+      getCurrentEnvironmentId(props.projectId),
+    )
+  }
+
+  // ---- 环境、环境列表或 baseUrl 设置变更时，刷新当前端点的环境状态 ----
+  // 首次打开端点由 loadSavedEndpointData 使用 detail.moduleId 直接加载，避免依赖
+  // activeTabId 早于异步端点详情返回而触发的竞态。
+  let environmentRefreshToken = 0
   createEffect(on(
-    () => [currentEnvironmentIds()[props.projectId], baseUrlVersion(), activeTabId()] as const,
+    () => [
+      currentEnvironmentIds()[props.projectId],
+      baseUrlVersion(),
+      projectEnvironments()[props.projectId],
+    ] as const,
     async ([envId]) => {
+      const refreshToken = ++environmentRefreshToken
       const epId = endpointData.id
       // 仅对已保存的端点生效（树中可找到其所属模块）
       if (!epId || !envId) return
       const moduleId = findModuleIdByNodeId(treeData(), epId)
       if (!moduleId) return
       try {
-        const urls = await ModuleService.GetModuleBaseURLs(moduleId)
-        const matched = urls.find(u => u.environmentId === envId)
-        setEndpointData({ baseUrl: matched?.baseUrl || "" } as Partial<EndpointData>)
-        // 构建环境前置 URL 选项列表，供 Badge 下拉切换使用
-        const envs = getProjectEnvironments(props.projectId)
-        const options: EnvironmentBaseURLOption[] = urls.map(u => ({
-          environmentId: u.environmentId,
-          environmentName: envs.find((e) => e.id === u.environmentId)?.name || u.environmentId,
-          baseUrl: u.baseUrl,
-        }))
-        setEnvironmentBaseUrls(options)
+        const state = await loadModuleEnvironmentState(moduleId)
+        // 快速切换环境/端点时，丢弃已经过期的异步结果。
+        if (
+          refreshToken !== environmentRefreshToken
+          || endpointData.id !== epId
+          || getCurrentEnvironmentId(props.projectId) !== envId
+        ) return
+        setEndpointData({ baseUrl: state.currentBaseUrl } as Partial<EndpointData>)
+        setEnvironmentBaseUrls(state.options)
       } catch { /* 获取 baseUrl 失败时忽略 */ }
     },
   ))
@@ -488,6 +505,8 @@ export function ApiManagement(props: ApiManagementProps) {
   // ---- 创建未保存请求 ----
   // parentNodeId：右键/菜单发起时点击的模块或文件夹节点，作为默认保存位置
   const createUnsavedTab = (parentNodeId?: string, override?: Partial<UnsavedRequestData>) => {
+    // 使仍在进行中的已保存端点加载失效，避免其结果覆盖新建请求。
+    savedEndpointLoadToken++
     // 记住默认保存位置：优先点击的节点，否则回退到第一个模块
     if (parentNodeId && findNodeInTree(treeData(), parentNodeId)) {
       setSelectedSaveLocation(parentNodeId)
@@ -509,6 +528,7 @@ export function ApiManagement(props: ApiManagementProps) {
     setRequestTabs(prev => [...prev, { id: tempId, name: unsaved.name, method: unsaved.method, saved: false, dirty: false }])
     setActiveTabId(tempId)
     setEndpointData({ ...unsaved } as EndpointData)
+    setEnvironmentBaseUrls([])
     setResponseData(null)
   }
 
@@ -626,26 +646,32 @@ export function ApiManagement(props: ApiManagementProps) {
   }
 
   const loadSavedEndpointData = async (endpointId: string) => {
+    const loadToken = ++savedEndpointLoadToken
     try {
       const detail = await EndpointService.GetEndpoint(endpointId)
       if (detail) {
-        // 根据端点所属模块和当前环境，获取前置 baseUrl
-        let baseUrl = ""
-        const envId = getCurrentEnvironmentId(props.projectId)
-        if (detail.moduleId && envId) {
+        // detail.moduleId 是首次加载时唯一可靠的模块来源：在提交端点数据前一次性
+        // 构建当前 Base URL 与完整环境选项，避免依赖 activeTabId 的异步时序。
+        let environmentState = resolveEnvironmentBaseURLs(
+          getProjectEnvironments(props.projectId),
+          [],
+          getCurrentEnvironmentId(props.projectId),
+        )
+        if (detail.moduleId) {
           try {
-            const urls = await ModuleService.GetModuleBaseURLs(detail.moduleId)
-            const matched = urls.find(u => u.environmentId === envId)
-            baseUrl = matched?.baseUrl || ""
+            environmentState = await loadModuleEnvironmentState(detail.moduleId)
           } catch { /* 获取 baseUrl 失败时不阻塞加载 */ }
         }
+        // 用户可能在请求期间又打开了另一个端点，只允许最后一次加载提交状态。
+        if (loadToken !== savedEndpointLoadToken) return
+        setEnvironmentBaseUrls(environmentState.options)
         setEndpointData({
           id: detail.id, name: detail.name, type: (detail.type as EndpointType) || "http",
           method: detail.method as HTTPMethod,
           path: detail.path, bodyType: detail.bodyType as BodyType, bodyContent: detail.bodyContent,
           contentType: detail.contentType, timeout: detail.timeout, timeoutMode: detail.timeoutMode || "inherit",
           followRedirects: detail.followRedirects, sendNoCacheHeaders: detail.sendNoCacheHeaders,
-          baseUrl,
+          baseUrl: environmentState.currentBaseUrl,
           params: fromParamModels(detail.params),
           headers: fromHeaderModels(detail.headers),
           bodyFields: fromBodyFieldModels(detail.bodyFields),
@@ -677,7 +703,9 @@ export function ApiManagement(props: ApiManagementProps) {
           })
         } else setResponseData(null)
       }
-    } catch (e) { toastError(e, "error.op.loadFailed") }
+    } catch (e) {
+      if (loadToken === savedEndpointLoadToken) toastError(e, "error.op.loadFailed")
+    }
   }
 
   // ---- 切换标签页 ----
@@ -687,6 +715,8 @@ export function ApiManagement(props: ApiManagementProps) {
     if (!tab) return
     if (tab.saved) await loadSavedEndpointData(tabId)
     else {
+      savedEndpointLoadToken++
+      setEnvironmentBaseUrls([])
       const unsaved = unsavedRequests()[tabId]
       if (unsaved) setEndpointData({
         id: unsaved.id, name: unsaved.name, type: unsaved.type ?? "http", method: unsaved.method, path: unsaved.path,
@@ -979,7 +1009,13 @@ export function ApiManagement(props: ApiManagementProps) {
       if (remaining.length > 0) {
         const nt = remaining[remaining.length - 1]
         setActiveTabId(nt.id); handleTabChange(nt.id)
-      } else { setActiveTabId(null); setEndpointData({ ...emptyEndpoint }); setResponseData(null) }
+      } else {
+        savedEndpointLoadToken++
+        setActiveTabId(null)
+        setEndpointData({ ...emptyEndpoint })
+        setEnvironmentBaseUrls([])
+        setResponseData(null)
+      }
     }
   }
 
