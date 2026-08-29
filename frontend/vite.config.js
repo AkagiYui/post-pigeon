@@ -47,7 +47,9 @@ export default defineConfig({
     // 使图标完全离线，运行时不再向 Iconify API 发起网络请求。
     // exclude 排除会被误当成 `prefix:name` 图标的源码片段：Tailwind 响应式变体 max-sm、
     // WebSocket/SSE 事件标识 ws/sse、以及 Wails 拖拽区 CSS 变量 --wails-draggable。
-    iconifyOffline({ exclude: ["max-sm", "ws", "sse", "--wails-draggable"] }),
+    iconifyOffline({
+      exclude: ["max-sm", "ws", "sse", "--wails-draggable", "runner", "b", "files", "http"],
+    }),
     wails("./bindings"),
     // 把 TanStack Router 与 Solid 的调试面板收进 Vite DevTools 的 dock，
     // 页面上不再有各自的悬浮入口
