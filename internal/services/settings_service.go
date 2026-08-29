@@ -5,6 +5,7 @@ import (
 	"fmt"
 	"log/slog"
 	"maps"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -189,6 +190,16 @@ func normalizeRequestSettings(s *models.RequestSettings) {
 	if s.TimeoutMs != nil && *s.TimeoutMs < 0 {
 		s.TimeoutMs = nil
 	}
+	// 只有空白字符的 UA 视同留空，走默认值
+	s.UserAgent = strings.TrimSpace(s.UserAgent)
+}
+
+// requestUserAgent 返回全局设置里的默认 User-Agent：留空时用内置默认值。
+func requestUserAgent(s models.RequestSettings) string {
+	if ua := strings.TrimSpace(s.UserAgent); ua != "" {
+		return ua
+	}
+	return models.DefaultUserAgent
 }
 
 // requestTimeout 返回全局设置里的请求超时兜底值：

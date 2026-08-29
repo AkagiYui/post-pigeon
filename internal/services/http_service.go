@@ -429,6 +429,13 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		req.Header.Set("Cache-Control", "no-cache")
 	}
 
+	// 全局默认 User-Agent：仅在请求自身没有这个头时才补。
+	// 这里判断的是「键是否存在」而不是取值是否为空：接口上显式把 User-Agent 留空，
+	// 表示要抑制该请求头（Go 的 transport 见到空值就不发），这份意图不应被全局默认值盖掉。
+	if _, ok := req.Header[http.CanonicalHeaderKey("User-Agent")]; !ok {
+		req.Header.Set("User-Agent", requestUserAgent(limits))
+	}
+
 	// Cookie 参数：并入 Cookie 请求头
 	for _, param := range data.Params {
 		if param.Enabled && param.Type == "cookie" {

@@ -338,6 +338,67 @@ func TestSendNoCacheHeaders(t *testing.T) {
 	}
 }
 
+// TestDefaultUserAgent 验证全局默认 UA：留空用内置默认值，填了用填的，
+// 接口自带 User-Agent（包括显式留空以抑制该头）时不覆盖。
+func TestDefaultUserAgent(t *testing.T) {
+	db := newTestDB(t)
+	srv := echoServer(t)
+	settings := NewSettingsService(db)
+	hs := newTestHTTPService(t, db)
+
+	userAgent := func(t *testing.T, data SendRequestData) string {
+		t.Helper()
+		resp, err := hs.SendRequest(data)
+		if err != nil {
+			t.Fatalf("SendRequest err=%v", err)
+		}
+		var echo struct {
+			Headers map[string]string `json:"headers"`
+		}
+		if err := json.Unmarshal([]byte(resp.Body), &echo); err != nil {
+			t.Fatalf("解析回显失败: %v", err)
+		}
+		return echo.Headers["User-Agent"]
+	}
+
+	base := SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/echo", FollowRedirects: new(true), Timeout: 5000}
+
+	// 未配置：走内置默认值
+	if got := userAgent(t, base); got != models.DefaultUserAgent {
+		t.Errorf("未配置时应发送默认 UA %q，实际 %q", models.DefaultUserAgent, got)
+	}
+
+	// 只填空白同样按留空处理
+	if err := settings.SaveRequestSettings(models.RequestSettings{FollowRedirects: true, UserAgent: "   "}); err != nil {
+		t.Fatalf("保存请求设置失败: %v", err)
+	}
+	if got := userAgent(t, base); got != models.DefaultUserAgent {
+		t.Errorf("留空时应发送默认 UA %q，实际 %q", models.DefaultUserAgent, got)
+	}
+
+	// 填了就发填的
+	if err := settings.SaveRequestSettings(models.RequestSettings{FollowRedirects: true, UserAgent: "MyAgent/2.0"}); err != nil {
+		t.Fatalf("保存请求设置失败: %v", err)
+	}
+	if got := userAgent(t, base); got != "MyAgent/2.0" {
+		t.Errorf("应发送用户填写的 UA，实际 %q", got)
+	}
+
+	// 接口自带 User-Agent 时不覆盖
+	withHeader := base
+	withHeader.Headers = []models.EndpointHeader{{Name: "User-Agent", Value: "Endpoint/1.0", Enabled: true}}
+	if got := userAgent(t, withHeader); got != "Endpoint/1.0" {
+		t.Errorf("不应覆盖接口自带的 User-Agent，实际 %q", got)
+	}
+
+	// 接口把 User-Agent 显式留空：抑制该请求头，不回落到全局默认值
+	emptyHeader := base
+	emptyHeader.Headers = []models.EndpointHeader{{Name: "User-Agent", Value: "", Enabled: true}}
+	if got := userAgent(t, emptyHeader); got != "" {
+		t.Errorf("接口显式留空 User-Agent 时不应发送，实际 %q", got)
+	}
+}
+
 // TestRequestTimeoutSemantics 验证超时设置的三态：
 // 未设置（不入库）= 默认 300000ms，显式 0 = 不限制超时，负数按未设置处理。
 func TestRequestTimeoutSemantics(t *testing.T) {

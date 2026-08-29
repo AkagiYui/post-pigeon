@@ -57,7 +57,13 @@ type RequestSettings struct {
 	// 与尾随逗号在发送、导出 cURL 之前自动去掉，默认开启。
 	// 只有「原文不是合法 JSON、去掉之后是合法 JSON」时才会改写，正确的请求体不受影响。
 	AllowJSONComments bool `json:"allowJsonComments"`
+	// UserAgent 请求默认携带的 User-Agent，留空则用 DefaultUserAgent。
+	// 只在请求自身没有 User-Agent 请求头时才补：接口上显式写了（含显式留空以抑制该头）就以接口为准。
+	UserAgent string `json:"userAgent"`
 }
+
+// DefaultUserAgent 未自定义 User-Agent 时请求默认携带的值。
+const DefaultUserAgent = "PostPigeon/1.0.0 (https://github.com/AkagiYui/PostPigeon)"
 
 // DefaultRequestTimeoutMs 请求超时的默认值（毫秒），对应设置项未设置（留空）的情况。
 const DefaultRequestTimeoutMs = 300000

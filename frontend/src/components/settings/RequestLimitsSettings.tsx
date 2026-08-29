@@ -15,6 +15,9 @@ import { toastError, toastSuccess } from "@/stores/toast"
 /** 超时未设置时后端使用的默认值（毫秒），与 models.DefaultRequestTimeoutMs 保持一致 */
 const DEFAULT_TIMEOUT_MS = 300000
 
+/** UA 留空时后端发送的默认值，与 models.DefaultUserAgent 保持一致 */
+const DEFAULT_USER_AGENT = "PostPigeon/1.0.0 (https://github.com/AkagiYui/PostPigeon)"
+
 /** 字节 ↔ MiB 换算，界面上用 MiB 更易读 */
 const MIB = 1024 * 1024
 const toMiB = (bytes: number) => (bytes > 0 ? Math.round((bytes / MIB) * 100) / 100 : 0)
@@ -79,6 +82,28 @@ function OptionalNumberField(props: {
   )
 }
 
+/** 可留空的文本输入行：留空表示用 placeholder 上的默认值 */
+function TextField(props: {
+  label: string
+  hint: string
+  value: string
+  placeholder: string
+  onChange: (v: string) => void
+}) {
+  return (
+    <div class="space-y-1.5">
+      <label class="text-sm font-medium">{props.label}</label>
+      <Input
+        size="sm"
+        placeholder={props.placeholder}
+        value={props.value}
+        onInput={(e) => props.onChange(e.currentTarget.value)}
+      />
+      <p class="text-xs text-muted-foreground">{props.hint}</p>
+    </div>
+  )
+}
+
 /** 开关行 */
 function ToggleField(props: {
   label: string
@@ -102,6 +127,7 @@ export function RequestLimitsSettings() {
   const [followRedirects, setFollowRedirects] = createSignal(true)
   const [sendNoCache, setSendNoCache] = createSignal(false)
   const [allowJsonComments, setAllowJsonComments] = createSignal(true)
+  const [userAgent, setUserAgent] = createSignal("")
   const [maxResponseMiB, setMaxResponseMiB] = createSignal(32)
   const [maxStoredMiB, setMaxStoredMiB] = createSignal(1)
   const [maxWSMiB, setMaxWSMiB] = createSignal(32)
@@ -124,6 +150,7 @@ export function RequestLimitsSettings() {
         setFollowRedirects(request.followRedirects)
         setSendNoCache(request.sendNoCacheHeaders)
         setAllowJsonComments(request.allowJsonComments)
+        setUserAgent(request.userAgent)
         setMaxResponseMiB(toMiB(request.maxResponseBytes))
         setMaxStoredMiB(toMiB(request.maxStoredBodyBytes))
         setMaxWSMiB(toMiB(request.maxWebSocketMessageBytes))
@@ -149,6 +176,8 @@ export function RequestLimitsSettings() {
         followRedirects: followRedirects(),
         sendNoCacheHeaders: sendNoCache(),
         allowJsonComments: allowJsonComments(),
+        // 留空即「未设置」，由后端发送内置默认 UA
+        userAgent: userAgent().trim(),
         maxResponseBytes: fromMiB(maxResponseMiB()),
         maxStoredBodyBytes: fromMiB(maxStoredMiB()),
         maxWebSocketMessageBytes: fromMiB(maxWSMiB()),
@@ -224,6 +253,14 @@ export function RequestLimitsSettings() {
           hint={t("request.jsonComments.hint")}
           checked={allowJsonComments()}
           onChange={setAllowJsonComments}
+        />
+
+        <TextField
+          label={t("request.userAgent")}
+          hint={t("request.userAgent.hint")}
+          placeholder={DEFAULT_USER_AGENT}
+          value={userAgent()}
+          onChange={setUserAgent}
         />
 
         <NumberField

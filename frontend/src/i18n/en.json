@@ -502,6 +502,8 @@
   "request.noCache.hint": "Add Cache-Control: no-cache to every request. A request that already sets this header is left untouched.",
   "request.jsonComments": "JSON with comments (JSONC)",
   "request.jsonComments.hint": "Allow // and /* */ comments and trailing commas in JSON bodies; they are stripped before the request is sent or exported as cURL. Only applies when stripping yields valid JSON — otherwise the body is sent as-is.",
+  "request.userAgent": "Default User-Agent",
+  "request.userAgent.hint": "Leave empty to send the built-in default shown in the field. An endpoint that sets its own User-Agent header wins.",
   "request.maxResponse": "Max response body",
   "request.maxResponse.hint": "Bytes beyond the limit are not read and the response is marked as truncated. 0 means unlimited (a download endpoint will be read fully into memory).",
   "request.maxStored": "Max stored response body",

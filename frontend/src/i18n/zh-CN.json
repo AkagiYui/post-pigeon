@@ -502,6 +502,8 @@
   "request.noCache.hint": "为每个请求补上 Cache-Control: no-cache。请求自身已设置该请求头时不覆盖。",
   "request.jsonComments": "兼容带注释的 JSON",
   "request.jsonComments.hint": "JSON 请求体里可以写 // 与 /* */ 注释、以及末尾多余的逗号，发送请求与导出 cURL 前会自动去掉。仅在去掉后能得到合法 JSON 时才生效，否则原样发送。",
+  "request.userAgent": "默认 User-Agent",
+  "request.userAgent.hint": "留空则发送内置默认值（见输入框提示）。接口自身设置了 User-Agent 请求头时以接口为准。",
   "request.maxResponse": "单次响应体上限",
   "request.maxResponse.hint": "超出部分不再读取，响应上会标记「已截断」。填 0 表示不限制（大文件接口会把整个响应读进内存）。",
   "request.maxStored": "入库响应体上限",
