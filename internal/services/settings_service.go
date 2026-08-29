@@ -195,6 +195,9 @@ func normalizeRequestSettings(s *models.RequestSettings) {
 	if s.MaxStreamEvents < 0 {
 		s.MaxStreamEvents = 0
 	}
+	if s.MaxSSEReconnects < 0 {
+		s.MaxSSEReconnects = 0
+	}
 	// 0 表示不限制超时；负数是非法输入，按「未设置」处理而不是「永不超时」
 	if s.TimeoutMs != nil && *s.TimeoutMs < 0 {
 		s.TimeoutMs = nil

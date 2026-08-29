@@ -565,7 +565,10 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		s.persistModuleVarChanges(data.ModuleID, stores.Collection)
 		// 后台读取事件流并推送，读到 EOF/停止后清理连接
 		streamLimits := sseReadLimitsFromSettings(limits)
-		safego.Go("http.streamResponse", func() { s.streamResponse(resp, streamID, cancel, streamLimits, format) })
+		reconnect := sseReconnectOptions{Enabled: limits.AutoReconnectSSE, MaxAttempts: limits.MaxSSEReconnects}
+		safego.Go("http.streamResponse", func() {
+			s.streamResponse(resp, streamID, ctx, cancel, streamLimits, format, client, req, reconnect)
+		})
 
 		out := &HTTPResponseData{
 			StatusCode:    resp.StatusCode,
@@ -852,6 +855,13 @@ type sseReadLimits struct {
 	MaxEvents     int
 }
 
+// sseReconnectOptions 是 SSE 重连策略。其作用域是单次“发送请求”产生的流，
+// 不影响 NDJSON / JSON Sequence 等一次性记录流。
+type sseReconnectOptions struct {
+	Enabled     bool
+	MaxAttempts int
+}
+
 func sseReadLimitsFromSettings(settings models.RequestSettings) sseReadLimits {
 	return sseReadLimits{
 		MaxEventBytes: settings.MaxStreamEventBytes,
@@ -891,6 +901,12 @@ func parseSSE(reader io.Reader, limits sseReadLimits, emit func(sseEvent)) error
 
 	flush := func() error {
 		if len(dataLines) == 0 {
+			// id/retry 没有 data 时仍会更新浏览器的 SSE 重连状态，不能静默丢弃。
+			if hasEventID || hasRetry {
+				if err := emitItem(sseEvent{EventID: eventID, HasEventID: hasEventID, Retry: retry, HasRetry: hasRetry, Raw: strings.Join(rawLines, "\n")}); err != nil {
+					return err
+				}
+			}
 			eventName, eventID, hasEventID, retry, hasRetry = "", "", false, 0, false
 			eventBytes = 0
 			rawLines = nil
@@ -1017,35 +1033,104 @@ func parseRecordStream(reader io.Reader, limits sseReadLimits, jsonSequence bool
 }
 
 // streamResponse 持续读取已识别的记录流，按格式解析后经 http:stream 事件推送。
-// 读到 EOF 或被取消（StopStream）后清理连接。cancel 用于结束时释放请求上下文。
-func (s *HTTPService) streamResponse(resp *http.Response, connID string, cancel context.CancelFunc, limits sseReadLimits, format string) {
-	defer resp.Body.Close()
+// SSE 可选择在正常 EOF 后重连；停止、读取错误和达到尝试上限都会发出 close 事件。
+func (s *HTTPService) streamResponse(resp *http.Response, connID string, ctx context.Context, cancel context.CancelFunc, limits sseReadLimits, format string, client *http.Client, requestTemplate *http.Request, reconnect sseReconnectOptions) {
 	defer cancel()
 	defer s.unregisterStream(connID)
 
 	emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "open", Data: fmt.Sprintf("%d", resp.StatusCode), Timestamp: nowMillis()})
-
-	emitItem := func(item sseEvent) {
-		kind := "message"
-		if item.HasComment {
-			kind = "comment"
+	lastEventID, hasLastEventID := "", false
+	retryDelay := time.Second
+	attempts := 0
+	for {
+		emitItem := func(item sseEvent) {
+			if item.HasEventID {
+				lastEventID, hasLastEventID = item.EventID, true
+			}
+			if item.HasRetry {
+				retryDelay = time.Duration(item.Retry) * time.Millisecond
+			}
+			kind := "message"
+			if item.HasComment {
+				kind = "comment"
+			}
+			emitStream(HTTPStreamEventName, StreamEvent{
+				ConnID: connID, Kind: kind, Data: item.Data, Timestamp: nowMillis(),
+				Event: item.Event, EventID: item.EventID, HasEventID: item.HasEventID,
+				Retry: item.Retry, HasRetry: item.HasRetry, Comment: item.Comment, HasComment: item.HasComment,
+				Raw: item.Raw,
+			})
 		}
-		emitStream(HTTPStreamEventName, StreamEvent{
-			ConnID: connID, Kind: kind, Data: item.Data, Timestamp: nowMillis(),
-			Event: item.Event, EventID: item.EventID, HasEventID: item.HasEventID,
-			Retry: item.Retry, HasRetry: item.HasRetry, Comment: item.Comment, HasComment: item.HasComment,
-			Raw: item.Raw,
-		})
+		var err error
+		if format == "sse" {
+			err = parseSSE(resp.Body, limits, emitItem)
+		} else {
+			err = parseRecordStream(resp.Body, limits, format == "json-seq", emitItem)
+		}
+		_ = resp.Body.Close()
+		if err != nil {
+			emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: err.Error(), Timestamp: nowMillis()})
+			return
+		}
+		if format != "sse" || !reconnect.Enabled || reconnect.MaxAttempts <= attempts {
+			emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: "stream ended", Timestamp: nowMillis()})
+			return
+		}
+		attempts++
+		emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "reconnecting", Data: fmt.Sprintf("reconnecting (%d/%d)", attempts, reconnect.MaxAttempts), Timestamp: nowMillis()})
+		if !waitForSSEReconnect(ctx, retryDelay) {
+			emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: "stream stopped", Timestamp: nowMillis()})
+			return
+		}
+		nextRequest, cloneErr := cloneSSEReconnectRequest(requestTemplate, ctx, lastEventID, hasLastEventID)
+		if cloneErr != nil {
+			emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: cloneErr.Error(), Timestamp: nowMillis()})
+			return
+		}
+		nextResp, requestErr := client.Do(nextRequest)
+		if requestErr != nil {
+			emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: requestErr.Error(), Timestamp: nowMillis()})
+			return
+		}
+		if streamFormat(nextResp.Header.Get("Content-Type")) != "sse" {
+			_ = nextResp.Body.Close()
+			emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: "SSE reconnect returned a non-SSE response", Timestamp: nowMillis()})
+			return
+		}
+		resp = nextResp
+		emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "reconnected", Data: fmt.Sprintf("%d", resp.StatusCode), Timestamp: nowMillis()})
 	}
-	var err error
-	if format == "sse" {
-		err = parseSSE(resp.Body, limits, emitItem)
+}
+
+func waitForSSEReconnect(ctx context.Context, delay time.Duration) bool {
+	if delay < 0 {
+		delay = 0
+	}
+	timer := time.NewTimer(delay)
+	defer timer.Stop()
+	select {
+	case <-ctx.Done():
+		return false
+	case <-timer.C:
+		return true
+	}
+}
+
+func cloneSSEReconnectRequest(template *http.Request, ctx context.Context, lastEventID string, hasLastEventID bool) (*http.Request, error) {
+	next := template.Clone(ctx)
+	if template.GetBody != nil {
+		body, err := template.GetBody()
+		if err != nil {
+			return nil, fmt.Errorf("restore SSE request body: %w", err)
+		}
+		next.Body = body
+	}
+	if hasLastEventID {
+		next.Header.Set("Last-Event-ID", lastEventID)
 	} else {
-		err = parseRecordStream(resp.Body, limits, format == "json-seq", emitItem)
+		next.Header.Del("Last-Event-ID")
 	}
-	if err != nil {
-		emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: err.Error(), Timestamp: nowMillis()})
-	}
+	return next, nil
 }
 
 // setRequestBody 设置请求体

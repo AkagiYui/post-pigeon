@@ -1,6 +1,7 @@
 package services
 
 import (
+	"context"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -127,6 +128,39 @@ func TestParseSSEHonorsResourceLimits(t *testing.T) {
 	}
 	if err := parseSSE(strings.NewReader(input), sseReadLimits{MaxEvents: 1}, func(sseEvent) {}); err == nil || !strings.Contains(err.Error(), "event limit") {
 		t.Fatalf("event count limit err=%v", err)
+	}
+}
+
+func TestParseSSEEmitsReconnectControlFieldsWithoutData(t *testing.T) {
+	var got []sseEvent
+	err := parseSSE(strings.NewReader("id: cursor-3\nretry: 25\n\n"), sseReadLimits{}, func(event sseEvent) {
+		got = append(got, event)
+	})
+	if err != nil || len(got) != 1 {
+		t.Fatalf("events=%+v err=%v", got, err)
+	}
+	if !got[0].HasEventID || got[0].EventID != "cursor-3" || !got[0].HasRetry || got[0].Retry != 25 {
+		t.Fatalf("reconnect control=%+v", got[0])
+	}
+}
+
+func TestCloneSSEReconnectRequestCarriesLastEventIDAndBody(t *testing.T) {
+	template, err := http.NewRequest(http.MethodPost, "https://example.test/events", strings.NewReader("request-body"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	template.Header.Set("Last-Event-ID", "stale")
+	next, err := cloneSSEReconnectRequest(template, context.Background(), "cursor-4", true)
+	if err != nil {
+		t.Fatal(err)
+	}
+	body, _ := io.ReadAll(next.Body)
+	if got := next.Header.Get("Last-Event-ID"); got != "cursor-4" || string(body) != "request-body" {
+		t.Fatalf("last-event-id=%q body=%q", got, body)
+	}
+	withoutCursor, err := cloneSSEReconnectRequest(template, context.Background(), "", false)
+	if err != nil || withoutCursor.Header.Get("Last-Event-ID") != "" {
+		t.Fatalf("without cursor header=%q err=%v", withoutCursor.Header.Get("Last-Event-ID"), err)
 	}
 }
 

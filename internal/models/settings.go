@@ -50,6 +50,11 @@ type RequestSettings struct {
 	MaxStreamBytes int64 `json:"maxStreamBytes"`
 	// MaxStreamEvents 一条 SSE 连接最多展示的事件数，0 表示不限制。
 	MaxStreamEvents int `json:"maxStreamEvents"`
+	// AutoReconnectSSE 在 SSE 正常结束后自动重连，并附带最近的 Last-Event-ID。
+	// 默认关闭，避免改变一次性事件流的原有请求语义。
+	AutoReconnectSSE bool `json:"autoReconnectSse"`
+	// MaxSSEReconnects 自动重连的最大次数；0 表示不重连。
+	MaxSSEReconnects int `json:"maxSseReconnects"`
 	// TimeoutMs 请求超时时间（毫秒），是五级继承链的全局终点。
 	// 三态：nil 表示未设置（按 DefaultRequestTimeoutMs 处理），0 表示不限制超时，正数为具体时长。
 	TimeoutMs *int `json:"timeoutMs,omitempty"`
@@ -113,6 +118,8 @@ var (
 		MaxStreamEventBytes:      1 << 20,
 		MaxStreamBytes:           32 << 20,
 		MaxStreamEvents:          10000,
+		AutoReconnectSSE:         false,
+		MaxSSEReconnects:         3,
 		FollowRedirects:          true,
 		SendNoCacheHeaders:       false,
 		AllowJSONComments:        true,

@@ -161,6 +161,8 @@ export function RequestLimitsSettings() {
   const [maxStreamEventMiB, setMaxStreamEventMiB] = createSignal(1)
   const [maxStreamMiB, setMaxStreamMiB] = createSignal(32)
   const [maxStreamEvents, setMaxStreamEvents] = createSignal(10000)
+  const [autoReconnectSSE, setAutoReconnectSSE] = createSignal(false)
+  const [maxSSEReconnects, setMaxSSEReconnects] = createSignal(3)
   const [retentionDays, setRetentionDays] = createSignal(30)
   const [maxRows, setMaxRows] = createSignal(2000)
   const [maskSensitive, setMaskSensitive] = createSignal(true)
@@ -189,6 +191,8 @@ export function RequestLimitsSettings() {
         setMaxStreamEventMiB(toMiB(request.maxStreamEventBytes))
         setMaxStreamMiB(toMiB(request.maxStreamBytes))
         setMaxStreamEvents(request.maxStreamEvents)
+        setAutoReconnectSSE(request.autoReconnectSse)
+        setMaxSSEReconnects(request.maxSseReconnects)
       }
       if (history) {
         setRetentionDays(history.retentionDays)
@@ -221,6 +225,8 @@ export function RequestLimitsSettings() {
         maxStreamEventBytes: fromMiB(maxStreamEventMiB()),
         maxStreamBytes: fromMiB(maxStreamMiB()),
         maxStreamEvents: Math.max(0, Math.round(maxStreamEvents())),
+        autoReconnectSse: autoReconnectSSE(),
+        maxSseReconnects: Math.max(0, Math.round(maxSSEReconnects())),
       }))
       await SettingsService.SaveHistorySettings(new HistorySettings({
         retentionDays: Math.max(0, Math.round(retentionDays())),
@@ -358,6 +364,19 @@ export function RequestLimitsSettings() {
           unit={t("history.unit.rows")}
           value={maxStreamEvents()}
           onChange={setMaxStreamEvents}
+        />
+        <ToggleField
+          label={t("request.autoReconnectSSE")}
+          hint={t("request.autoReconnectSSE.hint")}
+          checked={autoReconnectSSE()}
+          onChange={setAutoReconnectSSE}
+        />
+        <NumberField
+          label={t("request.maxSSEReconnects")}
+          hint={t("request.maxSSEReconnects.hint")}
+          unit={t("history.unit.rows")}
+          value={maxSSEReconnects()}
+          onChange={setMaxSSEReconnects}
         />
 
         <div class="border-t border-border pt-4">
