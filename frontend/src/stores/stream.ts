@@ -41,6 +41,9 @@ interface StreamState {
 
 const WS_EVENT = "ws:event"
 const HTTP_STREAM_EVENT = "http:stream"
+// 与后端默认 MaxStreamEvents 对齐。仍保留有限上界，防止 WebSocket 等无限连接
+// 在用户没有配置服务端限制时无止境占用渲染进程内存。
+export const MAX_BUFFERED_STREAM_MESSAGES = 10_000
 
 const [state, setState] = createRoot(() => {
   const [get, set] = createSignal<StreamState>({ messages: {}, status: {}, selectedMessages: {} })
@@ -79,8 +82,8 @@ function applyEvent(ev: StreamEventPayload | undefined) {
       retry: ev.retry, hasRetry: ev.hasRetry, comment: ev.comment, hasComment: ev.hasComment, raw: ev.raw,
       closeCode: ev.closeCode, hasCloseCode: ev.hasCloseCode, closeReason: ev.closeReason,
     })
-    // 限制单连接缓冲上限，避免长连接内存膨胀
-    if (list.length > 1000) list.splice(0, list.length - 1000)
+    // 限制单连接缓冲上限，避免长连接内存膨胀。
+    if (list.length > MAX_BUFFERED_STREAM_MESSAGES) list.splice(0, list.length - MAX_BUFFERED_STREAM_MESSAGES)
     messages[ev.connId] = list
     // 滚动淘汰时，详情不能继续指向已被丢弃的旧消息。
     if (selectedMessages[ev.connId] && !list.includes(selectedMessages[ev.connId])) {

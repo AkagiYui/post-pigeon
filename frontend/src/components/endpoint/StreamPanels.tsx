@@ -92,6 +92,9 @@ export function MessageLog(props: {
               props.onMessageSelect && "cursor-pointer hover:bg-muted",
               props.selectedMessage === m && "bg-accent-muted text-foreground",
             )}
+            // 对数千条历史消息，浏览器只布局和绘制进入视口的行；保留 DOM 顺序以维持
+            // 搜索、键盘操作和自动跟随的既有语义。
+            style={{ "content-visibility": "auto", "contain-intrinsic-size": "34px" }}
             role={props.onMessageSelect ? "button" : undefined}
             tabIndex={props.onMessageSelect ? 0 : undefined}
             aria-pressed={props.onMessageSelect ? props.selectedMessage === m : undefined}
