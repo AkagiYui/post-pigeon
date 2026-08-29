@@ -12,6 +12,17 @@ export interface StreamMessage {
   /** 为 true 时 data 是 base64 编码的二进制帧，展示前需自行解码 */
   binary?: boolean
   timestamp: number
+  /** SSE event: 字段（空值时服务端事件类型为 message） */
+  event?: string
+  /** SSE id: 字段；hasEventId 为真时空字符串也有语义（重置 Last-Event-ID） */
+  eventId?: string
+  hasEventId?: boolean
+  /** SSE retry: 字段（毫秒） */
+  retry?: number
+  hasRetry?: boolean
+  /** SSE 注释行，不属于 data 正文 */
+  comment?: string
+  hasComment?: boolean
 }
 
 export type StreamStatus = "idle" | "connecting" | "open" | "closed" | "error"
@@ -37,6 +48,13 @@ interface StreamEventPayload {
   data: string
   binary?: boolean
   timestamp: number
+  event?: string
+  eventId?: string
+  hasEventId?: boolean
+  retry?: number
+  hasRetry?: boolean
+  comment?: string
+  hasComment?: boolean
 }
 
 function applyEvent(ev: StreamEventPayload | undefined) {
@@ -46,7 +64,11 @@ function applyEvent(ev: StreamEventPayload | undefined) {
     const status = { ...prev.status }
     const selectedMessages = { ...prev.selectedMessages }
     const list = messages[ev.connId] ? [...messages[ev.connId]] : []
-    list.push({ kind: ev.kind, data: ev.data, binary: ev.binary, timestamp: ev.timestamp })
+    list.push({
+      kind: ev.kind, data: ev.data, binary: ev.binary, timestamp: ev.timestamp,
+      event: ev.event, eventId: ev.eventId, hasEventId: ev.hasEventId,
+      retry: ev.retry, hasRetry: ev.hasRetry, comment: ev.comment, hasComment: ev.hasComment,
+    })
     // 限制单连接缓冲上限，避免长连接内存膨胀
     if (list.length > 1000) list.splice(0, list.length - 1000)
     messages[ev.connId] = list

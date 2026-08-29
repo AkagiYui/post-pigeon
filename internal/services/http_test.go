@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bufio"
 	"encoding/base64"
 	"encoding/json"
 	"fmt"
@@ -86,6 +87,35 @@ func decodeEcho(t *testing.T, body string) map[string]any {
 		t.Fatalf("解析回显响应失败: %v\n响应: %s", err, body)
 	}
 	return m
+}
+
+func TestParseSSEPreservesProtocolFields(t *testing.T) {
+	input := "\ufeff: keep-alive\n" +
+		"event: update\n" +
+		"id: 42\n" +
+		"retry: 1500\n" +
+		"data:  leading space\n" +
+		"data:second line\n\n" +
+		"id: bad\x00id\n" +
+		"data: final\n"
+	var got []sseEvent
+	err := parseSSE(bufio.NewReader(strings.NewReader(input)), func(event sseEvent) { got = append(got, event) })
+	if err != io.EOF {
+		t.Fatalf("parseSSE err=%v, want EOF", err)
+	}
+	if len(got) != 3 {
+		t.Fatalf("event count=%d, want 3: %#v", len(got), got)
+	}
+	if !got[0].HasComment || got[0].Comment != "keep-alive" {
+		t.Errorf("comment=%+v", got[0])
+	}
+	if event := got[1]; event.Event != "update" || event.EventID != "42" || !event.HasEventID ||
+		!event.HasRetry || event.Retry != 1500 || event.Data != " leading space\nsecond line" {
+		t.Errorf("first SSE event=%+v", event)
+	}
+	if event := got[2]; event.Event != "message" || event.HasEventID || event.Data != "final" {
+		t.Errorf("final SSE event=%+v", event)
+	}
 }
 
 // TestSendRequestUsesCurrentEditorOverrides 验证已保存接口未点保存就直接发送时，

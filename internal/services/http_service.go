@@ -15,6 +15,7 @@ import (
 	"net/http/httptrace"
 	"net/http/httputil"
 	"net/url"
+	"strconv"
 	"strings"
 	"sync"
 	"sync/atomic"
@@ -817,6 +818,93 @@ func (s *HTTPService) IsStreaming(connID string) bool {
 	return ok
 }
 
+// sseEvent 是一条已按 SSE 规范拆分的事件。保留空 id/retry 的“已设置”状态，便于后续重连。
+type sseEvent struct {
+	Data       string
+	Event      string
+	EventID    string
+	HasEventID bool
+	Retry      int
+	HasRetry   bool
+	Comment    string
+	HasComment bool
+}
+
+// parseSSE 从 reader 读取 event-stream。它遵循 SSE 的 field/value 规则：仅移除冒号后的一个空格，
+// 多个 data 行用换行连接；event/id/retry 与注释不会被混入正文。
+func parseSSE(reader *bufio.Reader, emit func(sseEvent)) error {
+	var dataLines []string
+	var eventName, eventID string
+	var hasEventID bool
+	var retry int
+	var hasRetry bool
+	firstLine := true
+
+	flush := func() {
+		if len(dataLines) == 0 {
+			eventName, eventID, hasEventID, retry, hasRetry = "", "", false, 0, false
+			return
+		}
+		if eventName == "" {
+			eventName = "message"
+		}
+		emit(sseEvent{
+			Data: strings.Join(dataLines, "\n"), Event: eventName,
+			EventID: eventID, HasEventID: hasEventID, Retry: retry, HasRetry: hasRetry,
+		})
+		dataLines = nil
+		eventName, eventID, hasEventID, retry, hasRetry = "", "", false, 0, false
+	}
+
+	for {
+		line, err := reader.ReadString('\n')
+		if len(line) > 0 {
+			line = strings.TrimSuffix(line, "\n")
+			line = strings.TrimSuffix(line, "\r")
+			if firstLine {
+				line = strings.TrimPrefix(line, "\ufeff")
+				firstLine = false
+			}
+			if line == "" {
+				flush()
+			} else if strings.HasPrefix(line, ":") {
+				comment := strings.TrimPrefix(line, ":")
+				if strings.HasPrefix(comment, " ") {
+					comment = strings.TrimPrefix(comment, " ")
+				}
+				emit(sseEvent{Comment: comment, HasComment: true})
+			} else {
+				field, value, found := strings.Cut(line, ":")
+				if !found {
+					value = ""
+				}
+				if strings.HasPrefix(value, " ") {
+					value = strings.TrimPrefix(value, " ")
+				}
+				switch field {
+				case "data":
+					dataLines = append(dataLines, value)
+				case "event":
+					eventName = value
+				case "id":
+					// 含 NUL 的 id 必须忽略，避免污染 Last-Event-ID。
+					if !strings.ContainsRune(value, '\x00') {
+						eventID, hasEventID = value, true
+					}
+				case "retry":
+					if milliseconds, parseErr := strconv.Atoi(value); parseErr == nil && milliseconds >= 0 {
+						retry, hasRetry = milliseconds, true
+					}
+				}
+			}
+		}
+		if err != nil {
+			flush()
+			return err
+		}
+	}
+}
+
 // streamResponse 持续读取 text/event-stream 响应体，按 SSE 帧解析后经 http:stream 事件推送。
 // 读到 EOF 或被取消（StopStream）后清理连接。cancel 用于结束时释放请求上下文。
 func (s *HTTPService) streamResponse(resp *http.Response, connID string, cancel context.CancelFunc) {
@@ -826,36 +914,19 @@ func (s *HTTPService) streamResponse(resp *http.Response, connID string, cancel 
 
 	emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "open", Data: fmt.Sprintf("%d", resp.StatusCode), Timestamp: nowMillis()})
 
-	reader := bufio.NewReader(resp.Body)
-	var dataLines []string
-	flush := func() {
-		if len(dataLines) == 0 {
-			return
+	err := parseSSE(bufio.NewReader(resp.Body), func(item sseEvent) {
+		kind := "message"
+		if item.HasComment {
+			kind = "comment"
 		}
-		emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "message", Data: strings.Join(dataLines, "\n"), Timestamp: nowMillis()})
-		dataLines = dataLines[:0]
-	}
-	for {
-		line, err := reader.ReadString('\n')
-		if len(line) > 0 {
-			trimmed := strings.TrimRight(line, "\r\n")
-			switch {
-			case trimmed == "":
-				flush() // 空行表示一个事件结束
-			case strings.HasPrefix(trimmed, ":"):
-				// 注释行，忽略
-			case strings.HasPrefix(trimmed, "data:"):
-				dataLines = append(dataLines, strings.TrimSpace(strings.TrimPrefix(trimmed, "data:")))
-			default:
-				// 其它字段（event:/id:/retry:）原样透传
-				dataLines = append(dataLines, trimmed)
-			}
-		}
-		if err != nil {
-			flush()
-			emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: err.Error(), Timestamp: nowMillis()})
-			return
-		}
+		emitStream(HTTPStreamEventName, StreamEvent{
+			ConnID: connID, Kind: kind, Data: item.Data, Timestamp: nowMillis(),
+			Event: item.Event, EventID: item.EventID, HasEventID: item.HasEventID,
+			Retry: item.Retry, HasRetry: item.HasRetry, Comment: item.Comment, HasComment: item.HasComment,
+		})
+	})
+	if err != nil {
+		emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: err.Error(), Timestamp: nowMillis()})
 	}
 }
 

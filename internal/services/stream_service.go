@@ -30,6 +30,15 @@ type StreamEvent struct {
 	// 二进制帧不能直接 string() 转换——非法 UTF-8 字节会被替换成 U+FFFD，数据就毁了。
 	Binary    bool  `json:"binary,omitempty"`
 	Timestamp int64 `json:"timestamp"` // 毫秒时间戳
+	// 以下字段仅用于 SSE。保留协议字段而非把它们拼进 Data，前端可同时展示事件类型、
+	// last-event-id 与服务器建议的重连等待时间；Has* 使空值也能表达「本事件明确设置了该字段」。
+	Event      string `json:"event,omitempty"`
+	EventID    string `json:"eventId,omitempty"`
+	HasEventID bool   `json:"hasEventId,omitempty"`
+	Retry      int    `json:"retry,omitempty"`
+	HasRetry   bool   `json:"hasRetry,omitempty"`
+	Comment    string `json:"comment,omitempty"`
+	HasComment bool   `json:"hasComment,omitempty"`
 }
 
 // emitStream 通过 Wails 事件把流式事件推给前端（无运行中的 App 时静默跳过，便于测试）。
