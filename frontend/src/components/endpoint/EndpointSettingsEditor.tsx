@@ -22,6 +22,8 @@ export interface EndpointSettingsEditorProps {
   proxyConfig?: string
   /** 接口级 TLS 选择（EndpointTLS 的 JSON，空表示 inherit 跟随项目） */
   tlsConfig?: string
+  /** 接口级 URL 自动编码档位（空表示 inherit 跟随项目） */
+  urlEncoding?: string
   /** 所属项目 ID，用于拉取可选代理列表 */
   projectId?: string
   onChange?: (data: {
@@ -32,6 +34,7 @@ export interface EndpointSettingsEditorProps {
     description?: string
     proxyConfig?: string
     tlsConfig?: string
+    urlEncoding?: string
   }) => void
 }
 
@@ -56,6 +59,14 @@ const followRedirectsOptions = () => [
   { value: "inherit", label: t("endpoint.followRedirects.inherit") },
   { value: "true", label: t("endpoint.followRedirects.on") },
   { value: "false", label: t("endpoint.followRedirects.off") },
+]
+
+/** 接口级 URL 自动编码选项：比项目级多一个「跟随项目设置」 */
+const urlEncodingOptions = () => [
+  { value: "inherit", label: t("urlEncoding.inherit.project") },
+  { value: "rfc3986", label: t("urlEncoding.rfc3986") },
+  { value: "whatwg", label: t("urlEncoding.whatwg") },
+  { value: "off", label: t("urlEncoding.off") },
 ]
 
 /** 接口级证书校验选项 */
@@ -211,6 +222,20 @@ export function EndpointSettingsEditor(props: EndpointSettingsEditorProps) {
           size="sm"
           class="w-64"
         />
+      </div>
+      <div class="flex items-start gap-3">
+        <label class="text-sm font-medium w-28 shrink-0 pt-1.5">{t("urlEncoding.title")}</label>
+        <div class="space-y-1.5">
+          <Select
+            options={urlEncodingOptions()}
+            value={props.urlEncoding || "inherit"}
+            // 「跟随项目」存空串，与代理 / TLS 的 inherit 一致
+            onChange={(v) => props.onChange?.({ urlEncoding: v === "inherit" ? "" : v })}
+            size="sm"
+            class="w-64"
+          />
+          <p class="max-w-160 text-xs text-muted-foreground">{t("urlEncoding.hint")}</p>
+        </div>
       </div>
     </div>
   )

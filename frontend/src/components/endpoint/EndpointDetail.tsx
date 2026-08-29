@@ -583,6 +583,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                     description={ep().description}
                     proxyConfig={ep().proxyConfig}
                     tlsConfig={ep().tlsConfig}
+                    urlEncoding={ep().urlEncoding}
                     projectId={props.projectId}
                     onChange={(patch) => props.onChange?.(patch)}
                   />

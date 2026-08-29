@@ -11,6 +11,7 @@ import { ProjectEnvironmentSettings } from "@/components/settings/ProjectEnviron
 import { ProxySettingsPanel } from "@/components/settings/ProxySettingsPanel"
 import { ScriptLibrarySettings } from "@/components/settings/ScriptLibrarySettings"
 import { TLSSettingsPanel } from "@/components/settings/TLSSettingsPanel"
+import { URLEncodingSettings } from "@/components/settings/URLEncodingSettings"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -34,6 +35,7 @@ const projectSettingsTabs = [
   { key: "scriptLibrary", icon: "lucide:file-code" },
   { key: "proxy", icon: "lucide:network" },
   { key: "tls", icon: "lucide:shield-check" },
+  { key: "urlEncoding", icon: "lucide:link" },
   { key: "cookies", icon: "lucide:cookie" },
 ]
 
@@ -206,6 +208,9 @@ function ProjectSettingsPage() {
     globalVars: t("globalVar.title"),
     scriptLibrary: t("scriptLib.title"),
     proxy: t("proxy.title"),
+    tls: t("settings.tls"),
+    urlEncoding: t("urlEncoding.title"),
+    cookies: t("settings.cookies"),
   }
   const tabs = () => projectSettingsTabs.map(tab => ({
     key: tab.key,
@@ -321,6 +326,12 @@ function ProjectSettingsPage() {
                 return (
                   <div class="h-full p-6">
                     <TLSSettingsPanel scope="project" projectId={projectId()} />
+                  </div>
+                )
+              case "urlEncoding":
+                return (
+                  <div class="h-full p-6">
+                    <URLEncodingSettings projectId={projectId()} />
                   </div>
                 )
               case "cookies":

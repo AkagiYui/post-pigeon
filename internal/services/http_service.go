@@ -197,6 +197,8 @@ type SendRequestData struct {
 	ProxyConfig string `json:"proxyConfig"`
 	// TLSConfig 接口级 TLS 选择（EndpointTLS 的 JSON）。空表示 inherit（跟随项目/全局）。
 	TLSConfig string `json:"tlsConfig"`
+	// URLEncoding 接口级 URL 自动编码档位。空表示 inherit（跟随项目/全局）。
+	URLEncoding string `json:"urlEncoding"`
 	// RequestID 由前端生成的本次请求标识，用于中途取消（CancelRequest）。空则不可取消。
 	RequestID string `json:"requestId"`
 	// PreRequestScript 前置脚本，请求发送前执行
@@ -375,7 +377,14 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	for _, q := range reqCtx.Query {
 		query.Add(q.Key, resolveVars(q.Value, vars))
 	}
-	parsedURL.RawQuery = query.Encode()
+
+	// URL 自动编码：档位沿「接口 → 项目 → 全局」解析，据此转义路径与查询串。
+	// 自定义转义会把最终路径挂到 Opaque 上，那之后 parsedURL.String() 就拿不到主机了，
+	// 所以先留一份标准形态的 URL 交给 http.NewRequest 做解析与校验。
+	urlEncoding := resolveURLEncoding(s.db, data.ModuleID, endpointURLEncoding(data, loadedEndpoint))
+	applyURLEncoding(parsedURL, query, urlEncoding)
+	standardURL := *parsedURL
+	standardURL.Opaque = ""
 
 	// 全局请求设置：超时兜底、重定向开关、no-cache 头与后面的响应体限额都取自这里
 	limits := getRequestSettings(s.db)
@@ -412,10 +421,12 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		}
 	}()
 
-	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(data.Method), parsedURL.String(), nil)
+	req, err := http.NewRequestWithContext(ctx, strings.ToUpper(data.Method), standardURL.String(), nil)
 	if err != nil {
 		return nil, apperr.Wrap(err, apperr.CodeBuildRequest)
 	}
+	// NewRequest 重新解析了一遍 URL，这里换回我们自己转义好的那份（可能带 Opaque）
+	req.URL = parsedURL
 
 	// 设置请求头
 	for _, header := range data.Headers {
@@ -507,7 +518,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		effectiveAuth.Type != string(models.AuthTypeInherit) {
 		if effectiveAuth.Type == string(models.AuthTypeDigest) {
 			needsDigest = true
-		} else if err := s.applyAuth(ctx, client, req, effectiveAuth, vars); err != nil {
+		} else if err := s.applyAuth(ctx, client, req, effectiveAuth, vars, urlEncoding); err != nil {
 			return nil, err
 		}
 	}
@@ -515,7 +526,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	// 记录实际请求信息
 	actualReq := models.ActualRequestInfo{
 		Method:  req.Method,
-		URL:     req.URL.String(),
+		URL:     urlWithHost(req.URL),
 		Headers: flattenHeaders(req.Header),
 	}
 	if req.GetBody != nil {
@@ -1047,7 +1058,9 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 
 // applyAuth 把认证信息写入请求。
 // oauth2 需要先向 token 端点换取令牌，因此要拿到已建好的客户端（含代理与 TLS 设置）。
-func (s *HTTPService) applyAuth(ctx context.Context, client *http.Client, req *http.Request, auth *models.EndpointAuth, vars map[string]string) error {
+func (s *HTTPService) applyAuth(ctx context.Context, client *http.Client, req *http.Request,
+	auth *models.EndpointAuth, vars map[string]string, urlEncoding models.URLEncodingMode,
+) error {
 	if auth.Type == string(models.AuthTypeOAuth2) {
 		var data models.OAuth2AuthData
 		if err := models.FromJSON(auth.Data, &data); err != nil {
@@ -1060,7 +1073,7 @@ func (s *HTTPService) applyAuth(ctx context.Context, client *http.Client, req *h
 		req.Header.Set("Authorization", value)
 		return nil
 	}
-	return s.setAuthHeader(req, auth, vars)
+	return s.setAuthHeader(req, auth, vars, urlEncoding)
 }
 
 // retryWithDigest 依据 401 响应里的 Digest 挑战重发请求。
@@ -1106,7 +1119,9 @@ func (s *HTTPService) retryWithDigest(
 }
 
 // setAuthHeader 设置认证请求头
-func (s *HTTPService) setAuthHeader(req *http.Request, auth *models.EndpointAuth, vars map[string]string) error {
+func (s *HTTPService) setAuthHeader(req *http.Request, auth *models.EndpointAuth, vars map[string]string,
+	urlEncoding models.URLEncodingMode,
+) error {
 	switch auth.Type {
 	case string(models.AuthTypeBasic):
 		var data models.BasicAuthData
@@ -1127,7 +1142,7 @@ func (s *HTTPService) setAuthHeader(req *http.Request, auth *models.EndpointAuth
 		if err := models.FromJSON(auth.Data, &data); err != nil {
 			return apperr.Wrap(err, apperr.CodeAuthConfigInvalid, apperr.P("type", "apikey"))
 		}
-		applyAPIKeyAuth(req, data, vars)
+		applyAPIKeyAuth(req, data, vars, urlEncoding)
 	}
 	return nil
 }

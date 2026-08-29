@@ -251,6 +251,7 @@ func (s *RunnerService) runOne(endpoint models.Endpoint, opts RunOptions, iterat
 		FollowRedirects: endpoint.FollowRedirects,
 		ProxyConfig:     endpoint.ProxyConfig,
 		TLSConfig:       endpoint.TLSConfig,
+		URLEncoding:     endpoint.URLEncoding,
 	})
 	if err != nil {
 		item.Error = err.Error()

@@ -17,7 +17,9 @@ type Project struct {
 	// ProxySettings 项目级代理设置（ScopeProxySettings 的 JSON）。空字符串表示跟随全局。
 	ProxySettings string `gorm:"type:text" json:"proxySettings"`
 	// TLSSettings 项目级 TLS 设置（ScopeTLSSettings 的 JSON）。空字符串表示跟随全局。
-	TLSSettings string    `gorm:"type:text" json:"tlsSettings"`
+	TLSSettings string `gorm:"type:text" json:"tlsSettings"`
+	// URLEncoding 项目级 URL 自动编码档位（URLEncodingMode）。空字符串表示跟随全局。
+	URLEncoding string    `gorm:"type:text" json:"urlEncoding"`
 	CreatedAt   time.Time `json:"createdAt"`
 	UpdatedAt   time.Time `json:"updatedAt"`
 

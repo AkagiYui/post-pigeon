@@ -120,6 +120,7 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 			"disabled_global_params": data.DisabledGlobalParams,
 			"proxy_config":           data.ProxyConfig,
 			"tls_config":             data.TLSConfig,
+			"url_encoding":           data.URLEncoding,
 		}).Error; err != nil {
 			return err
 		}
@@ -327,14 +328,16 @@ type EndpointSaveData struct {
 	// ProxyConfig 接口级代理选择（EndpointProxy 的 JSON），空表示 inherit
 	ProxyConfig string `json:"proxyConfig"`
 	// TLSConfig 接口级 TLS 选择（EndpointTLS 的 JSON），空表示 inherit
-	TLSConfig  string                     `json:"tlsConfig"`
-	Params     []models.EndpointParam     `json:"params"`
-	BodyFields []models.EndpointBodyField `json:"bodyFields"`
-	Headers    []models.EndpointHeader    `json:"headers"`
-	Auth       *models.EndpointAuth       `json:"auth"`
-	Operations []models.Operation         `json:"operations"`
-	Examples   []models.ResponseExample   `json:"examples"`
-	Schemas    []models.ResponseSchema    `json:"schemas"`
+	TLSConfig string `json:"tlsConfig"`
+	// URLEncoding 接口级 URL 自动编码档位，空表示 inherit
+	URLEncoding string                     `json:"urlEncoding"`
+	Params      []models.EndpointParam     `json:"params"`
+	BodyFields  []models.EndpointBodyField `json:"bodyFields"`
+	Headers     []models.EndpointHeader    `json:"headers"`
+	Auth        *models.EndpointAuth       `json:"auth"`
+	Operations  []models.Operation         `json:"operations"`
+	Examples    []models.ResponseExample   `json:"examples"`
+	Schemas     []models.ResponseSchema    `json:"schemas"`
 }
 
 // SaveResponse 保存端点响应（upsert）
@@ -416,6 +419,7 @@ func (s *EndpointService) CreateFullEndpoint(moduleID string, folderID *string, 
 		DisabledGlobalParams: data.DisabledGlobalParams,
 		ProxyConfig:          data.ProxyConfig,
 		TLSConfig:            data.TLSConfig,
+		URLEncoding:          data.URLEncoding,
 		SortOrder:            maxSort + 1,
 	}
 
@@ -565,6 +569,7 @@ func (s *EndpointService) DuplicateEndpoint(id string) (*models.Endpoint, error)
 		DisabledGlobalParams: src.DisabledGlobalParams,
 		ProxyConfig:          src.ProxyConfig,
 		TLSConfig:            src.TLSConfig,
+		URLEncoding:          src.URLEncoding,
 		SortOrder:            maxSort + 1,
 	}
 

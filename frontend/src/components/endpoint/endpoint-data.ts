@@ -31,6 +31,7 @@ export const endpointDefaults = {
   disabledGlobalParams: [] as string[],
   proxyConfig: "",
   tlsConfig: "",
+  urlEncoding: "",
   examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
 }
 

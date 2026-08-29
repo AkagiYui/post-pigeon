@@ -192,6 +192,8 @@ func normalizeRequestSettings(s *models.RequestSettings) {
 	}
 	// 只有空白字符的 UA 视同留空，走默认值
 	s.UserAgent = strings.TrimSpace(s.UserAgent)
+	// 全局层没有上一级可继承：inherit 与不认识的档位都收敛到默认档位
+	s.URLEncoding = string(models.NormalizeGlobalURLEncoding(s.URLEncoding))
 }
 
 // requestUserAgent 返回全局设置里的默认 User-Agent：留空时用内置默认值。

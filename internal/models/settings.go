@@ -60,6 +60,9 @@ type RequestSettings struct {
 	// UserAgent 请求默认携带的 User-Agent，留空则用 DefaultUserAgent。
 	// 只在请求自身没有 User-Agent 请求头时才补：接口上显式写了（含显式留空以抑制该头）就以接口为准。
 	UserAgent string `json:"userAgent"`
+	// URLEncoding URL 自动编码的全局档位（URLEncodingMode）：rfc3986 / whatwg / off。
+	// 留空按 DefaultURLEncoding 处理。项目与接口可以在其上各自覆盖。
+	URLEncoding string `json:"urlEncoding"`
 }
 
 // DefaultUserAgent 未自定义 User-Agent 时请求默认携带的值。
@@ -101,6 +104,7 @@ var (
 		FollowRedirects:          true,
 		SendNoCacheHeaders:       false,
 		AllowJSONComments:        true,
+		URLEncoding:              string(DefaultURLEncoding),
 	}
 	DefaultHistorySettings = HistorySettings{
 		RetentionDays:    30,

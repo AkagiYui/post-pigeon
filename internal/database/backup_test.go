@@ -74,7 +74,10 @@ func TestPendingMigrationCreatesBackup(t *testing.T) {
 	}
 	db := openMigrationDB(t, dbPath)
 	migrateUpTo(t, db, versions[len(versions)-2])
-	if err := db.Create(&models.Project{ID: "p1", Name: "备份验证"}).Error; err != nil {
+	// 用裸 SQL 而不是 GORM 模型建这条数据：此刻库停在上一版 schema 上，
+	// 而模型反映的是最新版，模型里比库多出来的列会让 INSERT 报 no such column。
+	// 这也正是现实中的样子——写这条数据的是还不认识新列的旧二进制。
+	if err := db.Exec("INSERT INTO projects (id, name) VALUES ('p1', '备份验证')").Error; err != nil {
 		t.Fatalf("建项目失败: %v", err)
 	}
 	closeDB(t, db)

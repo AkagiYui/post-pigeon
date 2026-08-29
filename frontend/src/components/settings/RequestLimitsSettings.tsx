@@ -9,6 +9,7 @@ import { RequestHistoryService, SettingsService } from "@/../bindings/PostPigeon
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 import { t } from "@/hooks/useI18n"
 import { toastError, toastSuccess } from "@/stores/toast"
 
@@ -17,6 +18,13 @@ const DEFAULT_TIMEOUT_MS = 300000
 
 /** UA 留空时后端发送的默认值，与 models.DefaultUserAgent 保持一致 */
 const DEFAULT_USER_AGENT = "PostPigeon/1.0.0 (https://github.com/AkagiYui/PostPigeon)"
+
+/** 全局 URL 自动编码档位：全局是最后一层，没有「跟随上级」可选 */
+const globalUrlEncodingOptions = () => [
+  { value: "rfc3986", label: t("urlEncoding.rfc3986") },
+  { value: "whatwg", label: t("urlEncoding.whatwg") },
+  { value: "off", label: t("urlEncoding.off") },
+]
 
 /** 字节 ↔ MiB 换算，界面上用 MiB 更易读 */
 const MIB = 1024 * 1024
@@ -104,6 +112,23 @@ function TextField(props: {
   )
 }
 
+/** 下拉选择行 */
+function SelectField(props: {
+  label: string
+  hint: string
+  value: string
+  options: { value: string, label: string }[]
+  onChange: (v: string) => void
+}) {
+  return (
+    <div class="space-y-1.5">
+      <label class="text-sm font-medium">{props.label}</label>
+      <Select options={props.options} value={props.value} onChange={props.onChange} size="sm" class="w-48" />
+      <p class="text-xs text-muted-foreground">{props.hint}</p>
+    </div>
+  )
+}
+
 /** 开关行 */
 function ToggleField(props: {
   label: string
@@ -128,6 +153,7 @@ export function RequestLimitsSettings() {
   const [sendNoCache, setSendNoCache] = createSignal(false)
   const [allowJsonComments, setAllowJsonComments] = createSignal(true)
   const [userAgent, setUserAgent] = createSignal("")
+  const [urlEncoding, setUrlEncoding] = createSignal("rfc3986")
   const [maxResponseMiB, setMaxResponseMiB] = createSignal(32)
   const [maxStoredMiB, setMaxStoredMiB] = createSignal(1)
   const [maxWSMiB, setMaxWSMiB] = createSignal(32)
@@ -151,6 +177,7 @@ export function RequestLimitsSettings() {
         setSendNoCache(request.sendNoCacheHeaders)
         setAllowJsonComments(request.allowJsonComments)
         setUserAgent(request.userAgent)
+        setUrlEncoding(request.urlEncoding || "rfc3986")
         setMaxResponseMiB(toMiB(request.maxResponseBytes))
         setMaxStoredMiB(toMiB(request.maxStoredBodyBytes))
         setMaxWSMiB(toMiB(request.maxWebSocketMessageBytes))
@@ -178,6 +205,7 @@ export function RequestLimitsSettings() {
         allowJsonComments: allowJsonComments(),
         // 留空即「未设置」，由后端发送内置默认 UA
         userAgent: userAgent().trim(),
+        urlEncoding: urlEncoding(),
         maxResponseBytes: fromMiB(maxResponseMiB()),
         maxStoredBodyBytes: fromMiB(maxStoredMiB()),
         maxWebSocketMessageBytes: fromMiB(maxWSMiB()),
@@ -253,6 +281,14 @@ export function RequestLimitsSettings() {
           hint={t("request.jsonComments.hint")}
           checked={allowJsonComments()}
           onChange={setAllowJsonComments}
+        />
+
+        <SelectField
+          label={t("urlEncoding.title")}
+          hint={t("urlEncoding.hint")}
+          value={urlEncoding()}
+          options={globalUrlEncodingOptions()}
+          onChange={setUrlEncoding}
         />
 
         <TextField

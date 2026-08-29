@@ -102,6 +102,7 @@ interface UnsavedRequestData {
   disabledGlobalParams: string[]
   proxyConfig: string
   tlsConfig: string
+  urlEncoding: string
   operations: OperationRow[]
   examples: ResponseExample[]
   schemas: ResponseSchema[]
@@ -651,6 +652,7 @@ export function ApiManagement(props: ApiManagementProps) {
           disabledGlobalParams: parseStringArray(detail.disabledGlobalParams),
           proxyConfig: detail.proxyConfig || "",
           tlsConfig: detail.tlsConfig || "",
+          urlEncoding: detail.urlEncoding || "",
           operations: fromOperationModels(detail.operations),
           examples: detail.examples || [], schemas: detail.schemas || [],
         } as EndpointData)
@@ -690,6 +692,7 @@ export function ApiManagement(props: ApiManagementProps) {
         disabledGlobalParams: unsaved.disabledGlobalParams ?? [],
         proxyConfig: unsaved.proxyConfig ?? "",
         tlsConfig: unsaved.tlsConfig ?? "",
+        urlEncoding: unsaved.urlEncoding ?? "",
         operations: unsaved.operations ?? [], examples: unsaved.examples ?? [], schemas: unsaved.schemas ?? [],
       } as EndpointData)
     }
@@ -734,6 +737,7 @@ export function ApiManagement(props: ApiManagementProps) {
     sendData.timeout = ep.timeout; sendData.followRedirects = ep.followRedirects
     sendData.proxyConfig = ep.proxyConfig
     sendData.tlsConfig = ep.tlsConfig
+    sendData.urlEncoding = ep.urlEncoding
     // 已保存端点由后端根据操作组合脚本；未保存请求在此把 script 类型操作拼接为前置/后置脚本
     sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript)
     sendData.postResponseScript = deriveScriptFromOps(ep.operations, "post", ep.postResponseScript)
@@ -846,6 +850,7 @@ export function ApiManagement(props: ApiManagementProps) {
         disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
         proxyConfig: ep.proxyConfig,
         tlsConfig: ep.tlsConfig,
+        urlEncoding: ep.urlEncoding,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations),
@@ -875,6 +880,7 @@ export function ApiManagement(props: ApiManagementProps) {
         disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
         proxyConfig: ep.proxyConfig,
         tlsConfig: ep.tlsConfig,
+        urlEncoding: ep.urlEncoding,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
@@ -891,6 +897,7 @@ export function ApiManagement(props: ApiManagementProps) {
           disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
           proxyConfig: ep.proxyConfig,
           tlsConfig: ep.tlsConfig,
+          urlEncoding: ep.urlEncoding,
           params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
           headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
           operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],

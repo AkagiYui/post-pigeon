@@ -44,6 +44,8 @@ export interface EndpointData {
   proxyConfig: string
   /** 接口级 TLS 选择（EndpointTLS 的 JSON，空表示 inherit 跟随项目） */
   tlsConfig: string
+  /** 接口级 URL 自动编码档位（rfc3986 / whatwg / off，空表示 inherit 跟随项目） */
+  urlEncoding: string
   /** 前置/后置操作列表 */
   operations: OperationRow[]
   /** 响应示例（不在此编辑，仅透传保存以免丢失） */

@@ -60,7 +60,11 @@ func isConcreteAuth(t string) bool {
 }
 
 // applyAPIKeyAuth 将 API Key 认证应用到请求（依据 In 放入 header / query / cookie）。
-func applyAPIKeyAuth(req *http.Request, d models.APIKeyAuthData, vars map[string]string) {
+// 放进查询串时要重拼整条查询串，用与请求本身相同的 URL 编码档位，
+// 否则这一步会把前面按档位转义好的结果又按标准规则改回去。
+func applyAPIKeyAuth(req *http.Request, d models.APIKeyAuthData, vars map[string]string,
+	urlEncoding models.URLEncodingMode,
+) {
 	if d.Key == "" {
 		return
 	}
@@ -69,7 +73,7 @@ func applyAPIKeyAuth(req *http.Request, d models.APIKeyAuthData, vars map[string
 	case "query":
 		q := req.URL.Query()
 		q.Set(d.Key, val)
-		req.URL.RawQuery = q.Encode()
+		req.URL.RawQuery = encodeQueryValues(q, urlEncoding)
 	case "cookie":
 		req.AddCookie(&http.Cookie{Name: d.Key, Value: val})
 	default: // header

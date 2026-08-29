@@ -65,7 +65,14 @@ func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
 			query.Add(param.Name, resolveVars(param.Value, vars))
 		}
 	}
-	parsed.RawQuery = query.Encode()
+
+	// 导出的命令要和实际发送的请求一致，URL 自动编码档位也得按同一条链解析
+	epEncoding := data.URLEncoding
+	if strings.TrimSpace(epEncoding) == "" {
+		epEncoding = savedEndpointURLEncoding(s.db, data.EndpointID)
+	}
+	urlEncoding := resolveURLEncoding(s.db, data.ModuleID, epEncoding)
+	applyURLEncoding(parsed, query, urlEncoding)
 
 	method := strings.ToUpper(strings.TrimSpace(data.Method))
 	if method == "" {
@@ -73,7 +80,7 @@ func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
 	}
 
 	// 每个参数单独一行、以 \ 续行，长命令仍然可读
-	lines := []string{fmt.Sprintf("curl -X %s %s", method, shellQuote(parsed.String()))}
+	lines := []string{fmt.Sprintf("curl -X %s %s", method, shellQuote(urlWithHost(parsed)))}
 
 	// 接口没显式设置时按全局设置渲染 -L（与 requestVars 一样，无库场景用默认值）
 	limits := models.DefaultRequestSettings
@@ -132,8 +139,8 @@ func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
 					// 查询参数形式的 API Key 直接并进 URL
 					q := parsed.Query()
 					q.Set(apiKey.Key, value)
-					parsed.RawQuery = q.Encode()
-					lines[0] = fmt.Sprintf("curl -X %s %s", method, shellQuote(parsed.String()))
+					parsed.RawQuery = encodeQueryValues(q, urlEncoding)
+					lines[0] = fmt.Sprintf("curl -X %s %s", method, shellQuote(urlWithHost(parsed)))
 				case "cookie":
 					lines = append(lines, fmt.Sprintf("-b %s", shellQuote(apiKey.Key+"="+value)))
 				default:

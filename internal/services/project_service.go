@@ -147,6 +147,22 @@ func (s *ProjectService) UpdateProject(id string, name string, description strin
 	return nil
 }
 
+// GetProjectURLEncoding 读取项目级的 URL 自动编码档位。未设置时返回 inherit（跟随全局）。
+func (s *ProjectService) GetProjectURLEncoding(id string) (string, error) {
+	return string(getProjectURLEncoding(s.db, id)), nil
+}
+
+// SaveProjectURLEncoding 保存项目级的 URL 自动编码档位。
+// inherit 与不认识的值统一存空串，表示跟随全局。
+func (s *ProjectService) SaveProjectURLEncoding(id string, mode string) error {
+	normalized := models.NormalizeURLEncoding(mode)
+	if normalized == models.URLEncodingInherit {
+		normalized = ""
+	}
+	return s.db.Model(&models.Project{}).Where("id = ?", id).
+		Update("url_encoding", string(normalized)).Error
+}
+
 // DeleteProject 删除项目及其所有关联数据
 func (s *ProjectService) DeleteProject(id string) error {
 	// 端点及其关联数据、文件夹、模块、环境与变量、全局变量、脚本库均由数据库外键
@@ -215,6 +231,7 @@ func (s *ProjectService) CloneProject(id string, newName string) (*models.Projec
 		SortOrder:     maxSort + 1,
 		ProxySettings: src.ProxySettings,
 		TLSSettings:   src.TLSSettings,
+		URLEncoding:   src.URLEncoding,
 	}
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
