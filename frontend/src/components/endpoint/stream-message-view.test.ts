@@ -2,7 +2,12 @@ import { describe, expect, it } from "vitest"
 
 import type { StreamMessage } from "@/stores/stream"
 
-import { filterAndSortStreamMessages, latestMessageScrollTop } from "./stream-message-view"
+import {
+  filterAndSortStreamMessages,
+  inferMessageFormat,
+  latestMessageScrollTop,
+  messageContentForDisplay,
+} from "./stream-message-view"
 
 const messages: StreamMessage[] = [
   { kind: "open", data: "connected", timestamp: 1 },
@@ -34,5 +39,17 @@ describe("WebSocket message view", () => {
     expect(latestMessageScrollTop("asc", 1200, 300)).toBe(900)
     expect(latestMessageScrollTop("desc", 1200, 300)).toBe(0)
     expect(latestMessageScrollTop("asc", 200, 300)).toBe(0)
+  })
+
+  it("二进制消息按选定编码解码，文本消息保留原文", () => {
+    expect(messageContentForDisplay({ kind: "message", data: "5Lit5paH", binary: true, timestamp: 1 }, "utf-8"))
+      .toBe("中文")
+    expect(messageContentForDisplay(messages[1], "gbk")).toBe("Hello Server")
+  })
+
+  it("为 JSON、XML 和 HTML 消息选择合适的初始格式", () => {
+    expect(inferMessageFormat({ kind: "message", data: '{"ok":true}', timestamp: 1 })).toBe("json")
+    expect(inferMessageFormat({ kind: "message", data: "<root><ok /></root>", timestamp: 1 })).toBe("xml")
+    expect(inferMessageFormat({ kind: "message", data: "<!doctype html><p>ok</p>", timestamp: 1 })).toBe("html")
   })
 })

@@ -1,6 +1,13 @@
 import { afterEach, describe, expect, it } from "vitest"
 
-import { clearStream, clearStreamMessages, markConnecting, streamStatus } from "./stream"
+import {
+  clearStream,
+  clearStreamMessages,
+  markConnecting,
+  selectedStreamMessage,
+  selectStreamMessage,
+  streamStatus,
+} from "./stream"
 
 const connId = "stream-clear-test"
 
@@ -21,5 +28,14 @@ describe("stream clearing", () => {
     clearStream(connId)
 
     expect(streamStatus(connId)).toBe("idle")
+  })
+
+  it("清空消息时同时关闭消息详情", () => {
+    const message = { kind: "message", data: "selected", timestamp: 1 }
+    selectStreamMessage(connId, message)
+
+    clearStreamMessages(connId)
+
+    expect(selectedStreamMessage(connId)).toBeUndefined()
   })
 })

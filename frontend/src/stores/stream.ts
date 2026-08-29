@@ -19,13 +19,15 @@ export type StreamStatus = "idle" | "connecting" | "open" | "closed" | "error"
 interface StreamState {
   messages: Record<string, StreamMessage[]>
   status: Record<string, StreamStatus>
+  /** 每个连接当前在详情面板中选中的消息；组件卸载后也保留。 */
+  selectedMessages: Record<string, StreamMessage>
 }
 
 const WS_EVENT = "ws:event"
 const HTTP_STREAM_EVENT = "http:stream"
 
 const [state, setState] = createRoot(() => {
-  const [get, set] = createSignal<StreamState>({ messages: {}, status: {} })
+  const [get, set] = createSignal<StreamState>({ messages: {}, status: {}, selectedMessages: {} })
   return [get, set] as const
 })
 
@@ -42,15 +44,20 @@ function applyEvent(ev: StreamEventPayload | undefined) {
   setState((prev) => {
     const messages = { ...prev.messages }
     const status = { ...prev.status }
+    const selectedMessages = { ...prev.selectedMessages }
     const list = messages[ev.connId] ? [...messages[ev.connId]] : []
     list.push({ kind: ev.kind, data: ev.data, binary: ev.binary, timestamp: ev.timestamp })
     // 限制单连接缓冲上限，避免长连接内存膨胀
     if (list.length > 1000) list.splice(0, list.length - 1000)
     messages[ev.connId] = list
+    // 滚动淘汰时，详情不能继续指向已被丢弃的旧消息。
+    if (selectedMessages[ev.connId] && !list.includes(selectedMessages[ev.connId])) {
+      delete selectedMessages[ev.connId]
+    }
     if (ev.kind === "open") status[ev.connId] = "open"
     else if (ev.kind === "close") status[ev.connId] = "closed"
     else if (ev.kind === "error") status[ev.connId] = "error"
-    return { messages, status }
+    return { messages, status, selectedMessages }
   })
 }
 
@@ -76,6 +83,21 @@ export function streamStatus(connId: string): StreamStatus {
   return state().status[connId] || "idle"
 }
 
+/** 获取指定连接当前展开详情的消息。选择状态随连接保留，供接口/响应 Tab 重新挂载后恢复。 */
+export function selectedStreamMessage(connId: string): StreamMessage | undefined {
+  return state().selectedMessages[connId]
+}
+
+/** 选择或关闭指定连接的消息详情。 */
+export function selectStreamMessage(connId: string, message?: StreamMessage) {
+  setState((prev) => {
+    const selectedMessages = { ...prev.selectedMessages }
+    if (message) selectedMessages[connId] = message
+    else delete selectedMessages[connId]
+    return { ...prev, selectedMessages }
+  })
+}
+
 /** 标记连接为「连接中」（发起连接时调用） */
 export function markConnecting(connId: string) {
   setState((prev) => ({ ...prev, status: { ...prev.status, [connId]: "connecting" } }))
@@ -86,8 +108,10 @@ export function markConnecting(connId: string) {
 export function clearStreamMessages(connId: string) {
   setState((prev) => {
     const messages = { ...prev.messages }
+    const selectedMessages = { ...prev.selectedMessages }
     delete messages[connId]
-    return { ...prev, messages }
+    delete selectedMessages[connId]
+    return { ...prev, messages, selectedMessages }
   })
 }
 
@@ -97,8 +121,10 @@ export function clearStream(connId: string) {
   setState((prev) => {
     const messages = { ...prev.messages }
     const status = { ...prev.status }
+    const selectedMessages = { ...prev.selectedMessages }
     delete messages[connId]
     delete status[connId]
-    return { messages, status }
+    delete selectedMessages[connId]
+    return { messages, status, selectedMessages }
   })
 }

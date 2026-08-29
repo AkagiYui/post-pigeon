@@ -686,7 +686,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                         <LayoutToggle />
                       </div>
                       <div class="flex-1 min-h-0">
-                        <WebSocketResponse connId={ep().id} />
+                        <WebSocketResponse connId={ep().id} layout={responseLayout()} />
                       </div>
                     </div>
                   </Show>
@@ -769,7 +769,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                             onDownload={downloadResponseBody}
                           />
                         }>
-                          <WebSocketResponse connId={ep().id} />
+                          <WebSocketResponse connId={ep().id} layout={responseLayout()} />
                         </Show>
                       )}
                     </Tabs>

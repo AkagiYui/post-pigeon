@@ -1,3 +1,4 @@
+import { decodeRawBody } from "@/lib/format"
 import type { StreamMessage } from "@/stores/stream"
 
 export type StreamMessageDirection = "all" | "sent" | "received"
@@ -10,6 +11,30 @@ export function latestMessageScrollTop(
   clientHeight: number,
 ): number {
   return order === "asc" ? Math.max(0, scrollHeight - clientHeight) : 0
+}
+
+/**
+ * 取得消息详情中可展示的文本。
+ *
+ * WebSocket 文本帧已经由服务端按 UTF-8 传入；二进制帧则保留 base64，以便在这里按用户
+ * 选定的字符集重新解码。解码失败时保留原始 base64，避免详情面板变成空白。
+ */
+export function messageContentForDisplay(message: StreamMessage, encoding: string): string {
+  if (!message.binary) return message.data
+  return decodeRawBody(message.data, encoding) ?? message.data
+}
+
+/** 根据消息正文猜测详情面板的初始格式；用户仍可在详情里手动修改。 */
+export function inferMessageFormat(message: StreamMessage): "json" | "xml" | "html" {
+  const content = messageContentForDisplay(message, "utf-8").trim()
+  if (/^<!doctype\s+html|^<html[\s>]/i.test(content)) return "html"
+  if (content.startsWith("<")) return "xml"
+  try {
+    JSON.parse(content)
+    return "json"
+  } catch {
+    return "json"
+  }
 }
 
 /**

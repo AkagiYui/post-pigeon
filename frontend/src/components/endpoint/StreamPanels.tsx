@@ -7,11 +7,12 @@ import { createEffect, createMemo, createSignal, For, onCleanup, Show } from "so
 import { WebSocketService } from "@/../bindings/PostPigeon/internal/services"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
+import { CodeEditor, type CodeLanguage } from "@/components/ui/code-editor"
 import { Input, Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
-import { parseJSONForDisplay } from "@/lib/format"
+import { formatBody, parseJSONForDisplay } from "@/lib/format"
 import { cn } from "@/lib/utils"
 import {
   clearWebSocketMessageAfterSend,
@@ -21,12 +22,21 @@ import {
   setFormatWebSocketJSON,
   setParseWebSocketJSON,
 } from "@/stores/app"
-import { clearStreamMessages, streamMessages, streamStatus } from "@/stores/stream"
+import {
+  clearStreamMessages,
+  selectedStreamMessage,
+  selectStreamMessage,
+  type StreamMessage,
+  streamMessages,
+  streamStatus,
+} from "@/stores/stream"
 import { toastError } from "@/stores/toast"
 
 import {
   filterAndSortStreamMessages,
+  inferMessageFormat,
   latestMessageScrollTop,
+  messageContentForDisplay,
   type StreamMessageDirection,
   type StreamMessageOrder,
 } from "./stream-message-view"
@@ -47,6 +57,8 @@ export function MessageLog(props: {
   direction?: StreamMessageDirection
   order?: StreamMessageOrder
   showTimestamp?: boolean
+  selectedMessage?: StreamMessage
+  onMessageSelect?: (message: StreamMessage) => void
   containerRef?: (element: HTMLDivElement) => void
   onScroll?: () => void
 }) {
@@ -71,7 +83,22 @@ export function MessageLog(props: {
         fallback={<div class="text-xs text-muted-foreground text-center py-4">{t(noResults() ? "stream.noMatchingMessages" : "stream.noMessages")}</div>}
       >
         {(m) => (
-          <div class="flex items-start gap-2 text-xs font-mono">
+          <div
+            class={cn(
+              "flex w-full items-start gap-2 rounded px-1 py-0.5 text-left text-xs font-mono transition-colors",
+              props.onMessageSelect && "cursor-pointer hover:bg-muted",
+              props.selectedMessage === m && "bg-accent-muted text-foreground",
+            )}
+            role={props.onMessageSelect ? "button" : undefined}
+            tabIndex={props.onMessageSelect ? 0 : undefined}
+            aria-pressed={props.onMessageSelect ? props.selectedMessage === m : undefined}
+            onClick={() => props.onMessageSelect?.(m)}
+            onKeyDown={(event) => {
+              if (!props.onMessageSelect || (event.key !== "Enter" && event.key !== " ")) return
+              event.preventDefault()
+              props.onMessageSelect(m)
+            }}
+          >
             <span class={cn(
               "shrink-0 px-1 rounded text-[10px]",
               m.kind === "sent" ? "bg-blue-500/15 text-blue-500"
@@ -92,6 +119,128 @@ export function MessageLog(props: {
         )}
       </For>
     </div>
+  )
+}
+
+const messageFormatOptions = [
+  { value: "json", label: "JSON" },
+  { value: "xml", label: "XML" },
+  { value: "html", label: "HTML" },
+]
+
+const messageEncodingOptions = [
+  { value: "utf-8", label: "UTF-8" },
+  { value: "gbk", label: "GBK" },
+  { value: "gb2312", label: "GB2312" },
+  { value: "iso-8859-1", label: "ISO-8859-1" },
+]
+
+/** 选中一条 WebSocket 消息后展开的详情面板。 */
+function WebSocketMessageDetail(props: {
+  message: StreamMessage
+  layout: "right" | "bottom"
+  onClose: () => void
+}) {
+  const [renderMode, setRenderMode] = createSignal<"pretty" | "raw" | "preview">("pretty")
+  const [format, setFormat] = createSignal<"json" | "xml" | "html">(inferMessageFormat(props.message))
+  const [encoding, setEncoding] = createSignal("utf-8")
+
+  const decodedContent = createMemo(() => messageContentForDisplay(props.message, encoding()))
+  const displayContent = createMemo(() => renderMode() === "pretty"
+    ? formatBody(decodedContent(), format())
+    : decodedContent())
+  const language = (): CodeLanguage => {
+    if (renderMode() === "raw") return "text"
+    if (format() === "xml") return "xml"
+    if (format() === "html") return "html"
+    return "json"
+  }
+
+  return (
+    <section
+      class={cn(
+        "flex flex-1 flex-col overflow-hidden rounded-md border border-border bg-input",
+        props.layout === "right" ? "min-h-48" : "min-w-72",
+      )}
+      aria-label={t("stream.messageDetail")}
+    >
+      <div class="flex shrink-0 items-center gap-2 border-b border-border px-2 py-1.5">
+        <div class="min-w-0 flex-1">
+          <p class="text-xs font-medium text-foreground">{t("stream.messageContent")}</p>
+          <p class="text-[10px] text-muted-foreground">
+            {props.message.binary ? t("stream.binaryMessage") : t("stream.textMessage")}
+            {" · "}{new Date(props.message.timestamp).toLocaleTimeString([], { hour12: false })}
+          </p>
+        </div>
+        <div class="flex items-center gap-1">
+          <Show when={renderMode() !== "preview"}>
+            <Select
+              options={messageEncodingOptions}
+              value={encoding()}
+              onChange={setEncoding}
+              size="sm"
+              class="w-24"
+              aria-label={t("stream.messageEncoding")}
+            />
+          </Show>
+          <Show when={renderMode() === "pretty"}>
+            <Select
+              options={messageFormatOptions}
+              value={format()}
+              onChange={(value) => setFormat(value as "json" | "xml" | "html")}
+              size="sm"
+              class="w-20"
+              aria-label={t("stream.messageFormat")}
+            />
+          </Show>
+          <div class="flex items-center overflow-hidden rounded-md border border-border" aria-label={t("stream.messageRenderMode")}>
+            <For each={[
+              { value: "pretty", label: () => t("response.pretty") },
+              { value: "raw", label: () => t("response.raw") },
+              { value: "preview", label: () => t("response.preview") },
+            ] as const}>
+              {(mode) => (
+                <button
+                  type="button"
+                  class={cn(
+                    "px-2 py-1 text-xs font-medium transition-colors",
+                    renderMode() === mode.value
+                      ? "bg-accent text-white"
+                      : "text-muted-foreground hover:bg-muted hover:text-foreground",
+                  )}
+                  aria-pressed={renderMode() === mode.value}
+                  onClick={() => setRenderMode(mode.value)}
+                >
+                  {mode.label()}
+                </button>
+              )}
+            </For>
+          </div>
+          <Button size="icon-sm" variant="ghost" aria-label={t("stream.closeMessageDetail")} onClick={props.onClose}>
+            <Icon icon="lucide:x" class="h-3.5 w-3.5" />
+          </Button>
+        </div>
+      </div>
+      <div class="min-h-0 flex-1 overflow-hidden">
+        <Show
+          when={renderMode() === "preview"}
+          fallback={<CodeEditor value={displayContent()} language={language()} readOnly class="h-full rounded-none border-0 bg-transparent" />}
+        >
+          <Show
+            when={decodedContent()}
+            fallback={<div class="p-3 text-sm text-muted-foreground">{t("stream.noMessageContent")}</div>}
+          >
+            <iframe
+              class="h-full w-full border-0 bg-white"
+              srcdoc={decodedContent()}
+              sandbox=""
+              referrerpolicy="no-referrer"
+              title={t("response.preview")}
+            />
+          </Show>
+        </Show>
+      </div>
+    </section>
   )
 }
 
@@ -151,17 +300,23 @@ export function WebSocketMessageEditor(props: {
 }
 
 /** WebSocket 响应区：消息流（连接按钮在顶部请求行，发送框在请求编辑区） */
-export function WebSocketResponse(props: { connId: string }) {
+export function WebSocketResponse(props: { connId: string; layout?: "right" | "bottom" }) {
   const [query, setQuery] = createSignal("")
   const [direction, setDirection] = createSignal<StreamMessageDirection>("all")
   const [order, setOrder] = createSignal<StreamMessageOrder>("asc")
   const [followLatest, setFollowLatest] = createSignal(true)
+  const [selectedMessage, setSelectedMessage] = createSignal<StreamMessage | undefined>(selectedStreamMessage(props.connId))
   const status = createMemo(() => streamStatus(props.connId))
   const messageCount = createMemo(() => streamMessages(props.connId).length)
   let messageLogElement: HTMLDivElement | undefined
   let scrollFrame: number | undefined
   let releaseScrollFrame: number | undefined
   let autoScrolling = false
+
+  // 详情选择由 stream store 按连接保存，切换接口或响应 Tab 后重新挂载时能恢复。
+  createEffect(() => {
+    setSelectedMessage(selectedStreamMessage(props.connId))
+  })
 
   // 消息数量、排序方向或开关变化后，在下一帧等 DOM 列表完成更新，再定位到最新消息。
   createEffect(() => {
@@ -269,19 +424,35 @@ export function WebSocketResponse(props: { connId: string }) {
           </Button>
         </Tooltip>
       </div>
-      <MessageLog
-        connId={props.connId}
-        parseJSON={parseWebSocketJSON()}
-        formatJSON={formatWebSocketJSON()}
-        query={query()}
-        direction={direction()}
-        order={order()}
-        showTimestamp
-        containerRef={(element) => { messageLogElement = element }}
-        onScroll={() => {
-          if (followLatest() && !autoScrolling) setFollowLatest(false)
-        }}
-      />
+      <div class={cn("flex min-h-0 flex-1 gap-2", props.layout === "right" ? "flex-col" : "flex-row")}>
+        <MessageLog
+          connId={props.connId}
+          parseJSON={parseWebSocketJSON()}
+          formatJSON={formatWebSocketJSON()}
+          query={query()}
+          direction={direction()}
+          order={order()}
+          showTimestamp
+          selectedMessage={selectedMessage()}
+          onMessageSelect={(message) => {
+            setSelectedMessage(message)
+            selectStreamMessage(props.connId, message)
+          }}
+          containerRef={(element) => { messageLogElement = element }}
+          onScroll={() => {
+            if (followLatest() && !autoScrolling) setFollowLatest(false)
+          }}
+        />
+        <Show when={selectedMessage()} keyed>
+          {(message) => (
+            <WebSocketMessageDetail
+              message={message}
+              layout={props.layout ?? "right"}
+              onClose={() => selectStreamMessage(props.connId)}
+            />
+          )}
+        </Show>
+      </div>
     </div>
   )
 }
