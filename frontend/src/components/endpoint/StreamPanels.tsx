@@ -125,6 +125,12 @@ export function MessageLog(props: {
                   <Show when={m.hasRetry}><span class="rounded bg-muted px-1">retry: {m.retry}ms</span></Show>
                 </div>
               </Show>
+              <Show when={m.hasCloseCode}>
+                <div class="mb-0.5 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+                  <span class="rounded bg-muted px-1">{t("stream.closeCode")}: {m.closeCode}</span>
+                  <Show when={m.closeReason}><span class="rounded bg-muted px-1">{t("stream.closeReason")}: {m.closeReason}</span></Show>
+                </div>
+              </Show>
               <span class="break-all whitespace-pre-wrap text-foreground">
                 {props.raw ? (m.raw ?? m.data) : m.hasComment ? `: ${m.comment ?? ""}` : displayData(m.data, m.binary)}
               </span>
@@ -185,6 +191,9 @@ function StreamMessageDetail(props: {
             {props.message.binary ? t("stream.binaryMessage") : props.message.hasComment ? t("stream.sseComment") : t("stream.textMessage")}
             {" · "}{new Date(props.message.timestamp).toLocaleTimeString([], { hour12: false })}
           </p>
+          <Show when={props.message.hasCloseCode}>
+            <p class="text-[10px] text-muted-foreground">{t("stream.closeCode")}: {props.message.closeCode}{props.message.closeReason ? ` · ${t("stream.closeReason")}: ${props.message.closeReason}` : ""}</p>
+          </Show>
         </div>
         <div class="flex items-center gap-1">
           <Show when={renderMode() !== "preview"}>
@@ -265,11 +274,17 @@ export function WebSocketMessageEditor(props: {
   onChange: (value: string) => void
 }) {
   const status = createMemo(() => streamStatus(props.connId))
+  const [payloadType, setPayloadType] = createSignal<"text" | "base64" | "hex">("text")
 
   const send = async () => {
     if (!props.value.trim()) return
     try {
-      await WebSocketService.Send(props.connId, props.value)
+      const type = payloadType()
+      if (type === "text") {
+        await WebSocketService.Send(props.connId, props.value)
+      } else {
+        await WebSocketService.SendBinary(props.connId, encodeWebSocketBinary(props.value, type))
+      }
       if (clearWebSocketMessageAfterSend()) props.onChange("")
     } catch (e) { toastError(e, "error.op.sendFailed") }
   }
@@ -288,6 +303,20 @@ export function WebSocketMessageEditor(props: {
           <span>{t("stream.clearAfterSend")}</span>
         </label>
       </div>
+      <div class="flex items-center gap-2 text-xs text-muted-foreground">
+        <span>{t("stream.payloadType")}</span>
+        <Select
+          size="sm"
+          value={payloadType()}
+          onChange={(value) => setPayloadType(value as "text" | "base64" | "hex")}
+          options={[
+            { value: "text", label: t("stream.payloadText") },
+            { value: "base64", label: "Base64" },
+            { value: "hex", label: "Hex" },
+          ]}
+          class="w-28"
+        />
+      </div>
       <Textarea
         value={props.value}
         onInput={(event) => props.onChange(event.currentTarget.value)}
@@ -297,8 +326,8 @@ export function WebSocketMessageEditor(props: {
             void send()
           }
         }}
-        placeholder={t("stream.messagePlaceholder")}
-        aria-label={t("stream.messagePlaceholder")}
+        placeholder={payloadType() === "text" ? t("stream.messagePlaceholder") : t("stream.binaryPayloadPlaceholder")}
+        aria-label={payloadType() === "text" ? t("stream.messagePlaceholder") : t("stream.binaryPayloadPlaceholder")}
         spellcheck={false}
         class="min-h-32 flex-1 resize-y font-mono text-xs"
       />
@@ -311,6 +340,22 @@ export function WebSocketMessageEditor(props: {
       </div>
     </div>
   )
+}
+
+/** 将编辑器中的二进制表示规范成后端 SendBinary 所需的 Base64。 */
+export function encodeWebSocketBinary(value: string, type: "base64" | "hex"): string {
+  if (type === "base64") {
+    // 先在浏览器侧校验，错误能在原位置反馈；后端仍会二次校验。
+    try { atob(value.replace(/\s/g, "")) } catch { throw new Error(t("stream.invalidBase64")) }
+    return value.replace(/\s/g, "")
+  }
+  const compact = value.replace(/\s/g, "")
+  if (!compact || compact.length % 2 !== 0 || !/^[0-9a-fA-F]+$/.test(compact)) {
+    throw new Error(t("stream.invalidHex"))
+  }
+  let bytes = ""
+  for (let index = 0; index < compact.length; index += 2) bytes += String.fromCharCode(Number.parseInt(compact.slice(index, index + 2), 16))
+  return btoa(bytes)
 }
 
 /** WebSocket 响应区：消息流（连接按钮在顶部请求行，发送框在请求编辑区） */

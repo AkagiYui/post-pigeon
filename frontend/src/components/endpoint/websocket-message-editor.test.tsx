@@ -10,7 +10,7 @@ const stream = vi.hoisted(() => ({
 }))
 
 vi.mock("@/../bindings/PostPigeon/internal/services", () => ({
-  WebSocketService: { Send: send },
+  WebSocketService: { Send: send, SendBinary: send },
 }))
 
 vi.mock("@/stores/stream", () => ({
@@ -30,7 +30,7 @@ vi.mock("@/components/ui/code-editor", () => ({
 
 import { setClearWebSocketMessageAfterSend } from "@/stores/app"
 
-import { WebSocketMessageEditor, WebSocketResponse } from "./StreamPanels"
+import { encodeWebSocketBinary, WebSocketMessageEditor, WebSocketResponse } from "./StreamPanels"
 
 function setup(initialValue = "") {
   const [value, setValue] = createSignal(initialValue)
@@ -79,6 +79,11 @@ describe("WebSocketMessageEditor", () => {
 
     expect(screen.getByRole("textbox")).toBeEnabled()
     expect(screen.getByRole("button", { name: /发送|send/i })).toBeDisabled()
+  })
+
+  it("将十六进制二进制负载转换为 Base64", () => {
+    expect(encodeWebSocketBinary("48 69", "hex")).toBe("SGk=")
+    expect(() => encodeWebSocketBinary("4", "hex")).toThrow(/十六进制|hexadecimal/i)
   })
 
   it("点击消息后展开详情，并可切换格式化与原始渲染", () => {

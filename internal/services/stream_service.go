@@ -3,6 +3,7 @@ package services
 import (
 	"context"
 	"encoding/base64"
+	"errors"
 	"net/http"
 	"net/url"
 	"strings"
@@ -41,6 +42,11 @@ type StreamEvent struct {
 	HasComment bool   `json:"hasComment,omitempty"`
 	// Raw 是事件/记录的协议原文，供 Raw 视图与导出使用。
 	Raw string `json:"raw,omitempty"`
+	// CloseCode 与 CloseReason 用于 WebSocket close frame。HasCloseCode 区分未收到
+	// close frame 与服务端明确使用 1000 等关闭码的情况。
+	CloseCode    int    `json:"closeCode,omitempty"`
+	HasCloseCode bool   `json:"hasCloseCode,omitempty"`
+	CloseReason  string `json:"closeReason,omitempty"`
 }
 
 // emitStream 通过 Wails 事件把流式事件推给前端（无运行中的 App 时静默跳过，便于测试）。
@@ -441,7 +447,14 @@ func (s *WebSocketService) readLoop(ctx context.Context, connID string, conn *we
 		msgType, data, err := conn.Read(ctx)
 		if err != nil {
 			if s.cleanup(connID, conn) {
-				emitStream(WSEventName, StreamEvent{ConnID: connID, Kind: "close", Data: err.Error(), Timestamp: nowMillis()})
+				ev := StreamEvent{ConnID: connID, Kind: "close", Data: err.Error(), Timestamp: nowMillis()}
+				var closeErr websocket.CloseError
+				if errors.As(err, &closeErr) {
+					ev.CloseCode = int(closeErr.Code)
+					ev.HasCloseCode = true
+					ev.CloseReason = closeErr.Reason
+				}
+				emitStream(WSEventName, ev)
 			}
 			return
 		}
@@ -504,6 +517,7 @@ func (s *WebSocketService) close(connID string, emit bool) {
 		if emit {
 			emitStream(WSEventName, StreamEvent{
 				ConnID: connID, Kind: "close", Data: "client closed", Timestamp: nowMillis(),
+				CloseCode: int(websocket.StatusNormalClosure), HasCloseCode: true, CloseReason: "client closed",
 			})
 		}
 	}

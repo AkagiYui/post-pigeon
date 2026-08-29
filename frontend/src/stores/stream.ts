@@ -24,6 +24,10 @@ export interface StreamMessage {
   comment?: string
   hasComment?: boolean
   raw?: string
+  /** WebSocket close frame metadata. */
+  closeCode?: number
+  hasCloseCode?: boolean
+  closeReason?: string
 }
 
 export type StreamStatus = "idle" | "connecting" | "open" | "closed" | "error"
@@ -57,6 +61,9 @@ interface StreamEventPayload {
   comment?: string
   hasComment?: boolean
   raw?: string
+  closeCode?: number
+  hasCloseCode?: boolean
+  closeReason?: string
 }
 
 function applyEvent(ev: StreamEventPayload | undefined) {
@@ -70,6 +77,7 @@ function applyEvent(ev: StreamEventPayload | undefined) {
       kind: ev.kind, data: ev.data, binary: ev.binary, timestamp: ev.timestamp,
       event: ev.event, eventId: ev.eventId, hasEventId: ev.hasEventId,
       retry: ev.retry, hasRetry: ev.hasRetry, comment: ev.comment, hasComment: ev.hasComment, raw: ev.raw,
+      closeCode: ev.closeCode, hasCloseCode: ev.hasCloseCode, closeReason: ev.closeReason,
     })
     // 限制单连接缓冲上限，避免长连接内存膨胀
     if (list.length > 1000) list.splice(0, list.length - 1000)
