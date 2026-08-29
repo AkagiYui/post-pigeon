@@ -35,6 +35,10 @@ export const endpointDefaults = {
   tlsConfig: "",
   urlEncoding: "",
   wsProtocolConversion: "",
+  streamViewMode: "timeline" as const,
+  streamCompletionFormat: "auto" as const,
+  streamJSONPath: "",
+  streamRenderMarkdown: false,
   inheritedWsProtocolConversion: true,
   examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
 }

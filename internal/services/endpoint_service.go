@@ -108,7 +108,7 @@ func (s *EndpointService) CreateEndpoint(moduleID string, folderID *string, name
 func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		// 更新端点基本信息
-		if err := tx.Model(&models.Endpoint{}).Where("id = ?", data.ID).Updates(map[string]any{
+		updates := map[string]any{
 			"name":                   data.Name,
 			"method":                 data.Method,
 			"path":                   data.Path,
@@ -131,7 +131,17 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 			"tls_config":             data.TLSConfig,
 			"url_encoding":           data.URLEncoding,
 			"ws_protocol_conversion": persistedWSProtocolConversion(data.WSProtocolConversion),
-		}).Error; err != nil {
+		}
+		// 新字段发布后，旧版前端的 SaveEndpointData 调用不会携带它们。空载荷在
+		// 此处表示「未知而非重置」，以免用户降级再保存请求时丢掉展示偏好。
+		// 当前前端始终传 timeline/auto，因此用户主动恢复默认值仍会正常写入。
+		if hasStreamPresentation(data) {
+			updates["stream_view_mode"] = persistedStreamViewMode(data.StreamViewMode)
+			updates["stream_completion_format"] = persistedStreamCompletionFormat(data.StreamCompletionFormat)
+			updates["stream_json_path"] = data.StreamJSONPath
+			updates["stream_render_markdown"] = data.StreamRenderMarkdown
+		}
+		if err := tx.Model(&models.Endpoint{}).Where("id = ?", data.ID).Updates(updates).Error; err != nil {
 			return err
 		}
 
@@ -344,14 +354,20 @@ type EndpointSaveData struct {
 	// URLEncoding 接口级 URL 自动编码档位，空表示 inherit
 	URLEncoding string `json:"urlEncoding"`
 	// WSProtocolConversion 接口级 WebSocket 协议头自动转换档位，空表示 inherit
-	WSProtocolConversion string                     `json:"wsProtocolConversion"`
-	Params               []models.EndpointParam     `json:"params"`
-	BodyFields           []models.EndpointBodyField `json:"bodyFields"`
-	Headers              []models.EndpointHeader    `json:"headers"`
-	Auth                 *models.EndpointAuth       `json:"auth"`
-	Operations           []models.Operation         `json:"operations"`
-	Examples             []models.ResponseExample   `json:"examples"`
-	Schemas              []models.ResponseSchema    `json:"schemas"`
+	WSProtocolConversion string `json:"wsProtocolConversion"`
+	// StreamViewMode / StreamCompletionFormat / StreamJSONPath / StreamRenderMarkdown
+	// 是接口级的流式响应展示偏好，不参与实际请求。
+	StreamViewMode         string                     `json:"streamViewMode"`
+	StreamCompletionFormat string                     `json:"streamCompletionFormat"`
+	StreamJSONPath         string                     `json:"streamJSONPath"`
+	StreamRenderMarkdown   bool                       `json:"streamRenderMarkdown"`
+	Params                 []models.EndpointParam     `json:"params"`
+	BodyFields             []models.EndpointBodyField `json:"bodyFields"`
+	Headers                []models.EndpointHeader    `json:"headers"`
+	Auth                   *models.EndpointAuth       `json:"auth"`
+	Operations             []models.Operation         `json:"operations"`
+	Examples               []models.ResponseExample   `json:"examples"`
+	Schemas                []models.ResponseSchema    `json:"schemas"`
 }
 
 // SaveResponse 保存端点响应（upsert）
@@ -412,32 +428,36 @@ func (s *EndpointService) CreateFullEndpoint(moduleID string, folderID *string, 
 	// 少复制一个字段就意味着「新建时填了、保存后才生效」这类难查的丢数据问题
 	// （脚本、类型、状态、标签、描述此前都在创建路径上被丢弃）。
 	endpoint := &models.Endpoint{
-		ModuleID:             moduleID,
-		FolderID:             folderID,
-		Name:                 data.Name,
-		Type:                 defaultStr(data.Type, string(models.EndpointTypeHTTP)),
-		Method:               data.Method,
-		Path:                 data.Path,
-		BodyType:             data.BodyType,
-		BodyContent:          data.BodyContent,
-		ContentType:          data.ContentType,
-		Timeout:              models.NormalizeScopedTimeoutValue(data.TimeoutMode, data.Timeout),
-		TimeoutMode:          models.PersistedTimeoutMode(data.TimeoutMode),
-		FollowRedirects:      data.FollowRedirects,
-		SendNoCacheHeaders:   data.SendNoCacheHeaders,
-		DocContent:           data.DocContent,
-		Status:               data.Status,
-		Tags:                 data.Tags,
-		Description:          data.Description,
-		InheritOperations:    data.InheritOperations,
-		PreRequestScript:     data.PreRequestScript,
-		PostResponseScript:   data.PostResponseScript,
-		DisabledGlobalParams: data.DisabledGlobalParams,
-		ProxyConfig:          data.ProxyConfig,
-		TLSConfig:            data.TLSConfig,
-		URLEncoding:          data.URLEncoding,
-		WSProtocolConversion: persistedWSProtocolConversion(data.WSProtocolConversion),
-		SortOrder:            maxSort + 1,
+		ModuleID:               moduleID,
+		FolderID:               folderID,
+		Name:                   data.Name,
+		Type:                   defaultStr(data.Type, string(models.EndpointTypeHTTP)),
+		Method:                 data.Method,
+		Path:                   data.Path,
+		BodyType:               data.BodyType,
+		BodyContent:            data.BodyContent,
+		ContentType:            data.ContentType,
+		Timeout:                models.NormalizeScopedTimeoutValue(data.TimeoutMode, data.Timeout),
+		TimeoutMode:            models.PersistedTimeoutMode(data.TimeoutMode),
+		FollowRedirects:        data.FollowRedirects,
+		SendNoCacheHeaders:     data.SendNoCacheHeaders,
+		DocContent:             data.DocContent,
+		Status:                 data.Status,
+		Tags:                   data.Tags,
+		Description:            data.Description,
+		InheritOperations:      data.InheritOperations,
+		PreRequestScript:       data.PreRequestScript,
+		PostResponseScript:     data.PostResponseScript,
+		DisabledGlobalParams:   data.DisabledGlobalParams,
+		ProxyConfig:            data.ProxyConfig,
+		TLSConfig:              data.TLSConfig,
+		URLEncoding:            data.URLEncoding,
+		WSProtocolConversion:   persistedWSProtocolConversion(data.WSProtocolConversion),
+		StreamViewMode:         persistedStreamViewMode(data.StreamViewMode),
+		StreamCompletionFormat: persistedStreamCompletionFormat(data.StreamCompletionFormat),
+		StreamJSONPath:         data.StreamJSONPath,
+		StreamRenderMarkdown:   data.StreamRenderMarkdown,
+		SortOrder:              maxSort + 1,
 	}
 
 	// 使用事务创建端点及其所有关联数据

@@ -525,22 +525,44 @@ export function WebSocketResponse(props: { connId: string; layout?: "right" | "b
   )
 }
 
+/** 绑定到接口记录的流式展示偏好；连接消息本身仍只保留在运行期 store。 */
+export interface StreamPresentationSettings {
+  viewMode: StreamViewMode
+  completionFormat: StreamCompletionFormat
+  jsonPath: string
+  renderMarkdown: boolean
+}
+
 /** 流式响应区：实时事件流 + 停止按钮（用于响应体为 text/event-stream 的流式 HTTP 响应） */
-export function StreamEventLog(props: { streamId: string; streamFormat?: string; onStop?: () => void }) {
+export function StreamEventLog(props: {
+  streamId: string
+  streamFormat?: string
+  onStop?: () => void
+  settings?: StreamPresentationSettings
+  onSettingsChange?: (settings: Partial<StreamPresentationSettings>) => void
+}) {
   const status = createMemo(() => streamStatus(props.streamId))
   const [query, setQuery] = createSignal("")
   const [order, setOrder] = createSignal<StreamMessageOrder>("asc")
   const [followLatest, setFollowLatest] = createSignal(true)
   const [selectedMessage, setSelectedMessage] = createSignal<StreamMessage | undefined>(selectedStreamMessage(props.streamId))
   const [raw, setRaw] = createSignal(false)
-  const [viewMode, setViewMode] = createSignal<StreamViewMode>("timeline")
-  const [completionFormat, setCompletionFormat] = createSignal<StreamCompletionFormat>("auto")
-  const [customJSONPath, setCustomJSONPath] = createSignal("")
-  const [renderCompletionMarkdown, setRenderCompletionMarkdown] = createSignal(false)
+  const [viewMode, setViewMode] = createSignal<StreamViewMode>(props.settings?.viewMode === "completion" ? "completion" : "timeline")
+  const [completionFormat, setCompletionFormat] = createSignal<StreamCompletionFormat>(props.settings?.completionFormat ?? "auto")
+  const [customJSONPath, setCustomJSONPath] = createSignal(props.settings?.jsonPath ?? "")
+  const [renderCompletionMarkdown, setRenderCompletionMarkdown] = createSignal(props.settings?.renderMarkdown ?? false)
   const messageCount = createMemo(() => streamMessages(props.streamId).length)
   const completion = createMemo(() => mergeStreamCompletion(
     streamMessages(props.streamId), completionFormat(), customJSONPath(),
   ))
+  // 切换接口、从数据库重新加载或取消未保存请求时，以接口记录为准回填展示偏好。
+  createEffect(() => {
+    const settings = props.settings
+    setViewMode(settings?.viewMode === "completion" ? "completion" : "timeline")
+    setCompletionFormat(settings?.completionFormat ?? "auto")
+    setCustomJSONPath(settings?.jsonPath ?? "")
+    setRenderCompletionMarkdown(settings?.renderMarkdown ?? false)
+  })
   let messageLogElement: HTMLDivElement | undefined
   let scrollFrame: number | undefined
   let releaseScrollFrame: number | undefined
@@ -599,7 +621,11 @@ export function StreamEventLog(props: { streamId: string; streamFormat?: string;
           <Select
             size="sm"
             value={completionFormat()}
-            onChange={(value) => setCompletionFormat(value as StreamCompletionFormat)}
+            onChange={(value) => {
+              const format = value as StreamCompletionFormat
+              setCompletionFormat(format)
+              props.onSettingsChange?.({ completionFormat: format })
+            }}
             options={[
               { value: "auto", label: t("stream.completionAuto") },
               { value: "openai", label: t("stream.completionOpenAI") },
@@ -616,14 +642,22 @@ export function StreamEventLog(props: { streamId: string; streamFormat?: string;
             <Input
               size="sm"
               value={customJSONPath()}
-              onInput={(event) => setCustomJSONPath(event.currentTarget.value)}
+              onInput={(event) => {
+                const jsonPath = event.currentTarget.value
+                setCustomJSONPath(jsonPath)
+                props.onSettingsChange?.({ jsonPath })
+              }}
               placeholder={t("stream.completionJSONPath")}
               aria-label={t("stream.completionJSONPath")}
               class="min-w-36 flex-1 font-mono"
             />
           </Show>
           <label class="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
-            <Checkbox checked={renderCompletionMarkdown()} onChange={(event) => setRenderCompletionMarkdown(event.currentTarget.checked)} />
+            <Checkbox checked={renderCompletionMarkdown()} onChange={(event) => {
+              const renderMarkdown = event.currentTarget.checked
+              setRenderCompletionMarkdown(renderMarkdown)
+              props.onSettingsChange?.({ renderMarkdown })
+            }} />
             <span>{t("stream.renderMarkdown")}</span>
           </label>
           <Show when={!completion()}>
@@ -631,36 +665,38 @@ export function StreamEventLog(props: { streamId: string; streamFormat?: string;
           </Show>
         </Show>
         <Show when={viewMode() === "timeline"}>
-        <div class="relative min-w-24 max-w-52 flex-1">
-          <Icon icon="lucide:search" class="pointer-events-none absolute left-2 top-1/2 z-1 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
-          <Input
-            size="sm"
-            value={query()}
-            onInput={(event) => setQuery(event.currentTarget.value)}
-            placeholder={t("stream.filterPlaceholder")}
-            aria-label={t("stream.filterPlaceholder")}
-            class="pl-7"
-          />
-        </div>
-        <Tooltip content={t(order() === "asc" ? "stream.order.oldestFirst" : "stream.order.newestFirst")}>
-          <Button size="icon-sm" variant="ghost" onClick={() => setOrder(value => value === "asc" ? "desc" : "asc")}>
-            <Icon icon={order() === "asc" ? "lucide:arrow-down" : "lucide:arrow-up"} class="h-3.5 w-3.5" />
-          </Button>
-        </Tooltip>
-        <label class="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
-          <Checkbox checked={followLatest()} onChange={(event) => setFollowLatest(event.currentTarget.checked)} />
-          <span>{t("stream.followLatest")}</span>
-        </label>
-        <label class="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
-          <Checkbox checked={raw()} onChange={(event) => setRaw(event.currentTarget.checked)} />
-          <span>{t("stream.rawRecords")}</span>
-        </label>
+          <div class="relative min-w-24 max-w-52 flex-1">
+            <Icon icon="lucide:search" class="pointer-events-none absolute left-2 top-1/2 z-1 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+            <Input
+              size="sm"
+              value={query()}
+              onInput={(event) => setQuery(event.currentTarget.value)}
+              placeholder={t("stream.filterPlaceholder")}
+              aria-label={t("stream.filterPlaceholder")}
+              class="pl-7"
+            />
+          </div>
+          <Tooltip content={t(order() === "asc" ? "stream.order.oldestFirst" : "stream.order.newestFirst")}>
+            <Button size="icon-sm" variant="ghost" onClick={() => setOrder(value => value === "asc" ? "desc" : "asc")}>
+              <Icon icon={order() === "asc" ? "lucide:arrow-down" : "lucide:arrow-up"} class="h-3.5 w-3.5" />
+            </Button>
+          </Tooltip>
+          <label class="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
+            <Checkbox checked={followLatest()} onChange={(event) => setFollowLatest(event.currentTarget.checked)} />
+            <span>{t("stream.followLatest")}</span>
+          </label>
+          <label class="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
+            <Checkbox checked={raw()} onChange={(event) => setRaw(event.currentTarget.checked)} />
+            <span>{t("stream.rawRecords")}</span>
+          </label>
         </Show>
         <Select
           size="sm"
           value={viewMode()}
           onChange={(value) => {
-            setViewMode(value as StreamViewMode)
+            const mode = value as StreamViewMode
+            setViewMode(mode)
+            props.onSettingsChange?.({ viewMode: mode })
             setSelectedMessage(undefined)
             selectStreamMessage(props.streamId)
           }}

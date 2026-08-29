@@ -6,6 +6,9 @@
 import type { ActualRequestInfo, CookieInfo, ResponseExample, ResponseSchema } from "@/../bindings/PostPigeon/internal/models"
 import type { AuthType, BodyType, EndpointType, HTTPMethod, OperationStage, OperationType, ParamLocation } from "@/lib/types"
 
+export type StreamViewMode = "timeline" | "completion"
+export type StreamCompletionFormat = "auto" | "openai" | "gemini" | "claude" | "ollama-generate" | "ollama-chat" | "custom"
+
 export interface EndpointData {
   id: string
   name: string
@@ -52,6 +55,11 @@ export interface EndpointData {
   urlEncoding: string
   /** 接口级 WebSocket 协议头自动转换档位（inherit / on / off） */
   wsProtocolConversion: string
+  /** 接口级流式响应展示偏好（仅影响响应区，不影响请求）。 */
+  streamViewMode: StreamViewMode
+  streamCompletionFormat: StreamCompletionFormat
+  streamJSONPath: string
+  streamRenderMarkdown: boolean
   /** 不考虑接口自身覆盖时，由文件夹/模块/项目/全局计算出的开关 */
   inheritedWsProtocolConversion: boolean
   /** 前置/后置操作列表 */

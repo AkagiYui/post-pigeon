@@ -34,8 +34,8 @@ import { OperationsEditor } from "./OperationsEditor"
 import { CookiesEditor, ParamsEditor } from "./ParamsEditor"
 import { shouldShowResponsePanel } from "./response-visibility"
 import { ResponseBodyToolbar, ResponsePanel } from "./ResponsePanel"
-import { StreamEventLog, WebSocketMessageEditor, WebSocketResponse } from "./StreamPanels"
 import { decodeStreamResponseBodyChunks, streamResponseBody } from "./stream-message-view"
+import { StreamEventLog, type StreamPresentationSettings, WebSocketMessageEditor, WebSocketResponse } from "./StreamPanels"
 
 /** HTTP 方法选项（用于 Combobox） */
 const methodOptions: ComboboxOption[] = [
@@ -454,6 +454,14 @@ export function EndpointDetail(props: EndpointDetailProps) {
     if (!id) return
     try { await HTTPService.StopStream(id) } catch (e) { toastError(e) }
   }
+  const updateStreamPresentation = (settings: Partial<StreamPresentationSettings>) => {
+    const update: Partial<EndpointData> = {}
+    if (settings.viewMode !== undefined) update.streamViewMode = settings.viewMode
+    if (settings.completionFormat !== undefined) update.streamCompletionFormat = settings.completionFormat
+    if (settings.jsonPath !== undefined) update.streamJSONPath = settings.jsonPath
+    if (settings.renderMarkdown !== undefined) update.streamRenderMarkdown = settings.renderMarkdown
+    props.onChange?.(update)
+  }
 
   // 文档头部：名称 + 保存/删除
   const DocHeader = () => (
@@ -713,18 +721,18 @@ export function EndpointDetail(props: EndpointDetailProps) {
                 <Show
                   when={!props.response!.error}
                   fallback={
-                      <div class="flex flex-col h-full">
-                        <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
-                          <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
-                          <div class="ml-auto"><LayoutToggle /></div>
-                        </div>
-                        <div class="flex-1 overflow-auto p-3">
-                          <pre class="text-sm font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">
-                            {props.response!.error}
-                          </pre>
-                        </div>
+                    <div class="flex flex-col h-full">
+                      <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
+                        <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
+                        <div class="ml-auto"><LayoutToggle /></div>
                       </div>
-                    }
+                      <div class="flex-1 overflow-auto p-3">
+                        <pre class="text-sm font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">
+                          {props.response!.error}
+                        </pre>
+                      </div>
+                    </div>
+                  }
                 >
                   <Tabs
                     variant="line"
@@ -732,42 +740,42 @@ export function EndpointDetail(props: EndpointDetailProps) {
                     value={activeResponseTab()}
                     onChange={setActiveResponseTab}
                     extra={
-                        <div class="flex items-center gap-3 text-xs text-muted-foreground">
-                          {/* 上下布局：响应体工具栏移到状态码左侧，避免单独占一行（左右布局时工具栏留在面板内） */}
-                          <Show when={!isWs() && responseLayout() === "bottom" && activeResponseTab() === "body"}>
-                            <ResponseBodyToolbar
-                              renderMode={renderMode()}
-                              onRenderModeChange={setRenderMode}
-                              format={format()}
-                              onFormatChange={setFormat}
-                              encoding={encoding()}
-                              onEncodingChange={setEncoding}
-                              encodingDisabled={props.response?.rawBodyOmitted}
-                              onDownload={downloadResponseBody}
-                            />
-                          </Show>
-                          {/* 状态码：hover 展示该状态码的名称与释义 */}
-                          <HoverCard content={<ResponseStatusCard code={props.response!.statusCode} />}>
-                            <Badge class={cn(getStatusColor(props.response!.statusCode), "cursor-help")}>
-                              {props.response!.statusCode}
-                            </Badge>
-                          </HoverCard>
-                          {/* 耗时：hover 展示各阶段耗时 */}
-                          <HoverCard content={<ResponseTimingCard timing={props.response!.timing} />}>
-                            <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
-                              {formatTiming(props.response!.timing?.total || 0)}
-                            </span>
-                          </HoverCard>
-                          {/* 大小：hover 展示请求/响应的头与体大小 */}
-                          <HoverCard content={<ResponseSizeCard response={responseForDisplay()!} />}>
-                            <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
-                              {formatSize(responseForDisplay()!.size || 0)}
-                            </span>
-                          </HoverCard>
-                          {/* 布局切换按钮（上下 / 左右） */}
-                          <LayoutToggle />
-                        </div>
-                      }
+                      <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                        {/* 上下布局：响应体工具栏移到状态码左侧，避免单独占一行（左右布局时工具栏留在面板内） */}
+                        <Show when={!isWs() && responseLayout() === "bottom" && activeResponseTab() === "body"}>
+                          <ResponseBodyToolbar
+                            renderMode={renderMode()}
+                            onRenderModeChange={setRenderMode}
+                            format={format()}
+                            onFormatChange={setFormat}
+                            encoding={encoding()}
+                            onEncodingChange={setEncoding}
+                            encodingDisabled={props.response?.rawBodyOmitted}
+                            onDownload={downloadResponseBody}
+                          />
+                        </Show>
+                        {/* 状态码：hover 展示该状态码的名称与释义 */}
+                        <HoverCard content={<ResponseStatusCard code={props.response!.statusCode} />}>
+                          <Badge class={cn(getStatusColor(props.response!.statusCode), "cursor-help")}>
+                            {props.response!.statusCode}
+                          </Badge>
+                        </HoverCard>
+                        {/* 耗时：hover 展示各阶段耗时 */}
+                        <HoverCard content={<ResponseTimingCard timing={props.response!.timing} />}>
+                          <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
+                            {formatTiming(props.response!.timing?.total || 0)}
+                          </span>
+                        </HoverCard>
+                        {/* 大小：hover 展示请求/响应的头与体大小 */}
+                        <HoverCard content={<ResponseSizeCard response={responseForDisplay()!} />}>
+                          <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
+                            {formatSize(responseForDisplay()!.size || 0)}
+                          </span>
+                        </HoverCard>
+                        {/* 布局切换按钮（上下 / 左右） */}
+                        <LayoutToggle />
+                      </div>
+                    }
                   >
                     {(key) => (
                       <Show when={!isWs() && key === "timeline"} fallback={
@@ -788,7 +796,18 @@ export function EndpointDetail(props: EndpointDetailProps) {
                           <WebSocketResponse connId={ep().id} layout={responseLayout()} />
                         </Show>
                       }>
-                        <StreamEventLog streamId={props.response!.streamId!} streamFormat={props.response!.streamFormat} onStop={stopStream} />
+                        <StreamEventLog
+                          streamId={props.response!.streamId!}
+                          streamFormat={props.response!.streamFormat}
+                          onStop={stopStream}
+                          settings={{
+                            viewMode: ep().streamViewMode,
+                            completionFormat: ep().streamCompletionFormat,
+                            jsonPath: ep().streamJSONPath,
+                            renderMarkdown: ep().streamRenderMarkdown,
+                          }}
+                          onSettingsChange={updateStreamPresentation}
+                        />
                       </Show>
                     )}
                   </Tabs>

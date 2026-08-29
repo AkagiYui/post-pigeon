@@ -109,10 +109,22 @@ interface UnsavedRequestData {
   tlsConfig: string
   urlEncoding: string
   wsProtocolConversion: string
+  streamViewMode: EndpointData["streamViewMode"]
+  streamCompletionFormat: EndpointData["streamCompletionFormat"]
+  streamJSONPath: string
+  streamRenderMarkdown: boolean
   inheritedWsProtocolConversion: boolean
   operations: OperationRow[]
   examples: ResponseExample[]
   schemas: ResponseSchema[]
+}
+
+const streamCompletionFormats: EndpointData["streamCompletionFormat"][] = [
+  "auto", "openai", "gemini", "claude", "ollama-generate", "ollama-chat", "custom",
+]
+
+function isStreamCompletionFormat(value: string): value is EndpointData["streamCompletionFormat"] {
+  return streamCompletionFormats.some((format) => format === value)
 }
 
 export interface ApiManagementProps {
@@ -695,6 +707,10 @@ export function ApiManagement(props: ApiManagementProps) {
           tlsConfig: detail.tlsConfig || "",
           urlEncoding: detail.urlEncoding || "",
           wsProtocolConversion: detail.wsProtocolConversion || "",
+          streamViewMode: detail.streamViewMode === "completion" ? "completion" : "timeline",
+          streamCompletionFormat: isStreamCompletionFormat(detail.streamCompletionFormat) ? detail.streamCompletionFormat : "auto",
+          streamJSONPath: detail.streamJSONPath || "",
+          streamRenderMarkdown: detail.streamRenderMarkdown ?? false,
           inheritedWsProtocolConversion: detail.inheritedWsProtocolConversion ?? true,
           operations: fromOperationModels(detail.operations),
           examples: detail.examples || [], schemas: detail.schemas || [],
@@ -753,6 +769,10 @@ export function ApiManagement(props: ApiManagementProps) {
         tlsConfig: unsaved.tlsConfig ?? "",
         urlEncoding: unsaved.urlEncoding ?? "",
         wsProtocolConversion: unsaved.wsProtocolConversion ?? "",
+        streamViewMode: unsaved.streamViewMode ?? "timeline",
+        streamCompletionFormat: unsaved.streamCompletionFormat ?? "auto",
+        streamJSONPath: unsaved.streamJSONPath ?? "",
+        streamRenderMarkdown: unsaved.streamRenderMarkdown ?? false,
         inheritedWsProtocolConversion: unsaved.inheritedWsProtocolConversion ?? true,
         operations: unsaved.operations ?? [], examples: unsaved.examples ?? [], schemas: unsaved.schemas ?? [],
       } as EndpointData)
@@ -952,6 +972,10 @@ export function ApiManagement(props: ApiManagementProps) {
         tlsConfig: ep.tlsConfig,
         urlEncoding: ep.urlEncoding,
         wsProtocolConversion: ep.wsProtocolConversion,
+        streamViewMode: ep.streamViewMode,
+        streamCompletionFormat: ep.streamCompletionFormat,
+        streamJSONPath: ep.streamJSONPath,
+        streamRenderMarkdown: ep.streamRenderMarkdown,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations),
@@ -984,6 +1008,10 @@ export function ApiManagement(props: ApiManagementProps) {
         tlsConfig: ep.tlsConfig,
         urlEncoding: ep.urlEncoding,
         wsProtocolConversion: ep.wsProtocolConversion,
+        streamViewMode: ep.streamViewMode,
+        streamCompletionFormat: ep.streamCompletionFormat,
+        streamJSONPath: ep.streamJSONPath,
+        streamRenderMarkdown: ep.streamRenderMarkdown,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
@@ -1003,6 +1031,10 @@ export function ApiManagement(props: ApiManagementProps) {
           tlsConfig: ep.tlsConfig,
           urlEncoding: ep.urlEncoding,
           wsProtocolConversion: ep.wsProtocolConversion,
+          streamViewMode: ep.streamViewMode,
+          streamCompletionFormat: ep.streamCompletionFormat,
+          streamJSONPath: ep.streamJSONPath,
+          streamRenderMarkdown: ep.streamRenderMarkdown,
           params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
           headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
           operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],

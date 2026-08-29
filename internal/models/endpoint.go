@@ -102,6 +102,12 @@ type Endpoint struct {
 	URLEncoding string `gorm:"type:text" json:"urlEncoding"`
 	// WSProtocolConversion WebSocket 协议头自动转换档位。空字符串表示继承文件夹或模块。
 	WSProtocolConversion string `gorm:"type:text" json:"wsProtocolConversion"`
+	// 以下四项只控制该接口的流式响应展示，不参与实际 HTTP 请求。
+	// 采用明确默认值，旧接口迁移后仍保持原有的「分条 + 自动识别 + 不渲染 Markdown」体验。
+	StreamViewMode         string `gorm:"type:text;default:timeline" json:"streamViewMode"`
+	StreamCompletionFormat string `gorm:"type:text;default:auto" json:"streamCompletionFormat"`
+	StreamJSONPath         string `gorm:"type:text" json:"streamJSONPath"`
+	StreamRenderMarkdown   bool   `gorm:"default:false" json:"streamRenderMarkdown"`
 	// PreRequestScript 前置脚本，请求发送前执行（JavaScript）——旧字段，保留以兼容历史数据
 	PreRequestScript string `gorm:"type:text" json:"preRequestScript"`
 	// PostResponseScript 后置脚本，响应返回后执行（JavaScript）——旧字段，保留以兼容历史数据
@@ -131,6 +137,12 @@ func (e *Endpoint) BeforeCreate(tx *gorm.DB) error {
 	}
 	if e.TimeoutMode == "" {
 		e.TimeoutMode = string(TimeoutInherit)
+	}
+	if e.StreamViewMode == "" {
+		e.StreamViewMode = "timeline"
+	}
+	if e.StreamCompletionFormat == "" {
+		e.StreamCompletionFormat = "auto"
 	}
 	return nil
 }

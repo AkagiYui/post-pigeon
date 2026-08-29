@@ -271,6 +271,9 @@ func TestEndpointLifecycle(t *testing.T) {
 	if e1.SortOrder == e2.SortOrder {
 		t.Errorf("两个端点 sortOrder 不应相同: %d", e1.SortOrder)
 	}
+	if e1.StreamViewMode != "timeline" || e1.StreamCompletionFormat != "auto" || e1.StreamRenderMarkdown {
+		t.Errorf("新接口的流式展示默认值不正确: %+v", e1)
+	}
 
 	// 初始详情：无关联
 	d, err := es.GetEndpoint(e1.ID)
@@ -286,6 +289,8 @@ func TestEndpointLifecycle(t *testing.T) {
 		ID: e1.ID, Name: "E1改", Method: "POST", Path: "/z",
 		BodyType: "json", BodyContent: `{"a":1}`, ContentType: "application/json",
 		Timeout: 5000, FollowRedirects: new(false),
+		StreamViewMode: "completion", StreamCompletionFormat: "custom",
+		StreamJSONPath: "$.choices[*].delta.content", StreamRenderMarkdown: true,
 		Params:     []models.EndpointParam{{Type: "query", Name: "q", Value: "1", Enabled: true}},
 		Headers:    []models.EndpointHeader{{Name: "X-Test", Value: "hi", Enabled: true}},
 		BodyFields: []models.EndpointBodyField{{Name: "f", Value: "fv", FieldType: "text", Enabled: true}},
@@ -305,6 +310,10 @@ func TestEndpointLifecycle(t *testing.T) {
 	}
 	if d.FollowRedirects == nil || *d.FollowRedirects != false || d.Timeout != 5000 {
 		t.Errorf("FollowRedirects/Timeout 未正确保存: %v/%d", d.FollowRedirects, d.Timeout)
+	}
+	if d.StreamViewMode != "completion" || d.StreamCompletionFormat != "custom" ||
+		d.StreamJSONPath != "$.choices[*].delta.content" || !d.StreamRenderMarkdown {
+		t.Errorf("流式展示偏好未正确保存: %+v", d.Endpoint)
 	}
 	if len(d.Params) != 1 || d.Params[0].Name != "q" {
 		t.Errorf("Params 未保存: %+v", d.Params)
@@ -355,9 +364,10 @@ func TestEndpointLifecycle(t *testing.T) {
 	full, err := es.CreateFullEndpoint(m.ID, nil, EndpointSaveData{
 		Name: "Full", Method: "PUT", Path: "/full", BodyType: "none",
 		InheritOperations: false,
-		Params:            []models.EndpointParam{{Type: "query", Name: "p", Value: "v", Enabled: true}},
-		Headers:           []models.EndpointHeader{{Name: "H", Value: "1", Enabled: true}},
-		Auth:              &models.EndpointAuth{Type: "basic", Data: models.ToJSON(models.BasicAuthData{Username: "u", Password: "p"})},
+		StreamViewMode:    "completion", StreamCompletionFormat: "claude", StreamRenderMarkdown: true,
+		Params:  []models.EndpointParam{{Type: "query", Name: "p", Value: "v", Enabled: true}},
+		Headers: []models.EndpointHeader{{Name: "H", Value: "1", Enabled: true}},
+		Auth:    &models.EndpointAuth{Type: "basic", Data: models.ToJSON(models.BasicAuthData{Username: "u", Password: "p"})},
 	})
 	if err != nil {
 		t.Fatalf("CreateFullEndpoint err=%v", err)
@@ -368,6 +378,9 @@ func TestEndpointLifecycle(t *testing.T) {
 	}
 	if fd.InheritOperations {
 		t.Error("CreateFullEndpoint 应保留显式 inheritOperations=false")
+	}
+	if fd.StreamViewMode != "completion" || fd.StreamCompletionFormat != "claude" || !fd.StreamRenderMarkdown {
+		t.Errorf("CreateFullEndpoint 未保存流式展示偏好: %+v", fd.Endpoint)
 	}
 
 	// 删除 + 级联
@@ -403,6 +416,42 @@ func TestEndpointLifecycle(t *testing.T) {
 		if tbl.c() != 0 {
 			t.Errorf("删除端点后 %s 残留", tbl.name)
 		}
+	}
+}
+
+// 旧版前端调用 SaveEndpointData 时不含新增的流式展示字段；这种保存不能把新版本
+// 已选好的展示偏好重置掉，否则用户在版本间切换会丢配置。
+func TestEndpointSavePreservesStreamPresentationFromOldClient(t *testing.T) {
+	db := newTestDB(t)
+	es := NewEndpointService(db)
+	p := mustCreateProject(t, db, "P")
+	m := defaultModule(t, db, p.ID)
+	ep, err := es.CreateEndpoint(m.ID, nil, "stream", "GET", "/stream")
+	if err != nil {
+		t.Fatalf("CreateEndpoint err=%v", err)
+	}
+	if err := db.Model(&models.Endpoint{}).Where("id = ?", ep.ID).Updates(map[string]any{
+		"stream_view_mode":         "completion",
+		"stream_completion_format": "custom",
+		"stream_json_path":         "$.delta",
+		"stream_render_markdown":   true,
+	}).Error; err != nil {
+		t.Fatalf("预置流式展示偏好 err=%v", err)
+	}
+
+	// 模拟旧客户端：四项新增字段均为零值。
+	if err := es.SaveEndpointData(EndpointSaveData{
+		ID: ep.ID, Name: "stream", Method: "GET", Path: "/stream", BodyType: "none",
+	}); err != nil {
+		t.Fatalf("SaveEndpointData err=%v", err)
+	}
+	got, err := es.GetEndpoint(ep.ID)
+	if err != nil {
+		t.Fatalf("GetEndpoint err=%v", err)
+	}
+	if got.StreamViewMode != "completion" || got.StreamCompletionFormat != "custom" ||
+		got.StreamJSONPath != "$.delta" || !got.StreamRenderMarkdown {
+		t.Errorf("旧客户端保存后流式展示偏好被重置: %+v", got.Endpoint)
 	}
 }
 

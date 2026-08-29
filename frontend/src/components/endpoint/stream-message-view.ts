@@ -1,10 +1,11 @@
 import { decodeRawBody } from "@/lib/format"
 import type { StreamMessage } from "@/stores/stream"
 
+import type { StreamCompletionFormat, StreamViewMode } from "./editor-types"
+
 export type StreamMessageDirection = "all" | "sent" | "received"
 export type StreamMessageOrder = "asc" | "desc"
-export type StreamViewMode = "timeline" | "completion"
-export type StreamCompletionFormat = "auto" | "openai" | "gemini" | "claude" | "ollama-generate" | "ollama-chat" | "custom"
+export type { StreamCompletionFormat, StreamViewMode }
 
 export interface StreamCompletion {
   /** 实际被采用的协议格式；自动模式在首条可识别消息后锁定。 */

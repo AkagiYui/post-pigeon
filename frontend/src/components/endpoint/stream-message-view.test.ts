@@ -3,13 +3,13 @@ import { describe, expect, it } from "vitest"
 import type { StreamMessage } from "@/stores/stream"
 
 import {
+  decodeStreamResponseBodyChunks,
+  extractStreamJSONPath,
   filterAndSortStreamMessages,
   inferMessageFormat,
   latestMessageScrollTop,
   mergeStreamCompletion,
   messageContentForDisplay,
-  extractStreamJSONPath,
-  decodeStreamResponseBodyChunks,
   streamResponseBody,
 } from "./stream-message-view"
 
