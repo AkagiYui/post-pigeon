@@ -1,4 +1,4 @@
-import { fireEvent, render, screen, waitFor } from "@solidjs/testing-library"
+import { fireEvent, render, screen, waitFor, within } from "@solidjs/testing-library"
 import { createSignal, Show } from "solid-js"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
@@ -30,7 +30,7 @@ vi.mock("@/components/ui/code-editor", () => ({
 
 import { setClearWebSocketMessageAfterSend } from "@/stores/app"
 
-import { encodeWebSocketBinary, WebSocketMessageEditor, WebSocketResponse } from "./StreamPanels"
+import { encodeWebSocketBinary, StreamEventLog, WebSocketMessageEditor, WebSocketResponse } from "./StreamPanels"
 
 function setup(initialValue = "") {
   const [value, setValue] = createSignal(initialValue)
@@ -40,6 +40,8 @@ function setup(initialValue = "") {
 
 describe("WebSocketMessageEditor", () => {
   beforeEach(() => {
+    // Ark Select 在选择新项后会把选项列表滚到顶部；jsdom 没有实现这个浏览器 API。
+    Object.defineProperty(HTMLElement.prototype, "scrollTo", { configurable: true, value: vi.fn() })
     send.mockReset()
     send.mockResolvedValue(undefined)
     stream.status = "open"
@@ -149,5 +151,25 @@ describe("WebSocketMessageEditor", () => {
 
     fireEvent.click(screen.getByRole("button", { name: "show response" }))
     expect(screen.getByRole("region", { name: /消息详情|Message details/ })).toBeInTheDocument()
+  })
+
+  it("自动合并直接展示完成内容，并可切换 Markdown 渲染", async () => {
+    stream.messages = [
+      { kind: "message", timestamp: 1, data: '{"id":"a","created":1,"model":"m","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"先分析"}}]}' },
+      { kind: "message", timestamp: 2, data: '{"id":"a","created":1,"model":"m","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"# 合并标题"}}]}' },
+    ]
+    render(() => <StreamEventLog streamId="http-stream-test" />)
+
+    fireEvent.click(screen.getByLabelText(/流式展示方式|Stream presentation/i))
+    fireEvent.click(await screen.findByRole("option", { name: /自动合并|Merged/i }))
+
+    const result = await screen.findByTestId("stream-completion-content")
+    expect(result).toHaveTextContent("先分析")
+    expect(result).toHaveTextContent("# 合并标题")
+    // 合并态不再把合并结果伪装为消息流，因而也不会存在可点开的消息详情。
+    expect(screen.queryByRole("region", { name: /消息详情|Message details/ })).not.toBeInTheDocument()
+
+    fireEvent.click(screen.getByRole("checkbox", { name: /渲染 Markdown|Render Markdown/i }))
+    expect(within(result).getByRole("heading", { name: "合并标题" })).toBeInTheDocument()
   })
 })

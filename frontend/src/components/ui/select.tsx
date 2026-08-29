@@ -37,6 +37,8 @@ export interface SelectProps {
   searchable?: boolean
   /** 是否隐藏下拉箭头 */
   hideChevron?: boolean
+  /** 下拉触发器的无障碍名称 */
+  "aria-label"?: string
 }
 
 const sizeClasses = {
@@ -62,7 +64,7 @@ const textSizeClasses = {
  * Select 下拉选择组件
  */
 export function Select(props: SelectProps) {
-  const [local] = splitProps(props, ["options", "value", "onChange", "placeholder", "class", "disabled", "size", "textSize", "searchable", "hideChevron"])
+  const [local] = splitProps(props, ["options", "value", "onChange", "placeholder", "class", "disabled", "size", "textSize", "searchable", "hideChevron", "aria-label"])
 
   const sizeCls = () => sizeClasses[local.size || "default"]
   const textSizeCls = () => textSizeClasses[local.textSize || local.size || "default"]
@@ -113,6 +115,7 @@ export function Select(props: SelectProps) {
       >
         <ArkSelect.Control>
           <ArkSelect.Trigger
+            aria-label={local["aria-label"]}
             class={cn(
               "flex items-center justify-between w-full rounded-md border border-border bg-input text-foreground",
               "transition-colors hover:border-accent/50 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",

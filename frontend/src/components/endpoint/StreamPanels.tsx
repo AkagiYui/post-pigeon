@@ -13,6 +13,7 @@ import { Select } from "@/components/ui/select"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
 import { formatBody, parseJSONForDisplay } from "@/lib/format"
+import { renderMarkdown } from "@/lib/markdown"
 import { cn, downloadTextFile } from "@/lib/utils"
 import {
   clearWebSocketMessageAfterSend,
@@ -535,19 +536,11 @@ export function StreamEventLog(props: { streamId: string; streamFormat?: string;
   const [viewMode, setViewMode] = createSignal<StreamViewMode>("timeline")
   const [completionFormat, setCompletionFormat] = createSignal<StreamCompletionFormat>("auto")
   const [customJSONPath, setCustomJSONPath] = createSignal("")
+  const [renderCompletionMarkdown, setRenderCompletionMarkdown] = createSignal(false)
   const messageCount = createMemo(() => streamMessages(props.streamId).length)
   const completion = createMemo(() => mergeStreamCompletion(
     streamMessages(props.streamId), completionFormat(), customJSONPath(),
   ))
-  const completionMessages = createMemo(() => {
-    const merged = completion()
-    if (!merged) return []
-    const timestamp = streamMessages(props.streamId).at(-1)?.timestamp ?? Date.now()
-    return [
-      ...(merged.reasoning ? [{ kind: "message", data: merged.reasoning, event: "reasoning", timestamp }] : []),
-      { kind: "message", data: merged.content, event: "completion", timestamp },
-    ]
-  })
   let messageLogElement: HTMLDivElement | undefined
   let scrollFrame: number | undefined
   let releaseScrollFrame: number | undefined
@@ -557,7 +550,8 @@ export function StreamEventLog(props: { streamId: string; streamFormat?: string;
   createEffect(() => {
     const count = messageCount()
     const currentOrder = order()
-    if (!followLatest() || !messageLogElement) return
+    // 自动合并态是独立结果面板，并不渲染消息流；不能继续驱动已卸载 Timeline 的滚动。
+    if (viewMode() !== "timeline" || !followLatest() || !messageLogElement) return
     if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
     scrollFrame = requestAnimationFrame(() => {
       scrollFrame = undefined
@@ -628,6 +622,10 @@ export function StreamEventLog(props: { streamId: string; streamFormat?: string;
               class="min-w-36 flex-1 font-mono"
             />
           </Show>
+          <label class="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
+            <Checkbox checked={renderCompletionMarkdown()} onChange={(event) => setRenderCompletionMarkdown(event.currentTarget.checked)} />
+            <span>{t("stream.renderMarkdown")}</span>
+          </label>
           <Show when={!completion()}>
             <span class="text-xs text-muted-foreground">{t("stream.completionNoMatch")}</span>
           </Show>
@@ -674,31 +672,65 @@ export function StreamEventLog(props: { streamId: string; streamFormat?: string;
           class="w-24 shrink-0"
         />
       </div>
-      <div class="flex min-h-0 flex-1 gap-2">
-        <MessageLog
-          connId={props.streamId}
-          sourceMessages={viewMode() === "completion" ? completionMessages() : undefined}
-          query={query()}
-          order={order()}
-          direction="all"
-          showTimestamp
-          showSSEMetadata
-          raw={raw()}
-          selectedMessage={selectedMessage()}
-          onMessageSelect={(message) => { setSelectedMessage(message); selectStreamMessage(props.streamId, message) }}
-          containerRef={(element) => { messageLogElement = element }}
-          onScroll={() => { if (followLatest() && !autoScrolling) setFollowLatest(false) }}
-        />
-        <Show when={selectedMessage()} keyed>
-          {(message) => (
-            <StreamMessageDetail
-              message={message}
-              layout="right"
-              onClose={() => selectStreamMessage(props.streamId)}
-            />
-          )}
-        </Show>
-      </div>
+      <Show when={viewMode() === "completion"} fallback={
+        <div class="flex min-h-0 flex-1 gap-2">
+          <MessageLog
+            connId={props.streamId}
+            query={query()}
+            order={order()}
+            direction="all"
+            showTimestamp
+            showSSEMetadata
+            raw={raw()}
+            selectedMessage={selectedMessage()}
+            onMessageSelect={(message) => { setSelectedMessage(message); selectStreamMessage(props.streamId, message) }}
+            containerRef={(element) => { messageLogElement = element }}
+            onScroll={() => { if (followLatest() && !autoScrolling) setFollowLatest(false) }}
+          />
+          <Show when={selectedMessage()} keyed>
+            {(message) => (
+              <StreamMessageDetail
+                message={message}
+                layout="right"
+                onClose={() => selectStreamMessage(props.streamId)}
+              />
+            )}
+          </Show>
+        </div>
+      }>
+        <section
+          class="flex min-h-0 flex-1 flex-col overflow-auto rounded-md border border-border bg-input"
+          aria-label={t("stream.mergedResponse")}
+          data-testid="stream-completion-content"
+        >
+          <Show
+            when={completion()}
+            fallback={<div class="m-auto px-4 py-8 text-center text-xs text-muted-foreground">{t("stream.completionNoMatch")}</div>}
+            keyed
+          >
+            {(merged) => (
+              <>
+                <Show when={merged.reasoning}>
+                  <details class="shrink-0 border-b border-border bg-muted/30 px-3 py-2">
+                    <summary class="cursor-pointer select-none text-xs font-medium text-muted-foreground">
+                      {t("stream.reasoning")}
+                    </summary>
+                    <pre class="mt-2 whitespace-pre-wrap break-words font-mono text-xs leading-5 text-muted-foreground">{merged.reasoning}</pre>
+                  </details>
+                </Show>
+                <article class="min-h-full flex-1 px-4 py-3 text-sm leading-7 text-foreground">
+                  <Show
+                    when={renderCompletionMarkdown()}
+                    fallback={<pre class="whitespace-pre-wrap break-words font-mono text-xs leading-5">{merged.content}</pre>}
+                  >
+                    <div class="stream-markdown break-words" innerHTML={renderMarkdown(merged.content)} />
+                  </Show>
+                </article>
+              </>
+            )}
+          </Show>
+        </section>
+      </Show>
     </div>
   )
 }
