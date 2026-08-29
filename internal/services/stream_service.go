@@ -39,6 +39,8 @@ type StreamEvent struct {
 	HasRetry   bool   `json:"hasRetry,omitempty"`
 	Comment    string `json:"comment,omitempty"`
 	HasComment bool   `json:"hasComment,omitempty"`
+	// Raw 是事件/记录的协议原文，供 Raw 视图与导出使用。
+	Raw string `json:"raw,omitempty"`
 }
 
 // emitStream 通过 Wails 事件把流式事件推给前端（无运行中的 App 时静默跳过，便于测试）。

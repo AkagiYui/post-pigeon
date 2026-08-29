@@ -244,15 +244,28 @@ type HTTPResponseData struct {
 	Scripts *ScriptResults `json:"scripts,omitempty"`
 	// Skipped 为 true 表示请求被前置脚本 pm.execution.skipRequest() 跳过，未真正发出
 	Skipped bool `json:"skipped"`
-	// Streaming 为 true 表示响应是 SSE 流，正通过 sse:event 事件持续推送（Body 为空）
+	// Streaming 为 true 表示响应是持续记录流，正通过 http:stream 事件持续推送（Body 为空）。
 	Streaming bool `json:"streaming"`
 	// StreamID 流的连接标识，前端据此订阅并展示实时事件、可发起停止
 	StreamID string `json:"streamId"`
+	// StreamFormat 为 sse / ndjson / json-seq，前端据此说明记录如何被解码。
+	StreamFormat string `json:"streamFormat"`
 }
 
-// isEventStream 判断响应 Content-Type 是否为 SSE 事件流。
-func isEventStream(contentType string) bool {
-	return strings.Contains(strings.ToLower(contentType), "text/event-stream")
+// streamFormat 判断可按记录实时展示的 HTTP 流格式。普通 chunked 响应仍走缓冲路径，
+// 避免把下载误判为流；“Raw”是这些格式的记录原文视图，而非传输层 read chunk。
+func streamFormat(contentType string) string {
+	contentType = strings.ToLower(contentType)
+	switch {
+	case strings.Contains(contentType, "text/event-stream"):
+		return "sse"
+	case strings.Contains(contentType, "application/x-ndjson"), strings.Contains(contentType, "application/ndjson"):
+		return "ndjson"
+	case strings.Contains(contentType, "application/json-seq"):
+		return "json-seq"
+	default:
+		return ""
+	}
 }
 
 // ListScriptLibraries 返回脚本运行时的内置库清单（名称/版本/用法等），供前端展示。
@@ -532,10 +545,10 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		}
 	}
 
-	// 流式响应：响应体为 text/event-stream 时，不缓冲整体响应，而是保持连接、持续读取并
-	// 按 SSE 帧解析后经 http:stream 事件实时推送（前端展示为事件流）。此路径与普通请求走
-	// 同一个（已注入代理的）客户端——SSE 只是流式响应的一种文本规范，并非独立的请求类型。
-	if isEventStream(resp.Header.Get("Content-Type")) {
+	// SSE、NDJSON 和 JSON Text Sequence 都以逐记录方式呈现；其余响应仍正常缓冲，
+	// 避免把二进制下载当成“raw chunk”读进事件面板。
+	format := streamFormat(resp.Header.Get("Content-Type"))
+	if format != "" {
 		streaming = true // 通知外层 defer：ctx 交由后台 goroutine 持有，勿在此处取消
 		if timeoutTimer != nil {
 			timeoutTimer.Stop()
@@ -552,7 +565,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		s.persistModuleVarChanges(data.ModuleID, stores.Collection)
 		// 后台读取事件流并推送，读到 EOF/停止后清理连接
 		streamLimits := sseReadLimitsFromSettings(limits)
-		safego.Go("http.streamResponse", func() { s.streamResponse(resp, streamID, cancel, streamLimits) })
+		safego.Go("http.streamResponse", func() { s.streamResponse(resp, streamID, cancel, streamLimits, format) })
 
 		out := &HTTPResponseData{
 			StatusCode:    resp.StatusCode,
@@ -562,6 +575,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			ActualRequest: actualReq,
 			Streaming:     true,
 			StreamID:      streamID,
+			StreamFormat:  format,
 		}
 		if scriptResults.PreRequest != nil {
 			out.Scripts = scriptResults
@@ -829,6 +843,7 @@ type sseEvent struct {
 	HasRetry   bool
 	Comment    string
 	HasComment bool
+	Raw        string
 }
 
 type sseReadLimits struct {
@@ -863,6 +878,7 @@ func parseSSE(reader io.Reader, limits sseReadLimits, emit func(sseEvent)) error
 	firstLine := true
 	var eventBytes, totalBytes int64
 	eventCount := 0
+	var rawLines []string
 
 	emitItem := func(item sseEvent) error {
 		if limits.MaxEvents > 0 && eventCount >= limits.MaxEvents {
@@ -877,6 +893,7 @@ func parseSSE(reader io.Reader, limits sseReadLimits, emit func(sseEvent)) error
 		if len(dataLines) == 0 {
 			eventName, eventID, hasEventID, retry, hasRetry = "", "", false, 0, false
 			eventBytes = 0
+			rawLines = nil
 			return nil
 		}
 		if eventName == "" {
@@ -885,8 +902,10 @@ func parseSSE(reader io.Reader, limits sseReadLimits, emit func(sseEvent)) error
 		err := emitItem(sseEvent{
 			Data: strings.Join(dataLines, "\n"), Event: eventName,
 			EventID: eventID, HasEventID: hasEventID, Retry: retry, HasRetry: hasRetry,
+			Raw: strings.Join(rawLines, "\n"),
 		})
 		dataLines = nil
+		rawLines = nil
 		eventName, eventID, hasEventID, retry, hasRetry = "", "", false, 0, false
 		eventBytes = 0
 		return err
@@ -915,11 +934,12 @@ func parseSSE(reader io.Reader, limits sseReadLimits, emit func(sseEvent)) error
 			if strings.HasPrefix(comment, " ") {
 				comment = strings.TrimPrefix(comment, " ")
 			}
-			if err := emitItem(sseEvent{Comment: comment, HasComment: true}); err != nil {
+			if err := emitItem(sseEvent{Comment: comment, HasComment: true, Raw: line}); err != nil {
 				return err
 			}
 			eventBytes = 0
 		} else {
+			rawLines = append(rawLines, line)
 			field, value, found := strings.Cut(line, ":")
 			if !found {
 				value = ""
@@ -954,16 +974,58 @@ func parseSSE(reader io.Reader, limits sseReadLimits, emit func(sseEvent)) error
 	return flush()
 }
 
-// streamResponse 持续读取 text/event-stream 响应体，按 SSE 帧解析后经 http:stream 事件推送。
+// parseRecordStream 解析 NDJSON 或 RFC 7464 JSON Text Sequence 的逐行记录。数据保持原文，
+// 由前端决定是否格式化 JSON；它和 SSE 共用同一套资源限额。
+func parseRecordStream(reader io.Reader, limits sseReadLimits, jsonSequence bool, emit func(sseEvent)) error {
+	scanner := bufio.NewScanner(reader)
+	maxLineBytes := int(^uint(0) >> 1)
+	if limits.MaxEventBytes > 0 && limits.MaxEventBytes < int64(maxLineBytes) {
+		maxLineBytes = int(limits.MaxEventBytes) + 1
+	}
+	scanner.Buffer(make([]byte, 64<<10), maxLineBytes)
+	var totalBytes int64
+	count := 0
+	for scanner.Scan() {
+		raw := scanner.Text()
+		totalBytes += int64(len(scanner.Bytes())) + 1
+		if limits.MaxTotalBytes > 0 && totalBytes > limits.MaxTotalBytes {
+			return fmt.Errorf("stream byte limit reached (%d bytes)", limits.MaxTotalBytes)
+		}
+		if limits.MaxEventBytes > 0 && int64(len(scanner.Bytes())) > limits.MaxEventBytes {
+			return fmt.Errorf("stream record byte limit reached (%d bytes)", limits.MaxEventBytes)
+		}
+		data := raw
+		if jsonSequence {
+			data = strings.TrimPrefix(data, "\x1e")
+		}
+		if data == "" {
+			continue
+		}
+		if limits.MaxEvents > 0 && count >= limits.MaxEvents {
+			return fmt.Errorf("stream event limit reached (%d events)", limits.MaxEvents)
+		}
+		count++
+		emit(sseEvent{Data: data, Event: "record", Raw: raw})
+	}
+	if err := scanner.Err(); err != nil {
+		if limits.MaxEventBytes > 0 {
+			return fmt.Errorf("stream record byte limit reached (%d bytes): %w", limits.MaxEventBytes, err)
+		}
+		return fmt.Errorf("read stream: %w", err)
+	}
+	return nil
+}
+
+// streamResponse 持续读取已识别的记录流，按格式解析后经 http:stream 事件推送。
 // 读到 EOF 或被取消（StopStream）后清理连接。cancel 用于结束时释放请求上下文。
-func (s *HTTPService) streamResponse(resp *http.Response, connID string, cancel context.CancelFunc, limits sseReadLimits) {
+func (s *HTTPService) streamResponse(resp *http.Response, connID string, cancel context.CancelFunc, limits sseReadLimits, format string) {
 	defer resp.Body.Close()
 	defer cancel()
 	defer s.unregisterStream(connID)
 
 	emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "open", Data: fmt.Sprintf("%d", resp.StatusCode), Timestamp: nowMillis()})
 
-	err := parseSSE(resp.Body, limits, func(item sseEvent) {
+	emitItem := func(item sseEvent) {
 		kind := "message"
 		if item.HasComment {
 			kind = "comment"
@@ -972,8 +1034,15 @@ func (s *HTTPService) streamResponse(resp *http.Response, connID string, cancel 
 			ConnID: connID, Kind: kind, Data: item.Data, Timestamp: nowMillis(),
 			Event: item.Event, EventID: item.EventID, HasEventID: item.HasEventID,
 			Retry: item.Retry, HasRetry: item.HasRetry, Comment: item.Comment, HasComment: item.HasComment,
+			Raw: item.Raw,
 		})
-	})
+	}
+	var err error
+	if format == "sse" {
+		err = parseSSE(resp.Body, limits, emitItem)
+	} else {
+		err = parseRecordStream(resp.Body, limits, format == "json-seq", emitItem)
+	}
 	if err != nil {
 		emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: err.Error(), Timestamp: nowMillis()})
 	}

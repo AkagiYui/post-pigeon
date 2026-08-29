@@ -13,7 +13,7 @@ import { Select } from "@/components/ui/select"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
 import { formatBody, parseJSONForDisplay } from "@/lib/format"
-import { cn } from "@/lib/utils"
+import { cn, downloadTextFile } from "@/lib/utils"
 import {
   clearWebSocketMessageAfterSend,
   formatWebSocketJSON,
@@ -59,6 +59,7 @@ export function MessageLog(props: {
   showTimestamp?: boolean
   /** SSE 时间线额外展示 event/id/retry/comment 协议字段。 */
   showSSEMetadata?: boolean
+  raw?: boolean
   selectedMessage?: StreamMessage
   onMessageSelect?: (message: StreamMessage) => void
   containerRef?: (element: HTMLDivElement) => void
@@ -125,7 +126,7 @@ export function MessageLog(props: {
                 </div>
               </Show>
               <span class="break-all whitespace-pre-wrap text-foreground">
-                {m.hasComment ? `: ${m.comment ?? ""}` : displayData(m.data, m.binary)}
+                {props.raw ? (m.raw ?? m.data) : m.hasComment ? `: ${m.comment ?? ""}` : displayData(m.data, m.binary)}
               </span>
             </div>
           </div>
@@ -471,12 +472,13 @@ export function WebSocketResponse(props: { connId: string; layout?: "right" | "b
 }
 
 /** 流式响应区：实时事件流 + 停止按钮（用于响应体为 text/event-stream 的流式 HTTP 响应） */
-export function StreamEventLog(props: { streamId: string; onStop?: () => void }) {
+export function StreamEventLog(props: { streamId: string; streamFormat?: string; onStop?: () => void }) {
   const status = createMemo(() => streamStatus(props.streamId))
   const [query, setQuery] = createSignal("")
   const [order, setOrder] = createSignal<StreamMessageOrder>("asc")
   const [followLatest, setFollowLatest] = createSignal(true)
   const [selectedMessage, setSelectedMessage] = createSignal<StreamMessage | undefined>(selectedStreamMessage(props.streamId))
+  const [raw, setRaw] = createSignal(false)
   const messageCount = createMemo(() => streamMessages(props.streamId).length)
   let messageLogElement: HTMLDivElement | undefined
   let scrollFrame: number | undefined
@@ -503,15 +505,27 @@ export function StreamEventLog(props: { streamId: string; onStop?: () => void })
     if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
     if (releaseScrollFrame !== undefined) cancelAnimationFrame(releaseScrollFrame)
   })
+  const exportTranscript = () => {
+    const content = streamMessages(props.streamId)
+      .map((message) => message.raw ?? (message.hasComment ? `: ${message.comment ?? ""}` : message.data))
+      .join("\n\n")
+    downloadTextFile(`stream-${props.streamFormat || "events"}.txt`, content, "text/plain")
+  }
 
   return (
     <div class="flex flex-col h-full p-3 gap-2">
       <div class="flex items-center gap-2 shrink-0 text-xs text-muted-foreground">
         <StatusDot status={status()} />
         <span>{status() === "open" ? t("stream.streaming") : t("stream.streamEnded")}</span>
+        <Show when={props.streamFormat}><span class="rounded bg-muted px-1 text-[10px] uppercase">{props.streamFormat}</span></Show>
         <Show when={messageCount() > 0}>
           <span class="rounded-full bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">{messageCount()}</span>
         </Show>
+        <Tooltip content={t("stream.exportTranscript")}>
+          <Button size="icon-sm" variant="ghost" onClick={exportTranscript} disabled={messageCount() === 0}>
+            <Icon icon="lucide:download" class="h-3.5 w-3.5" />
+          </Button>
+        </Tooltip>
         <span class="flex-1" />
         <Show when={status() === "open"}>
           <Button size="sm" variant="outline" onClick={props.onStop}><Icon icon="lucide:circle-stop" class="h-3.5 w-3.5" />{t("stream.stop")}</Button>
@@ -539,6 +553,10 @@ export function StreamEventLog(props: { streamId: string; onStop?: () => void })
           <Checkbox checked={followLatest()} onChange={(event) => setFollowLatest(event.currentTarget.checked)} />
           <span>{t("stream.followLatest")}</span>
         </label>
+        <label class="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
+          <Checkbox checked={raw()} onChange={(event) => setRaw(event.currentTarget.checked)} />
+          <span>{t("stream.rawRecords")}</span>
+        </label>
       </div>
       <div class="flex min-h-0 flex-1 gap-2">
         <MessageLog
@@ -548,6 +566,7 @@ export function StreamEventLog(props: { streamId: string; onStop?: () => void })
           direction="all"
           showTimestamp
           showSSEMetadata
+          raw={raw()}
           selectedMessage={selectedMessage()}
           onMessageSelect={(message) => { setSelectedMessage(message); selectStreamMessage(props.streamId, message) }}
           containerRef={(element) => { messageLogElement = element }}

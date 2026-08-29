@@ -825,13 +825,13 @@ export function ApiManagement(props: ApiManagementProps) {
       const resp = await HTTPService.SendRequest(sendData)
       if (resp) {
         if (resp.streaming) {
-          // 流式响应（text/event-stream）：以实时事件流展示（事件通过 http:stream 持续推送）
+          // SSE / NDJSON / JSON Sequence 以实时记录流展示（事件通过 http:stream 持续推送）。
           setResponseData({
             statusCode: resp.statusCode,
             timing: toTimingData(resp.timing),
             size: 0, body: "", headers: resp.headers,
             cookies: [], contentType: resp.contentType, actualRequest: resp.actualRequest,
-            streaming: true, streamId: resp.streamId,
+            streaming: true, streamId: resp.streamId, streamFormat: resp.streamFormat,
             scripts: resp.scripts || undefined,
           })
         } else {

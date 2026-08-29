@@ -23,6 +23,7 @@ export interface StreamMessage {
   /** SSE 注释行，不属于 data 正文 */
   comment?: string
   hasComment?: boolean
+  raw?: string
 }
 
 export type StreamStatus = "idle" | "connecting" | "open" | "closed" | "error"
@@ -55,6 +56,7 @@ interface StreamEventPayload {
   hasRetry?: boolean
   comment?: string
   hasComment?: boolean
+  raw?: string
 }
 
 function applyEvent(ev: StreamEventPayload | undefined) {
@@ -67,7 +69,7 @@ function applyEvent(ev: StreamEventPayload | undefined) {
     list.push({
       kind: ev.kind, data: ev.data, binary: ev.binary, timestamp: ev.timestamp,
       event: ev.event, eventId: ev.eventId, hasEventId: ev.hasEventId,
-      retry: ev.retry, hasRetry: ev.hasRetry, comment: ev.comment, hasComment: ev.hasComment,
+      retry: ev.retry, hasRetry: ev.hasRetry, comment: ev.comment, hasComment: ev.hasComment, raw: ev.raw,
     })
     // 限制单连接缓冲上限，避免长连接内存膨胀
     if (list.length > 1000) list.splice(0, list.length - 1000)

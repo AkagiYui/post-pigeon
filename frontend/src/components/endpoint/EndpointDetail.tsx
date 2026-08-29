@@ -777,7 +777,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                           <WebSocketResponse connId={ep().id} layout={responseLayout()} />
                         </Show>
                       }>
-                        <StreamEventLog streamId={props.response!.streamId!} onStop={stopStream} />
+                        <StreamEventLog streamId={props.response!.streamId!} streamFormat={props.response!.streamFormat} onStop={stopStream} />
                       </Show>
                     )}
                   </Tabs>

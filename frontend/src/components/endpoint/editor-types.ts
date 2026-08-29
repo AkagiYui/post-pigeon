@@ -241,10 +241,12 @@ export interface ResponseData {
   rawBodyOmitted?: boolean
   /** 请求被前置脚本 pm.execution.skipRequest() 跳过，未真正发出 */
   skipped?: boolean
-  /** 响应为 SSE 流：以实时事件流展示（Body 为空，事件按 streamId 推送） */
+  /** 响应为 SSE / NDJSON / JSON Sequence 流：以实时事件流展示（Body 为空，事件按 streamId 推送） */
   streaming?: boolean
-  /** SSE 流连接标识 */
+  /** 流连接标识 */
   streamId?: string
+  /** 流记录格式：sse / ndjson / json-seq */
+  streamFormat?: string
 }
 
 /** 环境前置 URL 条目 */

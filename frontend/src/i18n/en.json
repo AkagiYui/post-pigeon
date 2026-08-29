@@ -429,6 +429,8 @@
   "stream.closeMessageDetail": "Close message details",
   "stream.noMessageContent": "No message content",
   "stream.sseComment": "SSE comment",
+  "stream.rawRecords": "Raw records",
+  "stream.exportTranscript": "Export transcript",
   "folder.convertToModule": "Convert to Module",
   "folder.convertToModuleHint": "Convert this folder into a new module. Its contents become the new module's root; the new module's base URL is copied from the current module.",
   "endpoint.param.globalValueReadonlyHint": "Global param values are read-only — edit them on the settings page",

@@ -130,6 +130,25 @@ func TestParseSSEHonorsResourceLimits(t *testing.T) {
 	}
 }
 
+func TestStreamFormatsAndRecordParsing(t *testing.T) {
+	if got := streamFormat("application/x-ndjson; charset=utf-8"); got != "ndjson" {
+		t.Fatalf("NDJSON format=%q", got)
+	}
+	if got := streamFormat("application/json-seq"); got != "json-seq" {
+		t.Fatalf("JSON sequence format=%q", got)
+	}
+	if got := streamFormat("application/octet-stream"); got != "" {
+		t.Fatalf("binary download must not become a stream: %q", got)
+	}
+	var records []sseEvent
+	err := parseRecordStream(strings.NewReader("{\"n\":1}\n\x1e{\"n\":2}\n"), sseReadLimits{}, true, func(event sseEvent) {
+		records = append(records, event)
+	})
+	if err != nil || len(records) != 2 || records[1].Data != `{"n":2}` || records[1].Raw != "\x1e{\"n\":2}" {
+		t.Fatalf("records=%+v err=%v", records, err)
+	}
+}
+
 // TestSendRequestUsesCurrentEditorOverrides 验证已保存接口未点保存就直接发送时，
 // 认证、模块参数开关、操作与继承开关均以当前编辑态为准，而不是数据库旧值。
 func TestSendRequestUsesCurrentEditorOverrides(t *testing.T) {
