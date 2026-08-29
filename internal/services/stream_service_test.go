@@ -87,11 +87,12 @@ func TestWebSocketConnectUsesHTTPRequestEditingSemantics(t *testing.T) {
 	}
 
 	serverURL, _ := url.Parse(srv.URL)
+	jarID := moduleDefaultJarID(t, httpService.cookies, module.ID)
 	if err := httpService.cookies.UpsertCookie(models.StoredCookie{
-		ProjectID: project.ID, Domain: serverURL.Hostname(), Path: "/",
+		CookieJarID: jarID, Domain: serverURL.Hostname(), Path: "/",
 		Name: "jarCookie", Value: "from-jar",
 	}); err != nil {
-		t.Fatalf("保存项目 Cookie 失败: %v", err)
+		t.Fatalf("保存 Cookie 会话失败: %v", err)
 	}
 
 	endpoint := models.Endpoint{

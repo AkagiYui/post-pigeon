@@ -18,13 +18,18 @@ func countForProject(t *testing.T, db *gorm.DB, model any, projectID string) int
 	folders := db.Model(&models.Folder{}).Select("id").Where("module_id IN (?)", modules)
 	endpoints := db.Model(&models.Endpoint{}).Select("id").Where("module_id IN (?)", modules)
 	envs := db.Model(&models.Environment{}).Select("id").Where("project_id = ?", projectID)
+	cookieJars := db.Model(&models.CookieJar{}).Select("id").Where("project_id = ?", projectID)
 
 	q := db.Model(model)
 	switch model.(type) {
 	case *models.Module:
 		q = q.Where("project_id = ?", projectID)
-	case *models.Environment, *models.GlobalVariable, *models.ScriptLibrary, *models.StoredCookie:
+	case *models.Environment, *models.GlobalVariable, *models.ScriptLibrary, *models.CookieJar:
 		q = q.Where("project_id = ?", projectID)
+	case *models.ModuleCookieBinding:
+		q = q.Where("module_id IN (?)", modules)
+	case *models.StoredCookie:
+		q = q.Where("cookie_jar_id IN (?)", cookieJars)
 	case *models.EnvironmentVariable:
 		q = q.Where("environment_id IN (?)", envs)
 	case *models.ModuleBaseURL, *models.ModuleParam, *models.ModuleVariable, *models.RequestHistory:
@@ -74,8 +79,10 @@ func TestCloneProjectCopiesEverything(t *testing.T) {
 	db.Model(&models.Endpoint{}).Where("id = ?", rp.epFolder).Update("send_no_cache_headers", false)
 
 	// 登录态：会话 cookie 也该跟着克隆走
+	cookieSvc := NewCookieService(db)
+	jarID := moduleDefaultJarID(t, cookieSvc, rp.moduleID)
 	if err := db.Create(&models.StoredCookie{
-		ProjectID: rp.projectID, Domain: "a.com", Path: "/", Name: "session", Value: "abc",
+		CookieJarID: jarID, Domain: "a.com", Path: "/", Name: "session", Value: "abc",
 	}).Error; err != nil {
 		t.Fatalf("建 cookie 失败: %v", err)
 	}
@@ -127,7 +134,7 @@ func TestCloneProjectCopiesEverything(t *testing.T) {
 		&models.Folder{}, &models.Endpoint{}, &models.EndpointParam{}, &models.EndpointBodyField{},
 		&models.EndpointHeader{}, &models.EndpointAuth{}, &models.ResponseExample{}, &models.ResponseSchema{},
 		&models.Operation{}, &models.Environment{}, &models.EnvironmentVariable{},
-		&models.GlobalVariable{}, &models.ScriptLibrary{},
+		&models.GlobalVariable{}, &models.ScriptLibrary{}, &models.CookieJar{}, &models.ModuleCookieBinding{},
 		&models.StoredCookie{}, &models.Response{}, &models.RequestHistory{},
 	} {
 		src := countForProject(t, db, model, rp.projectID)

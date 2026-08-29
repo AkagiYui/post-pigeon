@@ -215,6 +215,13 @@ func (s *ProjectService) DeleteProject(id string) error {
 		if err := deleteOperations(tx, models.OperationOwnerModule, moduleIDs); err != nil {
 			return err
 		}
+		// Cookie Jar 同时被项目和模块绑定引用；先删绑定，避免 SQLite 的 RESTRICT
+		// 在项目级联删除 Jar 时早于模块级联生效。
+		if len(moduleIDs) > 0 {
+			if err := tx.Where("module_id IN ?", moduleIDs).Delete(&models.ModuleCookieBinding{}).Error; err != nil {
+				return err
+			}
+		}
 
 		// 删除项目：其余关联数据随外键级联删除
 		if err := tx.Where("id = ?", id).Delete(&models.Project{}).Error; err != nil {
@@ -323,19 +330,36 @@ func (s *ProjectService) CloneProject(id string, newName string) (*models.Projec
 			scriptIDs[srcScriptID] = sc.ID
 		}
 
-		// Cookie：会话状态跟着项目走，克隆件不用重新登录一遍
-		var cookies []models.StoredCookie
-		if err := tx.Where("project_id = ?", src.ID).Find(&cookies).Error; err != nil {
+		// Cookie Jar 与 Cookie：命名会话、共享关系和登录态一起复制。
+		jarIDs := make(map[string]string)
+		var cookieJars []models.CookieJar
+		if err := tx.Where("project_id = ?", src.ID).Order("created_at ASC").Find(&cookieJars).Error; err != nil {
 			return err
 		}
-		for _, c := range cookies {
-			c.ID, c.ProjectID = "", dst.ID
-			if err := tx.Create(&c).Error; err != nil {
+		for _, jar := range cookieJars {
+			srcJarID := jar.ID
+			jar.ID, jar.ProjectID = "", dst.ID
+			jar.CreatedAt, jar.UpdatedAt = time.Time{}, time.Time{}
+			if err := tx.Create(&jar).Error; err != nil {
 				return err
+			}
+			jarIDs[srcJarID] = jar.ID
+
+			var cookies []models.StoredCookie
+			if err := tx.Where("cookie_jar_id = ?", srcJarID).Find(&cookies).Error; err != nil {
+				return err
+			}
+			for _, c := range cookies {
+				c.ID, c.CookieJarID = "", jar.ID
+				c.CreatedAt, c.UpdatedAt = time.Time{}, time.Time{}
+				if err := tx.Create(&c).Error; err != nil {
+					return err
+				}
 			}
 		}
 
 		// 模块及其下属内容
+		moduleIDs := make(map[string]string)
 		var modules []models.Module
 		if err := tx.Where("project_id = ?", src.ID).Order("sort_order ASC").Find(&modules).Error; err != nil {
 			return err
@@ -344,10 +368,43 @@ func (s *ProjectService) CloneProject(id string, newName string) (*models.Projec
 			srcModuleID := module.ID
 			module.ID, module.ProjectID = "", dst.ID
 			module.CreatedAt, module.UpdatedAt = time.Time{}, time.Time{}
-			if err := tx.Create(&module).Error; err != nil {
+			if err := tx.Set("skip_default_cookie_jar", true).Create(&module).Error; err != nil {
 				return err
 			}
+			moduleIDs[srcModuleID] = module.ID
 			if err := cloneModuleContent(tx, srcModuleID, module.ID, envIDs, scriptIDs); err != nil {
+				return err
+			}
+		}
+
+		var bindings []models.ModuleCookieBinding
+		if err := tx.Table("module_cookie_bindings AS b").Select("b.*").
+			Joins("JOIN modules AS m ON m.id = b.module_id").
+			Where("m.project_id = ?", src.ID).Find(&bindings).Error; err != nil {
+			return err
+		}
+		for _, binding := range bindings {
+			moduleID, ok := moduleIDs[binding.ModuleID]
+			if !ok {
+				continue
+			}
+			binding.ID, binding.ModuleID = "", moduleID
+			binding.CreatedAt, binding.UpdatedAt = time.Time{}, time.Time{}
+			if binding.EnvironmentID != "" {
+				environmentID, ok := envIDs[binding.EnvironmentID]
+				if !ok {
+					continue
+				}
+				binding.EnvironmentID = environmentID
+			}
+			if binding.CookieJarID != nil {
+				jarID, ok := jarIDs[*binding.CookieJarID]
+				if !ok {
+					continue
+				}
+				binding.CookieJarID = &jarID
+			}
+			if err := tx.Create(&binding).Error; err != nil {
 				return err
 			}
 		}

@@ -466,10 +466,10 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	}
 
 	// 创建 HTTP 客户端。
-	// cookie jar 按项目持久化：登录接口拿到的会话 cookie 会自动带到后续请求上，
-	// 不再需要手工把 Set-Cookie 抄进请求头。
+	// Cookie Jar 按「环境覆盖 → 模块默认」解析：同一会话内的登录态自动带到后续请求，
+	// 模块之间只有显式绑定同一个 Jar 才会共享。
 	client := &http.Client{
-		Jar:       s.cookies.JarFor(projectIDFromModule(s.db, data.ModuleID)),
+		Jar:       s.cookies.jarForRequest(data.ModuleID, data.EnvironmentID),
 		Transport: transport,
 	}
 

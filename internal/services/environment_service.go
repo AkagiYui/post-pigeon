@@ -65,9 +65,15 @@ func (s *EnvironmentService) UpdateEnvironment(id string, name string) error {
 
 // DeleteEnvironment 删除环境及其变量
 //
-// 环境变量、以及各模块在该环境下的前置 URL 均由数据库外键 ON DELETE CASCADE 自动级联删除。
+// 环境变量、以及各模块在该环境下的前置 URL 均由数据库外键 ON DELETE CASCADE 自动级联删除；
+// Cookie 环境覆盖没有直接外键，事务内显式删除。
 func (s *EnvironmentService) DeleteEnvironment(id string) error {
-	if err := s.db.Where("id = ?", id).Delete(&models.Environment{}).Error; err != nil {
+	if err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Where("environment_id = ?", id).Delete(&models.ModuleCookieBinding{}).Error; err != nil {
+			return err
+		}
+		return tx.Where("id = ?", id).Delete(&models.Environment{}).Error
+	}); err != nil {
 		return fmt.Errorf("删除环境失败: %w", err)
 	}
 	slog.Info("环境已删除", "id", id)

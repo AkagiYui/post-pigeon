@@ -117,9 +117,9 @@ func TestStoredCookieExpired(t *testing.T) {
 }
 
 func TestStoredCookieTableName(t *testing.T) {
-	// 表名被迁移脚本硬编码为 cookies，不能被 GORM 的复数化推断带偏
+	// 表名被命名 Cookie Jar 迁移硬编码，不能被 GORM 的复数化推断带偏
 	var cookie StoredCookie
-	if cookie.TableName() != "cookies" {
+	if cookie.TableName() != "cookie_jar_cookies" {
 		t.Errorf("表名=%q", cookie.TableName())
 	}
 }

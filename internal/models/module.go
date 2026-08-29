@@ -73,6 +73,28 @@ func (m *Module) BeforeCreate(tx *gorm.DB) error {
 	return nil
 }
 
+// AfterCreate 为所有新模块建立私有 Cookie Jar。模块可能来自界面创建、导入或文件夹转换，
+// 放在模型钩子里才能保证所有入口语义一致。项目克隆会显式跳过，再复制原绑定关系。
+func (m *Module) AfterCreate(tx *gorm.DB) error {
+	if skip, ok := tx.Get("skip_default_cookie_jar"); ok && skip == true {
+		return nil
+	}
+	// goose 接管前的历史库测试/升级入口可能先用旧模型写模块，当时新表尚不存在。
+	if !tx.Migrator().HasTable(&CookieJar{}) || !tx.Migrator().HasTable(&ModuleCookieBinding{}) {
+		return nil
+	}
+	jar := &CookieJar{ProjectID: m.ProjectID, Name: m.Name + "（私有）"}
+	if err := tx.Create(jar).Error; err != nil {
+		return err
+	}
+	jarID := jar.ID
+	return tx.Create(&ModuleCookieBinding{
+		ModuleID:      m.ID,
+		EnvironmentID: "",
+		CookieJarID:   &jarID,
+	}).Error
+}
+
 // ModuleBaseURL 模块在各环境下的前置 URL
 type ModuleBaseURL struct {
 	ID            string `gorm:"primaryKey" json:"id"`

@@ -133,7 +133,7 @@ func (s *WebSocketService) ServiceShutdown() error {
 
 // Connect 建立一个 WebSocket 连接。握手复用普通 HTTP 请求的编辑态数据与解析语义：
 // 变量、路径/query/cookie/header、模块自动参数、继承认证、前置操作、代理/TLS、
-// URL 编码、超时、重定向、无缓存头、User-Agent 与项目 Cookie jar 都会生效。
+// URL 编码、超时、重定向、无缓存头、User-Agent 与模块绑定的 Cookie Jar 都会生效。
 // 请求体不属于 WebSocket 握手；消息收发仍由 Send/SendBinary 与事件流处理。
 // 返回值沿用普通 HTTP 响应模型，供前端展示握手状态、响应头/Cookie、实际请求与脚本输出。
 func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConvertWSProtocol bool) (out *HTTPResponseData, retErr error) {
@@ -241,7 +241,7 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 	}
 	captureTransport := &requestCaptureTransport{base: transport}
 	client := &http.Client{
-		Jar:       s.http.cookies.JarFor(projectIDFromModule(s.db, data.ModuleID)),
+		Jar:       s.http.cookies.jarForRequest(data.ModuleID, data.EnvironmentID),
 		Transport: captureTransport,
 	}
 	if !resolveFollowRedirects(prepared.path, data.FollowRedirects, limits.FollowRedirects) {

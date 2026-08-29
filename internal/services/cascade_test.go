@@ -49,6 +49,7 @@ func allDataModels() []any {
 		&models.EndpointHeader{}, &models.EndpointAuth{}, &models.Response{}, &models.ResponseExample{},
 		&models.ResponseSchema{}, &models.Operation{}, &models.Environment{}, &models.EnvironmentVariable{},
 		&models.GlobalVariable{}, &models.ScriptLibrary{}, &models.RequestHistory{},
+		&models.CookieJar{}, &models.ModuleCookieBinding{}, &models.StoredCookie{},
 	}
 }
 

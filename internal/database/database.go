@@ -139,6 +139,9 @@ func adoptLegacyDB(db *gorm.DB) error {
 	if err := migrateRequestSettingsFiveLevel(db); err != nil {
 		return fmt.Errorf("五级请求设置迁移失败: %w", err)
 	}
+	if err := migrateNamedCookieJars(db); err != nil {
+		return fmt.Errorf("Cookie Jar 迁移失败: %w", err)
+	}
 
 	if err := stampGooseVersion(db); err != nil {
 		return fmt.Errorf("登记 goose 版本失败: %w", err)
@@ -421,6 +424,8 @@ func autoMigrate(db *gorm.DB) error {
 		&models.ScriptLibrary{},
 		&models.Response{},
 		&models.RequestHistory{},
+		&models.CookieJar{},
+		&models.ModuleCookieBinding{},
 		&models.StoredCookie{},
 		&models.Settings{},
 	)

@@ -43,7 +43,7 @@ Go 负责网络与数据，SolidJS 负责界面，全部数据存在本地 SQLit
 - 代理、TLS、URL 编码、重定向、超时与 no-cache 均支持「全局 → 项目 → 模块 → 逐层文件夹 → 接口」五级继承
 - TLS 支持跳过校验、自定义 CA、客户端证书（双向 TLS）、最低版本
 - 认证：Basic、Bearer、API Key、Digest、OAuth 2.0（client_credentials / password）
-- Cookie 按项目持久化，登录态自动带到后续请求
+- Cookie 以命名会话持久化：模块默认隔离，也可显式跨模块共享，并按环境覆盖或禁用
 - 请求历史默认对 Authorization / Cookie / 秘密变量脱敏
 
 ## 安装
