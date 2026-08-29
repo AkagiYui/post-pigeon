@@ -81,6 +81,16 @@ export function markConnecting(connId: string) {
   setState((prev) => ({ ...prev, status: { ...prev.status, [connId]: "connecting" } }))
 }
 
+/** 只清空消息记录，保留 open/connecting/closed/error 连接状态。
+ * 消息面板的垃圾桶使用它，避免仍存活的 WebSocket 在界面上变成 idle。 */
+export function clearStreamMessages(connId: string) {
+  setState((prev) => {
+    const messages = { ...prev.messages }
+    delete messages[connId]
+    return { ...prev, messages }
+  })
+}
+
 /** 清空指定连接的消息缓冲与状态。
  * 状态必须一并清掉：只清消息会把上次的 closed/error 状态残留到新一轮连接上。 */
 export function clearStream(connId: string) {

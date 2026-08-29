@@ -10,7 +10,6 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
-	"maps"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptrace"
@@ -262,79 +261,10 @@ func (s *HTTPService) ListScriptLibraries() ([]scripting.LibraryInfo, error) {
 
 // SendRequest 发送 HTTP 请求
 func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, error) {
-	envService := NewEnvironmentService(s.db)
-
-	// 载入环境变量到内存变量存储；前置脚本读写的是这份存储，
-	// 请求结束后再把增量持久化回数据库。
-	// 占位符解析优先级（低 → 高，同名后者覆盖前者）：
-	// 全局变量（项目级）< 模块变量（本模块，跨环境）< 环境变量
-	globalVars := s.loadGlobalVars(data.ModuleID)
-	moduleVars := s.loadModuleVars(data.ModuleID)
-	envVars := map[string]string{}
-	maps.Copy(envVars, globalVars)
-	maps.Copy(envVars, moduleVars)
-	if data.EnvironmentID != "" {
-		if vars, err := envService.GetEnvironmentVariables(data.EnvironmentID); err == nil {
-			for _, v := range vars {
-				if v.Enabled {
-					envVars[v.Key] = v.Value
-				}
-			}
-		} else {
-			slog.Warn("载入环境变量失败", "error", err)
-		}
-	}
-	// Collection 即模块作用域：脚本里的 pm.moduleVariables / pm.collectionVariables 读写这份存储
-	stores := scripting.Stores{
-		Environment: scripting.NewVarStore(envVars),
-		Globals:     scripting.NewVarStore(globalVars),
-		Collection:  scripting.NewVarStore(moduleVars),
-	}
-
-	// 已保存端点：以「前置/后置操作」组合出的脚本覆盖前端传入的脚本，
-	// 并把模块自动参数、cookie/path 参数、继承认证一并纳入。
-	var loadedEndpoint *models.Endpoint
-	if data.EndpointID != "" {
-		var ep models.Endpoint
-		if err := s.db.Where("id = ?", data.EndpointID).First(&ep).Error; err == nil {
-			loadedEndpoint = &ep
-			if data.Operations != nil || data.InheritOperations != nil {
-				// 前端带来了当前编辑态：继承开关、端点操作和旧脚本回退都用当前值。
-				effectiveEndpoint := ep
-				if data.InheritOperations != nil {
-					effectiveEndpoint.InheritOperations = *data.InheritOperations
-				}
-				effectiveEndpoint.PreRequestScript = data.PreRequestScript
-				effectiveEndpoint.PostResponseScript = data.PostResponseScript
-				data.PreRequestScript = composeStageScriptWithEndpointOps(s.db, &effectiveEndpoint, models.OperationStagePre, data.Operations)
-				data.PostResponseScript = composeStageScriptWithEndpointOps(s.db, &effectiveEndpoint, models.OperationStagePost, data.Operations)
-			} else {
-				data.PreRequestScript = composeStageScript(s.db, &ep, models.OperationStagePre)
-				data.PostResponseScript = composeStageScript(s.db, &ep, models.OperationStagePost)
-			}
-		}
-	}
-	// 模块自动参数并入请求（query/cookie 计入 Params，header 计入 Headers）
-	modParams, modHeaders := s.loadModuleParams(data.ModuleID)
-	// 本接口禁用的全局(模块)查询参数：仅过滤 query 类型，按参数名匹配
-	if loadedEndpoint != nil {
-		disabledRaw := loadedEndpoint.DisabledGlobalParams
-		if strings.TrimSpace(data.DisabledGlobalParams) != "" {
-			disabledRaw = data.DisabledGlobalParams
-		}
-		if disabled := parseNameSet(disabledRaw); len(disabled) > 0 {
-			kept := modParams[:0]
-			for _, p := range modParams {
-				if p.Type == "query" && disabled[p.Name] {
-					continue
-				}
-				kept = append(kept, p)
-			}
-			modParams = kept
-		}
-	}
-	data.Params = append(data.Params, modParams...)
-	data.Headers = append(data.Headers, modHeaders...)
+	prepared := s.prepareRequestData(&data)
+	envService := prepared.environmentService
+	stores := prepared.stores
+	loadedEndpoint := prepared.loadedEndpoint
 
 	scriptResults := &ScriptResults{}
 
@@ -402,11 +332,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		query.Add(q.Key, resolveVars(q.Value, vars))
 	}
 
-	requestEndpoint := models.Endpoint{ModuleID: data.ModuleID}
-	if loadedEndpoint != nil {
-		requestEndpoint = *loadedEndpoint
-	}
-	requestPath := loadRequestScopePath(s.db, requestEndpoint)
+	requestPath := prepared.path
 
 	// URL 自动编码：档位沿「接口 → 文件夹链 → 模块 → 项目 → 全局」解析。
 	// 自定义转义会把最终路径挂到 Opaque 上，那之后 parsedURL.String() 就拿不到主机了，

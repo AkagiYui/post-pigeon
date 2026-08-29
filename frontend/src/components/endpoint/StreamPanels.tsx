@@ -9,7 +9,7 @@ import { Button } from "@/components/ui/button"
 import { Input } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
-import { clearStream, streamMessages, streamStatus } from "@/stores/stream"
+import { clearStreamMessages, streamMessages, streamStatus } from "@/stores/stream"
 import { toastError } from "@/stores/toast"
 
 export function StatusDot(props: { status: string }) {
@@ -61,7 +61,7 @@ export function WebSocketResponse(props: { connId: string }) {
         <StatusDot status={status()} />
         <span>{t("stream.messages")}</span>
         <span class="flex-1" />
-        <Button size="icon-sm" variant="ghost" onClick={() => clearStream(props.connId)}><Icon icon="lucide:trash-2" class="h-3.5 w-3.5" /></Button>
+        <Button size="icon-sm" variant="ghost" onClick={() => clearStreamMessages(props.connId)}><Icon icon="lucide:trash-2" class="h-3.5 w-3.5" /></Button>
       </div>
       <MessageLog connId={props.connId} />
       <div class="flex items-center gap-2 shrink-0">
@@ -84,7 +84,7 @@ export function StreamEventLog(props: { streamId: string; onStop?: () => void })
         <Show when={status() === "open"}>
           <Button size="sm" variant="outline" onClick={props.onStop}><Icon icon="lucide:circle-stop" class="h-3.5 w-3.5" />{t("stream.stop")}</Button>
         </Show>
-        <Button size="icon-sm" variant="ghost" onClick={() => clearStream(props.streamId)}><Icon icon="lucide:trash-2" class="h-3.5 w-3.5" /></Button>
+        <Button size="icon-sm" variant="ghost" onClick={() => clearStreamMessages(props.streamId)}><Icon icon="lucide:trash-2" class="h-3.5 w-3.5" /></Button>
       </div>
       <MessageLog connId={props.streamId} />
     </div>

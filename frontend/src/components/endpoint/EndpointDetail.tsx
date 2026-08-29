@@ -5,7 +5,7 @@
 import { Icon } from "@iconify-icon/solid"
 import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from "solid-js"
 
-import { HTTPService, WebSocketService } from "@/../bindings/PostPigeon/internal/services"
+import { HTTPService } from "@/../bindings/PostPigeon/internal/services"
 import { countParams } from "@/components/endpoint/endpoint-data"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
@@ -20,7 +20,7 @@ import { formatFromContentType } from "@/lib/format"
 import { getStatusInfo, statusClass } from "@/lib/http-status"
 import { formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS } from "@/lib/types"
 import { byteLength, cn, downloadTextFile, extensionForContentType, hasURLScheme } from "@/lib/utils"
-import { convertHTTPToWSProtocol, effectiveWSProtocolConversion, wsUrl } from "@/lib/ws-protocol"
+import { convertHTTPToWSProtocol, effectiveWSProtocolConversion } from "@/lib/ws-protocol"
 import { responseLayout, setResponseLayout } from "@/stores/app"
 import { markConnecting, streamStatus } from "@/stores/stream"
 import { toastError } from "@/stores/toast"
@@ -110,6 +110,9 @@ export interface EndpointDetailProps {
   onSend?: () => void
   /** 取消进行中请求的回调 */
   onCancelSend?: () => void
+  /** 以当前完整请求编辑态建立/关闭 WebSocket 连接 */
+  onWSConnect?: (autoConvertProtocol: boolean) => Promise<void>
+  onWSDisconnect?: () => Promise<void>
   /** 复制为 cURL 命令的回调 */
   onCopyAsCurl?: () => void
   /** 保存回调 */
@@ -416,26 +419,13 @@ export function EndpointDetail(props: EndpointDetailProps) {
     ep().inheritedWsProtocolConversion,
   )
   const wsStatus = () => streamStatus(ep().id)
-  const wsHeaders = (): Record<string, string> => {
-    const h: Record<string, string> = {}
-    for (const x of ep().headers) if (x.enabled && x.name.trim()) h[x.name] = x.value
-    return h
-  }
   const wsConnect = async () => {
     markConnecting(ep().id)
-    // WebSocket 与普通请求一样按完整五级链解析生效代理与 TLS。
     try {
-      await WebSocketService.Connect(
-        ep().id,
-        wsUrl(ep().baseUrl, ep().path, autoConvertWSProtocol()),
-        wsHeaders(),
-        ep().proxyConfig || "",
-        ep().tlsConfig || "",
-        autoConvertWSProtocol(),
-      )
+      await props.onWSConnect?.(autoConvertWSProtocol())
     } catch (e) { toastError(e, "error.op.connectFailed") }
   }
-  const wsDisconnect = async () => { try { await WebSocketService.Close(ep().id) } catch (e) { toastError(e) } }
+  const wsDisconnect = async () => { try { await props.onWSDisconnect?.() } catch (e) { toastError(e) } }
   // 停止流式响应（响应体为 text/event-stream 的流式 HTTP 响应）
   const stopStream = async () => {
     const id = props.response?.streamId
@@ -665,81 +655,81 @@ export function EndpointDetail(props: EndpointDetailProps) {
               )}
               style={responseLayout() === "right" ? { width: `${responseWidth()}px` } : { height: `${responseHeight()}px` }}
             >
-              <Show when={isWs()} fallback={
-                <Show
-                  when={props.response}
-                  fallback={
-                    <div class="relative h-full">
-                      <div class="absolute top-1.5 right-2 z-10"><LayoutToggle /></div>
-                      <div class="flex items-center justify-center h-full text-muted-foreground text-sm">
-                        {t("endpoint.sendToViewResponse")}
-                      </div>
+              <Show
+                when={props.response}
+                fallback={
+                  <div class="relative h-full">
+                    <div class="absolute top-1.5 right-2 z-10"><LayoutToggle /></div>
+                    <div class="flex items-center justify-center h-full text-muted-foreground text-sm">
+                      {t("endpoint.sendToViewResponse")}
                     </div>
-                  }
-                >
-                  {/* SSE 流式响应：实时事件流 */}
-                  <Show when={props.response!.streaming} fallback={
+                  </div>
+                }
+              >
+                {/* SSE 流式响应：实时事件流。WebSocket 的正文由消息面板接管，其余仍走标准响应 Tabs。 */}
+                <Show when={!isWs() && props.response!.streaming} fallback={
                   /* 请求失败：展示错误信息，而非正常的响应标签页 */
-                    <Show
-                      when={!props.response!.error}
-                      fallback={
-                        <div class="flex flex-col h-full">
-                          <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
-                            <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
-                            <div class="ml-auto"><LayoutToggle /></div>
-                          </div>
-                          <div class="flex-1 overflow-auto p-3">
-                            <pre class="text-sm font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">
-                              {props.response!.error}
-                            </pre>
-                          </div>
+                  <Show
+                    when={!props.response!.error}
+                    fallback={
+                      <div class="flex flex-col h-full">
+                        <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
+                          <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
+                          <div class="ml-auto"><LayoutToggle /></div>
+                        </div>
+                        <div class="flex-1 overflow-auto p-3">
+                          <pre class="text-sm font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">
+                            {props.response!.error}
+                          </pre>
+                        </div>
+                      </div>
+                    }
+                  >
+                    <Tabs
+                      variant="line"
+                      tabs={getResponseTabs()}
+                      value={activeResponseTab()}
+                      onChange={setActiveResponseTab}
+                      extra={
+                        <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                          {/* 上下布局：响应体工具栏移到状态码左侧，避免单独占一行（左右布局时工具栏留在面板内） */}
+                          <Show when={!isWs() && responseLayout() === "bottom" && activeResponseTab() === "body"}>
+                            <ResponseBodyToolbar
+                              renderMode={renderMode()}
+                              onRenderModeChange={setRenderMode}
+                              format={format()}
+                              onFormatChange={setFormat}
+                              encoding={encoding()}
+                              onEncodingChange={setEncoding}
+                              encodingDisabled={props.response?.rawBodyOmitted}
+                              onDownload={downloadResponseBody}
+                            />
+                          </Show>
+                          {/* 状态码：hover 展示该状态码的名称与释义 */}
+                          <HoverCard content={<ResponseStatusCard code={props.response!.statusCode} />}>
+                            <Badge class={cn(getStatusColor(props.response!.statusCode), "cursor-help")}>
+                              {props.response!.statusCode}
+                            </Badge>
+                          </HoverCard>
+                          {/* 耗时：hover 展示各阶段耗时 */}
+                          <HoverCard content={<ResponseTimingCard timing={props.response!.timing} />}>
+                            <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
+                              {formatTiming(props.response!.timing?.total || 0)}
+                            </span>
+                          </HoverCard>
+                          {/* 大小：hover 展示请求/响应的头与体大小 */}
+                          <HoverCard content={<ResponseSizeCard response={props.response!} />}>
+                            <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
+                              {formatSize(props.response!.size || 0)}
+                            </span>
+                          </HoverCard>
+                          {/* 布局切换按钮（上下 / 左右） */}
+                          <LayoutToggle />
                         </div>
                       }
                     >
-                      <Tabs
-                        variant="line"
-                        tabs={getResponseTabs()}
-                        value={activeResponseTab()}
-                        onChange={setActiveResponseTab}
-                        extra={
-                          <div class="flex items-center gap-3 text-xs text-muted-foreground">
-                            {/* 上下布局：响应体工具栏移到状态码左侧，避免单独占一行（左右布局时工具栏留在面板内） */}
-                            <Show when={responseLayout() === "bottom" && activeResponseTab() === "body"}>
-                              <ResponseBodyToolbar
-                                renderMode={renderMode()}
-                                onRenderModeChange={setRenderMode}
-                                format={format()}
-                                onFormatChange={setFormat}
-                                encoding={encoding()}
-                                onEncodingChange={setEncoding}
-                                encodingDisabled={props.response?.rawBodyOmitted}
-                                onDownload={downloadResponseBody}
-                              />
-                            </Show>
-                            {/* 状态码：hover 展示该状态码的名称与释义 */}
-                            <HoverCard content={<ResponseStatusCard code={props.response!.statusCode} />}>
-                              <Badge class={cn(getStatusColor(props.response!.statusCode), "cursor-help")}>
-                                {props.response!.statusCode}
-                              </Badge>
-                            </HoverCard>
-                            {/* 耗时：hover 展示各阶段耗时 */}
-                            <HoverCard content={<ResponseTimingCard timing={props.response!.timing} />}>
-                              <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
-                                {formatTiming(props.response!.timing?.total || 0)}
-                              </span>
-                            </HoverCard>
-                            {/* 大小：hover 展示请求/响应的头与体大小 */}
-                            <HoverCard content={<ResponseSizeCard response={props.response!} />}>
-                              <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
-                                {formatSize(props.response!.size || 0)}
-                              </span>
-                            </HoverCard>
-                            {/* 布局切换按钮（上下 / 左右） */}
-                            <LayoutToggle />
-                          </div>
-                        }
-                      >
-                        {(key) => (
+                      {(key) => (
+                        <Show when={isWs() && key === "body"} fallback={
                           <ResponsePanel
                             tab={key}
                             response={props.response!}
@@ -752,15 +742,15 @@ export function EndpointDetail(props: EndpointDetailProps) {
                             onEncodingChange={setEncoding}
                             onDownload={downloadResponseBody}
                           />
-                        )}
-                      </Tabs>
-                    </Show>
-                  }>
-                    <StreamEventLog streamId={props.response!.streamId!} onStop={stopStream} />
+                        }>
+                          <WebSocketResponse connId={ep().id} />
+                        </Show>
+                      )}
+                    </Tabs>
                   </Show>
+                }>
+                  <StreamEventLog streamId={props.response!.streamId!} onStop={stopStream} />
                 </Show>
-              }>
-                <WebSocketResponse connId={ep().id} />
               </Show>
             </div>
           </Show>

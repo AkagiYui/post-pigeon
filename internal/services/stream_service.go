@@ -4,12 +4,14 @@ import (
 	"context"
 	"encoding/base64"
 	"net/http"
+	"net/url"
 	"strings"
 	"sync"
 	"time"
 
 	"PostPigeon/internal/apperr"
 	"PostPigeon/internal/models"
+	"PostPigeon/internal/scripting"
 
 	"github.com/coder/websocket"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -51,6 +53,7 @@ const wsPingInterval = 30 * time.Second
 // WebSocketService 管理多个持久 WebSocket 连接。
 type WebSocketService struct {
 	db    *gorm.DB
+	http  *HTTPService
 	mu    sync.Mutex
 	conns map[string]*wsConn
 }
@@ -60,9 +63,35 @@ type wsConn struct {
 	cancel context.CancelFunc
 }
 
-// NewWebSocketService 创建 WebSocket 服务实例。db 用于按端点解析生效代理。
-func NewWebSocketService(db *gorm.DB) *WebSocketService {
-	return &WebSocketService{db: db, conns: map[string]*wsConn{}}
+// requestCaptureTransport 记录真正交给 Transport 的握手请求。这样自动附加的
+// Upgrade/Sec-WebSocket-* 请求头以及 Cookie jar 中的 Cookie 也能出现在“实际请求”页签。
+type requestCaptureTransport struct {
+	base http.RoundTripper
+	mu   sync.Mutex
+	req  models.ActualRequestInfo
+}
+
+func (t *requestCaptureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
+	t.mu.Lock()
+	t.req = models.ActualRequestInfo{
+		Method:  req.Method,
+		URL:     urlWithHost(req.URL),
+		Headers: flattenHeaders(req.Header),
+	}
+	t.mu.Unlock()
+	return t.base.RoundTrip(req)
+}
+
+func (t *requestCaptureTransport) Request() models.ActualRequestInfo {
+	t.mu.Lock()
+	defer t.mu.Unlock()
+	return t.req
+}
+
+// NewWebSocketService 创建 WebSocket 服务实例。
+// HTTPService 用来共享请求编辑态解析、脚本引擎与持久 Cookie jar。
+func NewWebSocketService(db *gorm.DB, httpService *HTTPService) *WebSocketService {
+	return &WebSocketService{db: db, http: httpService, conns: map[string]*wsConn{}}
 }
 
 // WSEventName 是前端监听的 WebSocket 事件名
@@ -85,49 +114,269 @@ func (s *WebSocketService) ServiceShutdown() error {
 	return nil
 }
 
-// Connect 建立一个 WebSocket 连接。connID 由前端生成（对已保存端点即端点 ID），
-// 用于区分不同标签页的连接，并据此解析该端点的生效代理与 TLS 设置。
-// proxyConfig / tlsConfig 为接口级选择（可空）。autoConvertWSProtocol 为当前编辑态按五级继承算出的最终开关。
-func (s *WebSocketService) Connect(connID, urlStr string, headers map[string]string, proxyConfig, tlsConfig string, autoConvertWSProtocol bool) error {
-	s.Close(connID) // 若已存在同 ID 连接，先关闭
+// Connect 建立一个 WebSocket 连接。握手复用普通 HTTP 请求的编辑态数据与解析语义：
+// 变量、路径/query/cookie/header、模块自动参数、继承认证、前置操作、代理/TLS、
+// URL 编码、超时、重定向、无缓存头、User-Agent 与项目 Cookie jar 都会生效。
+// 请求体不属于 WebSocket 握手；消息收发仍由 Send/SendBinary 与事件流处理。
+// 返回值沿用普通 HTTP 响应模型，供前端展示握手状态、响应头/Cookie、实际请求与脚本输出。
+func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConvertWSProtocol bool) (out *HTTPResponseData, retErr error) {
+	s.close(connID, false) // 若已存在同 ID 连接，先关闭；新一轮连接自行发送后续状态
+	defer func() {
+		if retErr != nil {
+			emitStream(WSEventName, StreamEvent{
+				ConnID: connID, Kind: "error", Data: retErr.Error(), Timestamp: nowMillis(),
+			})
+		}
+	}()
+	prepared := s.http.prepareRequestData(&data)
+	stores := prepared.stores
+	loadedEndpoint := prepared.loadedEndpoint
+	scriptResults := &ScriptResults{}
+
+	reqCtx := &scripting.RequestData{
+		Method:  http.MethodGet,
+		URL:     combineURL(data.BaseURL, data.Path),
+		BaseURL: data.BaseURL,
+		Headers: enabledHeaders(data.Headers),
+	}
+	if strings.TrimSpace(data.PreRequestScript) != "" {
+		scriptResults.PreRequest = s.http.engine.Run(data.PreRequestScript, scripting.Options{
+			Phase:   scripting.PhasePreRequest,
+			Request: reqCtx,
+			Stores:  stores,
+		})
+		data.Headers = headersToModel(reqCtx.Headers)
+		if scriptResults.PreRequest.SkipRequest {
+			s.persistVariableChanges(data, prepared)
+			emitStream(WSEventName, StreamEvent{
+				ConnID: connID, Kind: "close", Data: "request skipped by pre-request script", Timestamp: nowMillis(),
+			})
+			return &HTTPResponseData{
+				StatusCode: 0,
+				Headers:    map[string][]string{},
+				Skipped:    true,
+				Scripts:    scriptResults,
+			}, nil
+		}
+	}
+
+	vars := stores.Environment.ToMap()
+	urlStr := resolveVars(reqCtx.URL, vars)
+	urlStr = applyPathParams(urlStr, data.Params, vars)
 	urlStr = convertHTTPToWSProtocol(urlStr, autoConvertWSProtocol)
-
-	ctx, cancel := context.WithCancel(context.Background())
-	opts := &websocket.DialOptions{HTTPHeader: http.Header{}}
-	for k, v := range headers {
-		opts.HTTPHeader.Set(k, v)
+	parsedURL, err := url.Parse(urlStr)
+	if err != nil {
+		return nil, apperr.Wrap(err, apperr.CodeInvalidURL, apperr.P("url", urlStr))
+	}
+	query := parsedURL.Query()
+	for _, param := range data.Params {
+		if param.Enabled && param.Type == "query" {
+			query.Add(param.Name, resolveVars(param.Value, vars))
+		}
+	}
+	for _, item := range reqCtx.Query {
+		query.Add(item.Key, resolveVars(item.Value, vars))
 	}
 
-	limits := models.DefaultRequestSettings
-	// 代理与 TLS：按端点(connID)反查完整五级链后注入拨号传输。
-	if s.db != nil {
-		limits = getRequestSettings(s.db)
-		endpoint := endpointForRequest(s.db, connID, moduleIDFromEndpoint(s.db, connID))
-		path := loadRequestScopePath(s.db, endpoint)
-
-		var epProxy models.EndpointProxy
-		if strings.TrimSpace(proxyConfig) != "" {
-			_ = models.FromJSON(proxyConfig, &epProxy)
+	urlEncoding := resolveURLEncodingFromPath(s.db, prepared.path, endpointURLEncoding(data, loadedEndpoint))
+	applyURLEncoding(parsedURL, query, urlEncoding)
+	standardURL := *parsedURL
+	standardURL.Opaque = ""
+	req, err := http.NewRequest(http.MethodGet, standardURL.String(), nil)
+	if err != nil {
+		return nil, apperr.Wrap(err, apperr.CodeBuildRequest)
+	}
+	req.URL = parsedURL
+	for _, header := range data.Headers {
+		if header.Enabled {
+			req.Header.Set(header.Name, resolveVars(header.Value, vars))
 		}
-		var epTLS models.EndpointTLS
-		if strings.TrimSpace(tlsConfig) != "" {
-			_ = models.FromJSON(tlsConfig, &epTLS)
-		}
+	}
 
-		proxy := resolveProxy(resolveEffectiveProxyFromPath(s.db, path, epProxy), nil)
-		transport, err := sharedTransport(proxy, resolveEffectiveTLSFromPath(s.db, path, epTLS))
-		if err != nil {
+	limits := getRequestSettings(s.db)
+	if resolveSendNoCacheHeaders(prepared.path, data.SendNoCacheHeaders, limits.SendNoCacheHeaders) &&
+		req.Header.Get("Cache-Control") == "" {
+		req.Header.Set("Cache-Control", "no-cache")
+	}
+	if _, ok := req.Header[http.CanonicalHeaderKey("User-Agent")]; !ok {
+		req.Header.Set("User-Agent", requestUserAgent(limits))
+	}
+	for _, param := range data.Params {
+		if param.Enabled && param.Type == "cookie" {
+			req.AddCookie(&http.Cookie{Name: param.Name, Value: resolveVars(param.Value, vars)})
+		}
+	}
+
+	epProxyJSON := data.ProxyConfig
+	if strings.TrimSpace(epProxyJSON) == "" && loadedEndpoint != nil {
+		epProxyJSON = loadedEndpoint.ProxyConfig
+	}
+	effectiveProxy := resolveProxy(
+		resolveEffectiveProxyFromPath(s.db, prepared.path, parseEndpointProxy(epProxyJSON)), vars)
+	epTLSJSON := data.TLSConfig
+	if strings.TrimSpace(epTLSJSON) == "" && loadedEndpoint != nil {
+		epTLSJSON = loadedEndpoint.TLSConfig
+	}
+	transport, err := sharedTransport(effectiveProxy,
+		resolveEffectiveTLSFromPath(s.db, prepared.path, parseEndpointTLS(epTLSJSON)))
+	if err != nil {
+		return nil, err
+	}
+	captureTransport := &requestCaptureTransport{base: transport}
+	client := &http.Client{
+		Jar:       s.http.cookies.JarFor(projectIDFromModule(s.db, data.ModuleID)),
+		Transport: captureTransport,
+	}
+	if !resolveFollowRedirects(prepared.path, data.FollowRedirects, limits.FollowRedirects) {
+		client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+	}
+	connectionCtx, cancel := context.WithCancel(context.Background())
+	dialCtx := connectionCtx
+	dialCancel := func() {}
+	if timeout := resolveRequestTimeout(prepared.path, data.TimeoutMode, data.Timeout, limits); timeout > 0 {
+		dialCtx, dialCancel = context.WithTimeout(connectionCtx, timeout)
+	}
+	defer dialCancel()
+
+	effectiveAuth := data.Auth
+	if loadedEndpoint != nil {
+		effectiveAuth = resolveEffectiveAuth(s.db, loadedEndpoint, data.Auth)
+	}
+	needsDigest := effectiveAuth != nil && effectiveAuth.Type == string(models.AuthTypeDigest)
+	if effectiveAuth != nil && effectiveAuth.Type != string(models.AuthTypeNone) &&
+		effectiveAuth.Type != string(models.AuthTypeInherit) && !needsDigest {
+		if err := s.http.applyAuth(dialCtx, client, req, effectiveAuth, vars, urlEncoding); err != nil {
 			cancel()
-			return err
+			return nil, err
 		}
-		opts.HTTPClient = &http.Client{Transport: transport}
 	}
 
-	conn, _, err := websocket.Dial(ctx, urlStr, opts)
+	opts := &websocket.DialOptions{HTTPClient: client, HTTPHeader: req.Header.Clone()}
+	if host := opts.HTTPHeader.Get("Host"); host != "" {
+		opts.Host = host
+		opts.HTTPHeader.Del("Host")
+	}
+
+	// WebSocket 握手本质上是一条 HTTP Upgrade 请求；沿用普通响应面板所需的计时维度。
+	var dnsStart, dnsEnd, tlsStart, tlsEnd, connectStart, connectEnd, gotConn, wroteRequest, gotFirstByte time.Time
+	var reused bool
+	trace := &httptraceCollector{
+		dnsStart:     &dnsStart,
+		dnsEnd:       &dnsEnd,
+		tlsStart:     &tlsStart,
+		tlsEnd:       &tlsEnd,
+		connectStart: &connectStart,
+		connectEnd:   &connectEnd,
+		gotConn:      &gotConn,
+		wroteRequest: &wroteRequest,
+		gotFirstByte: &gotFirstByte,
+		reused:       &reused,
+	}
+	urlStr = req.URL.String()
+	start := time.Now()
+	conn, response, err := websocket.Dial(trace.attach(dialCtx), urlStr, opts)
+	if needsDigest && response != nil && response.StatusCode == http.StatusUnauthorized {
+		var authData models.DigestAuthData
+		if parseErr := models.FromJSON(effectiveAuth.Data, &authData); parseErr != nil {
+			cancel()
+			return nil, apperr.Wrap(parseErr, apperr.CodeAuthConfigInvalid, apperr.P("type", "digest"))
+		}
+		if challenge, ok := parseDigestChallenge(response.Header.Get("WWW-Authenticate")); ok {
+			value, digestErr := buildDigestAuthorization(challenge,
+				resolveVars(authData.Username, vars), resolveVars(authData.Password, vars),
+				http.MethodGet, req.URL.RequestURI(), "")
+			if digestErr != nil {
+				cancel()
+				return nil, digestErr
+			}
+			opts.HTTPHeader.Set("Authorization", value)
+			conn, response, err = websocket.Dial(trace.attach(dialCtx), urlStr, opts)
+		}
+	}
+	end := time.Now()
+	timing := models.TimingInfo{Total: durMs(end.Sub(start)), Reused: reused}
+	if !dnsStart.IsZero() && !dnsEnd.IsZero() {
+		timing.DNSLookup = durMs(dnsEnd.Sub(dnsStart))
+	}
+	if !connectStart.IsZero() && !connectEnd.IsZero() {
+		timing.TCPConnect = durMs(connectEnd.Sub(connectStart))
+	}
+	if !tlsStart.IsZero() && !tlsEnd.IsZero() {
+		timing.TLSHandshake = durMs(tlsEnd.Sub(tlsStart))
+	}
+	if !gotFirstByte.IsZero() {
+		timing.TTFB = durMs(gotFirstByte.Sub(start))
+		switch {
+		case !wroteRequest.IsZero():
+			timing.Wait = durMs(gotFirstByte.Sub(wroteRequest))
+		case !connectEnd.IsZero():
+			timing.Wait = durMs(gotFirstByte.Sub(connectEnd))
+		default:
+			timing.Wait = timing.TTFB
+		}
+	}
+	switch {
+	case !dnsStart.IsZero():
+		timing.Stalled = durMs(dnsStart.Sub(start))
+	case !connectStart.IsZero():
+		timing.Stalled = durMs(connectStart.Sub(start))
+	case !gotConn.IsZero():
+		timing.Stalled = durMs(gotConn.Sub(start))
+	}
+	if timing.Stalled < 0 {
+		timing.Stalled = 0
+	}
+	if timing.Wait < 0 {
+		timing.Wait = 0
+	}
+
+	responseData := &HTTPResponseData{
+		Headers:       map[string][]string{},
+		Timing:        timing,
+		ActualRequest: captureTransport.Request(),
+	}
+	if response != nil {
+		responseData.StatusCode = response.StatusCode
+		responseData.Headers = response.Header
+		responseData.ContentType = response.Header.Get("Content-Type")
+		responseData.Cookies = parseCookies(response.Cookies())
+	}
+
+	// 即使握手被服务器以 4xx/5xx 拒绝，只要拿到了 HTTP 响应，后置脚本仍与普通请求一样执行。
+	if response != nil && strings.TrimSpace(data.PostResponseScript) != "" {
+		respCtx := &scripting.ResponseData{
+			Code:         response.StatusCode,
+			Status:       http.StatusText(response.StatusCode),
+			Headers:      flattenToHeaders(response.Header),
+			ResponseTime: int64(timing.Total),
+			ResponseSize: 0,
+		}
+		scriptResults.PostResponse = s.http.engine.Run(data.PostResponseScript, scripting.Options{
+			Phase:    scripting.PhasePostResponse,
+			Request:  reqCtx,
+			Response: respCtx,
+			Stores:   stores,
+		})
+		mutatedHeaders := headersToHTTPHeader(respCtx.Headers)
+		responseData.Headers = mutatedHeaders
+		if contentType := mutatedHeaders.Get("Content-Type"); contentType != "" {
+			responseData.ContentType = contentType
+		}
+	}
+	if scriptResults.PreRequest != nil || scriptResults.PostResponse != nil {
+		responseData.Scripts = scriptResults
+	}
+	s.persistVariableChanges(data, prepared)
+
 	if err != nil {
 		cancel()
-		emitStream(WSEventName, StreamEvent{ConnID: connID, Kind: "error", Data: err.Error(), Timestamp: nowMillis()})
-		return apperr.Wrap(err, apperr.CodeWSConnect, apperr.P("url", urlStr))
+		wrapped := apperr.Wrap(err, apperr.CodeWSConnect, apperr.P("url", urlStr))
+		emitStream(WSEventName, StreamEvent{
+			ConnID: connID, Kind: "error", Data: wrapped.Error(), Timestamp: nowMillis(),
+		})
+		// Dial 失败后仍返回已捕获的握手请求/响应；错误已进入 WS 消息流，
+		// 前端因此既能重连，也能检查 400 响应头、Cookie 与实际请求。
+		return responseData, nil
 	}
 	// 单帧上限：-1 表示不限制，会让一个超大帧直接把内存打满
 	if limits.MaxWebSocketMessageBytes > 0 {
@@ -142,9 +391,18 @@ func (s *WebSocketService) Connect(connID, urlStr string, headers map[string]str
 
 	emitStream(WSEventName, StreamEvent{ConnID: connID, Kind: "open", Timestamp: nowMillis()})
 
-	safego.Go("ws.readLoop", func() { s.readLoop(ctx, connID, conn) })
-	safego.Go("ws.keepAlive", func() { s.keepAlive(ctx, conn) })
-	return nil
+	safego.Go("ws.readLoop", func() { s.readLoop(connectionCtx, connID, conn) })
+	safego.Go("ws.keepAlive", func() { s.keepAlive(connectionCtx, conn) })
+	return responseData, nil
+}
+
+// persistVariableChanges 与普通请求一样，把前置操作对变量存储的改动落回对应作用域。
+func (s *WebSocketService) persistVariableChanges(data SendRequestData, prepared preparedRequestData) {
+	if data.EnvironmentID != "" {
+		upserts, removed := prepared.stores.Environment.Changes()
+		_ = prepared.environmentService.ApplyVariableChanges(data.EnvironmentID, upserts, removed)
+	}
+	s.http.persistModuleVarChanges(data.ModuleID, prepared.stores.Collection)
 }
 
 // keepAlive 定期发送 ping，维持空闲连接不被中间设备掐断。
@@ -171,8 +429,9 @@ func (s *WebSocketService) readLoop(ctx context.Context, connID string, conn *we
 	for {
 		msgType, data, err := conn.Read(ctx)
 		if err != nil {
-			emitStream(WSEventName, StreamEvent{ConnID: connID, Kind: "close", Data: err.Error(), Timestamp: nowMillis()})
-			s.cleanup(connID)
+			if s.cleanup(connID, conn) {
+				emitStream(WSEventName, StreamEvent{ConnID: connID, Kind: "close", Data: err.Error(), Timestamp: nowMillis()})
+			}
 			return
 		}
 		ev := StreamEvent{ConnID: connID, Kind: "message", Timestamp: nowMillis()}
@@ -219,6 +478,11 @@ func (s *WebSocketService) write(connID string, msgType websocket.MessageType, p
 
 // Close 关闭并移除指定连接。
 func (s *WebSocketService) Close(connID string) error {
+	s.close(connID, true)
+	return nil
+}
+
+func (s *WebSocketService) close(connID string, emit bool) {
 	s.mu.Lock()
 	c := s.conns[connID]
 	delete(s.conns, connID)
@@ -226,18 +490,24 @@ func (s *WebSocketService) Close(connID string) error {
 	if c != nil {
 		c.cancel()
 		_ = c.conn.Close(websocket.StatusNormalClosure, "client closed")
+		if emit {
+			emitStream(WSEventName, StreamEvent{
+				ConnID: connID, Kind: "close", Data: "client closed", Timestamp: nowMillis(),
+			})
+		}
 	}
-	return nil
 }
 
-func (s *WebSocketService) cleanup(connID string) {
+func (s *WebSocketService) cleanup(connID string, conn *websocket.Conn) bool {
 	s.mu.Lock()
+	defer s.mu.Unlock()
 	c := s.conns[connID]
-	delete(s.conns, connID)
-	s.mu.Unlock()
-	if c != nil {
+	if c != nil && c.conn == conn {
+		delete(s.conns, connID)
 		c.cancel()
+		return true
 	}
+	return false
 }
 
 // IsConnected 返回指定连接是否处于活动状态。

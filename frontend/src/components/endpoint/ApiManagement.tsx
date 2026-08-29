@@ -15,6 +15,7 @@ import {
   ImportExportService,
   ModuleService,
   ProjectService,
+  WebSocketService,
 } from "@/../bindings/PostPigeon/internal/services"
 import { SendRequestData } from "@/../bindings/PostPigeon/internal/services"
 import { CollectionRunner } from "@/components/endpoint/CollectionRunner"
@@ -841,6 +842,36 @@ export function ApiManagement(props: ApiManagementProps) {
     } finally { setSending(false); setActiveRequestId("") }
   }
 
+  /** WebSocket 握手与普通请求共用完整编辑态，后端统一解析变量、继承参数、认证与前置操作。 */
+  const handleWSConnect = async (autoConvertProtocol: boolean) => {
+    const ep = endpointData
+    const resp = await WebSocketService.Connect(ep.id, buildSendRequestData(ep), autoConvertProtocol)
+    if (resp) {
+      // WebSocket 的 101 Upgrade（以及 4xx/5xx 握手拒绝）仍是一条标准 HTTP 响应。
+      // 正文页签由消息流接管，其余响应页签继续复用普通请求的数据模型。
+      setResponseData({
+        statusCode: resp.statusCode,
+        timing: toTimingData(resp.timing),
+        size: resp.size,
+        body: resp.body || "",
+        rawBody: resp.rawBody,
+        headers: resp.headers,
+        cookies: resp.cookies || [],
+        contentType: resp.contentType,
+        actualRequest: resp.actualRequest,
+        scripts: resp.scripts || undefined,
+        truncated: resp.truncated,
+        truncatedLimit: resp.truncatedLimit,
+        rawBodyOmitted: resp.rawBodyOmitted,
+        skipped: resp.skipped,
+      })
+    }
+  }
+
+  const handleWSDisconnect = async () => {
+    await WebSocketService.Close(endpointData.id)
+  }
+
   /** 把当前请求复制为 cURL 命令 */
   const handleCopyAsCurl = async () => {
     const ep = endpointData
@@ -1259,6 +1290,7 @@ export function ApiManagement(props: ApiManagementProps) {
               {() => endpointData.id ? <EndpointDetail
                 endpoint={endpointData} response={responseData()} sending={sending()}
                 isUnsaved={isActiveTabUnsaved()} onSend={handleSend} onCancelSend={handleCancelSend}
+                onWSConnect={handleWSConnect} onWSDisconnect={handleWSDisconnect}
                 onCopyAsCurl={handleCopyAsCurl} onSave={handleSave}
                 onDelete={handleDelete} onChange={handleDataChange}
                 currentEnvironmentId={getCurrentEnvironmentId(props.projectId)}
