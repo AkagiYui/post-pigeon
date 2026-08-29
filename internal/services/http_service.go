@@ -244,7 +244,8 @@ type HTTPResponseData struct {
 	Scripts *ScriptResults `json:"scripts,omitempty"`
 	// Skipped 为 true 表示请求被前置脚本 pm.execution.skipRequest() 跳过，未真正发出
 	Skipped bool `json:"skipped"`
-	// Streaming 为 true 表示响应是持续记录流，正通过 http:stream 事件持续推送（Body 为空）。
+	// Streaming 为 true 表示响应是持续记录流，正通过 http:stream 事件持续推送；首个响应中
+	// Body 为空，前端由这些记录实时重组普通响应体视图。
 	Streaming bool `json:"streaming"`
 	// StreamID 流的连接标识，前端据此订阅并展示实时事件、可发起停止
 	StreamID string `json:"streamId"`

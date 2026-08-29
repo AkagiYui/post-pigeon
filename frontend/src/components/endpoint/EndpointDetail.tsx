@@ -22,7 +22,7 @@ import { formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLOR
 import { byteLength, cn, downloadTextFile, extensionForContentType, hasURLScheme } from "@/lib/utils"
 import { convertHTTPToWSProtocol, effectiveWSProtocolConversion } from "@/lib/ws-protocol"
 import { responseLayout, setResponseLayout, setWebSocketMessageDrafts, webSocketMessageDrafts } from "@/stores/app"
-import { markConnecting, streamStatus } from "@/stores/stream"
+import { markConnecting, streamMessages, streamStatus } from "@/stores/stream"
 import { toastError } from "@/stores/toast"
 
 import { AuthEditor } from "./AuthEditor"
@@ -35,6 +35,7 @@ import { CookiesEditor, ParamsEditor } from "./ParamsEditor"
 import { shouldShowResponsePanel } from "./response-visibility"
 import { ResponseBodyToolbar, ResponsePanel } from "./ResponsePanel"
 import { StreamEventLog, WebSocketMessageEditor, WebSocketResponse } from "./StreamPanels"
+import { streamResponseBody } from "./stream-message-view"
 
 /** HTTP 方法选项（用于 Combobox） */
 const methodOptions: ComboboxOption[] = [
@@ -332,6 +333,15 @@ export function EndpointDetail(props: EndpointDetailProps) {
     if (streamId) setActiveResponseTab("timeline")
   }))
 
+  // 流式响应不会在 SendRequest 返回时一次性携带 Body；使用与 Timeline 相同的记录缓存动态重组，
+  // 让用户切回常规「响应体」页签时看到截至当前已接收的完整协议内容。
+  const responseForDisplay = createMemo(() => {
+    const response = props.response
+    if (!response?.streaming || !response.streamId) return response
+    const body = streamResponseBody(streamMessages(response.streamId), response.streamFormat)
+    return { ...response, body, size: byteLength(body) }
+  })
+
   // ---- 响应区尺寸调整 / 收起（上下布局调高度，左右布局调宽度） ----
   const MIN_RESPONSE_H = 140 // 上下布局最低高度
   const MIN_RESPONSE_W = 280 // 左右布局最低宽度
@@ -404,7 +414,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
    * 否则退回已解码的文本。
    */
   const downloadResponseBody = () => {
-    const response = props.response
+    const response = responseForDisplay()
     if (!response) return
     const contentType = (response.contentType || "").split(";")[0].trim() || "application/octet-stream"
     const fileName = `response${extensionForContentType(contentType)}`
@@ -748,9 +758,9 @@ export function EndpointDetail(props: EndpointDetailProps) {
                             </span>
                           </HoverCard>
                           {/* 大小：hover 展示请求/响应的头与体大小 */}
-                          <HoverCard content={<ResponseSizeCard response={props.response!} />}>
+                          <HoverCard content={<ResponseSizeCard response={responseForDisplay()!} />}>
                             <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
-                              {formatSize(props.response!.size || 0)}
+                              {formatSize(responseForDisplay()!.size || 0)}
                             </span>
                           </HoverCard>
                           {/* 布局切换按钮（上下 / 左右） */}
@@ -763,7 +773,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                         <Show when={isWs() && key === "body"} fallback={
                           <ResponsePanel
                             tab={key}
-                            response={props.response!}
+                            response={responseForDisplay()!}
                             renderMode={renderMode()}
                             format={format()}
                             encoding={encoding()}

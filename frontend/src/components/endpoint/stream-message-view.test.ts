@@ -6,7 +6,9 @@ import {
   filterAndSortStreamMessages,
   inferMessageFormat,
   latestMessageScrollTop,
+  mergeStreamRecords,
   messageContentForDisplay,
+  streamResponseBody,
 } from "./stream-message-view"
 
 const messages: StreamMessage[] = [
@@ -59,5 +61,17 @@ describe("WebSocket message view", () => {
     expect(inferMessageFormat({ kind: "message", data: '{"ok":true}', timestamp: 1 })).toBe("json")
     expect(inferMessageFormat({ kind: "message", data: "<root><ok /></root>", timestamp: 1 })).toBe("xml")
     expect(inferMessageFormat({ kind: "message", data: "<!doctype html><p>ok</p>", timestamp: 1 })).toBe("html")
+  })
+
+  it("将 HTTP 流记录持续重组成响应体，并支持合并展示", () => {
+    const stream: StreamMessage[] = [
+      { kind: "open", data: "200", timestamp: 1 },
+      { kind: "message", data: "first", raw: "event: token\ndata: first", timestamp: 2 },
+      { kind: "comment", data: "", comment: "keepalive", hasComment: true, raw: ": keepalive", timestamp: 3 },
+      { kind: "message", data: "second", raw: "data: second", timestamp: 4 },
+      { kind: "close", data: "stream ended", timestamp: 5 },
+    ]
+    expect(streamResponseBody(stream, "sse")).toBe("event: token\ndata: first\n\n: keepalive\n\ndata: second")
+    expect(mergeStreamRecords(stream, "sse")).toMatchObject({ data: "first\nsecond", timestamp: 4 })
   })
 })

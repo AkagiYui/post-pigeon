@@ -3,6 +3,47 @@ import type { StreamMessage } from "@/stores/stream"
 
 export type StreamMessageDirection = "all" | "sent" | "received"
 export type StreamMessageOrder = "asc" | "desc"
+export type StreamViewMode = "timeline" | "completion"
+
+/** 流记录原文在响应体页签中使用的分隔符。SSE 的空行界定事件，JSON 记录流一行一条。 */
+function streamRecordSeparator(format?: string): string {
+  return format === "sse" ? "\n\n" : "\n"
+}
+
+/** 取得参与 HTTP 流响应的记录，排除连接状态、重连和关闭等 UI 事件。 */
+function responseRecords(messages: StreamMessage[]): StreamMessage[] {
+  return messages.filter((message) => message.kind === "message" || message.kind === "comment")
+}
+
+/**
+ * 汇总流式 HTTP 响应的协议原文，供普通「响应体」页签与下载复用。
+ *
+ * SSE / NDJSON 由解析器拆成记录后才抵达前端；这里按其记录边界重新组合，因此响应体在流未结束时
+ * 也会持续更新。优先用 Raw，既保留 SSE 的 event/id/retry 字段，也保留 JSON Sequence 的 RS 前缀。
+ */
+export function streamResponseBody(messages: StreamMessage[], format?: string): string {
+  return responseRecords(messages)
+    .map((message) => message.raw ?? (message.hasComment ? `: ${message.comment ?? ""}` : message.data))
+    .join(streamRecordSeparator(format))
+}
+
+/**
+ * 将逐条 HTTP 流记录合并为一个实时更新的 completion 项。
+ *
+ * 不猜测 OpenAI/Gemini 等私有 JSON schema；使用换行保留记录边界，避免把两个独立 JSON 对象黏成
+ * 一个无法辨认的字符串。调用方每收到新记录就重算，因而该项始终代表当前已接收的完整内容。
+ */
+export function mergeStreamRecords(messages: StreamMessage[], format?: string): StreamMessage | undefined {
+  const records = responseRecords(messages)
+  if (records.length === 0) return undefined
+  const last = records[records.length - 1]
+  return {
+    kind: "message",
+    data: records.filter((message) => !message.hasComment).map((message) => message.data).join("\n"),
+    raw: streamResponseBody(records, format),
+    timestamp: last.timestamp,
+  }
+}
 
 /** 跟随最新消息时，各排序方向对应的滚动位置。 */
 export function latestMessageScrollTop(

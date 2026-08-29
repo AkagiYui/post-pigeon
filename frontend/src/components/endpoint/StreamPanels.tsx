@@ -36,9 +36,11 @@ import {
   filterAndSortStreamMessages,
   inferMessageFormat,
   latestMessageScrollTop,
+  mergeStreamRecords,
   messageContentForDisplay,
   type StreamMessageDirection,
   type StreamMessageOrder,
+  type StreamViewMode,
 } from "./stream-message-view"
 
 export function StatusDot(props: { status: string }) {
@@ -51,6 +53,8 @@ export function StatusDot(props: { status: string }) {
 /** 消息流日志（按 connId 从全局 store 读取，切换标签页不丢失） */
 export function MessageLog(props: {
   connId: string
+  /** 传入时用于合并视图；未传入时从全局流 store 读取。 */
+  sourceMessages?: StreamMessage[]
   parseJSON?: boolean
   formatJSON?: boolean
   query?: string
@@ -65,7 +69,7 @@ export function MessageLog(props: {
   containerRef?: (element: HTMLDivElement) => void
   onScroll?: () => void
 }) {
-  const allMessages = createMemo(() => streamMessages(props.connId))
+  const allMessages = createMemo(() => props.sourceMessages ?? streamMessages(props.connId))
   const messages = createMemo(() => filterAndSortStreamMessages(
     allMessages(),
     props.query ?? "",
@@ -527,7 +531,12 @@ export function StreamEventLog(props: { streamId: string; streamFormat?: string;
   const [followLatest, setFollowLatest] = createSignal(true)
   const [selectedMessage, setSelectedMessage] = createSignal<StreamMessage | undefined>(selectedStreamMessage(props.streamId))
   const [raw, setRaw] = createSignal(false)
+  const [viewMode, setViewMode] = createSignal<StreamViewMode>("timeline")
   const messageCount = createMemo(() => streamMessages(props.streamId).length)
+  const completionMessages = createMemo(() => {
+    const merged = mergeStreamRecords(streamMessages(props.streamId), props.streamFormat)
+    return merged ? [merged] : []
+  })
   let messageLogElement: HTMLDivElement | undefined
   let scrollFrame: number | undefined
   let releaseScrollFrame: number | undefined
@@ -605,10 +614,26 @@ export function StreamEventLog(props: { streamId: string; streamFormat?: string;
           <Checkbox checked={raw()} onChange={(event) => setRaw(event.currentTarget.checked)} />
           <span>{t("stream.rawRecords")}</span>
         </label>
+        <Select
+          size="sm"
+          value={viewMode()}
+          onChange={(value) => {
+            setViewMode(value as StreamViewMode)
+            setSelectedMessage(undefined)
+            selectStreamMessage(props.streamId)
+          }}
+          options={[
+            { value: "timeline", label: t("stream.viewTimeline") },
+            { value: "completion", label: t("stream.viewCompletion") },
+          ]}
+          aria-label={t("stream.viewMode")}
+          class="w-24 shrink-0"
+        />
       </div>
       <div class="flex min-h-0 flex-1 gap-2">
         <MessageLog
           connId={props.streamId}
+          sourceMessages={viewMode() === "completion" ? completionMessages() : undefined}
           query={query()}
           order={order()}
           direction="all"
