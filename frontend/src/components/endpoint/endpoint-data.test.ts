@@ -18,6 +18,7 @@ import {
   toOperationModels,
   toTimingData,
 } from "./endpoint-data"
+import { proxyJSONFromKey, tlsJSONFromMode, urlEncodingFromMode } from "./EndpointSettingsEditor"
 
 describe("parseStringArray", () => {
   it("解析合法的字符串数组", () => {
@@ -121,12 +122,22 @@ describe("认证转换", () => {
     expect(authDataToState(null, null)).toEqual(emptyAuth())
   })
 
-  it("none 不产生模型，其余产生模型", () => {
-    expect(toAuthModel(emptyAuth())).toBeNull()
+  it("none 与 inherit 都产生显式模型，只有缺少编辑态时返回 null", () => {
+    expect(toAuthModel(emptyAuth())?.type).toBe("none")
+    expect(toAuthModel({ ...emptyAuth(), type: "inherit" })?.type).toBe("inherit")
     const model = toAuthModel({ ...emptyAuth(), type: "bearer", token: "t" })
     expect(model?.type).toBe("bearer")
     expect(fromAuthModel(model).token).toBe("t")
     expect(fromAuthModel(new EndpointAuth({ type: "none", data: "" }))).toEqual(emptyAuth())
+    expect(fromAuthModel(null).type).toBe("inherit")
+  })
+})
+
+describe("接口设置的显式继承值", () => {
+  it("代理、TLS 与 URL 编码都不会把 inherit 压成空串", () => {
+    expect(JSON.parse(proxyJSONFromKey("inherit"))).toEqual({ mode: "inherit" })
+    expect(JSON.parse(tlsJSONFromMode("inherit"))).toEqual({ mode: "inherit" })
+    expect(urlEncodingFromMode("inherit")).toBe("inherit")
   })
 })
 

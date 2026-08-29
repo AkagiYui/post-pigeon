@@ -183,6 +183,12 @@ func TestResolveURLEncodingChain(t *testing.T) {
 	if got := resolveURLEncoding(db, module.ID, ""); got != models.URLEncodingOff {
 		t.Fatalf("重置后 = %s，期望 off（跟随全局）", got)
 	}
+
+	// 已保存接口原来是 off，当前编辑态显式选 inherit 时不能回退到数据库旧值。
+	saved := &models.Endpoint{URLEncoding: string(models.URLEncodingOff)}
+	if got := endpointURLEncoding(SendRequestData{URLEncoding: string(models.URLEncodingInherit)}, saved); got != string(models.URLEncodingInherit) {
+		t.Fatalf("当前显式 inherit 被数据库旧值覆盖: %q", got)
+	}
 }
 
 // TestSendRequestURLEncoding 端到端：接口级档位决定实际发出的请求行。

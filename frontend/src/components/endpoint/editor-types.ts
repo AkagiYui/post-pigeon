@@ -40,11 +40,11 @@ export interface EndpointData {
   inheritOperations: boolean
   /** 本接口禁用的全局(模块) query 参数名列表（仅影响本接口） */
   disabledGlobalParams: string[]
-  /** 接口级代理选择（EndpointProxy 的 JSON，空表示 inherit 跟随项目） */
+  /** 接口级代理选择（EndpointProxy 的 JSON，空或 mode=inherit 表示跟随项目） */
   proxyConfig: string
-  /** 接口级 TLS 选择（EndpointTLS 的 JSON，空表示 inherit 跟随项目） */
+  /** 接口级 TLS 选择（EndpointTLS 的 JSON，空或 mode=inherit 表示跟随项目） */
   tlsConfig: string
-  /** 接口级 URL 自动编码档位（rfc3986 / whatwg / off，空表示 inherit 跟随项目） */
+  /** 接口级 URL 自动编码档位（rfc3986 / whatwg / off / inherit） */
   urlEncoding: string
   /** 前置/后置操作列表 */
   operations: OperationRow[]
@@ -248,4 +248,3 @@ export interface EnvironmentBaseURLOption {
   /** 前置 URL */
   baseUrl: string
 }
-

@@ -17,7 +17,15 @@ import (
 // 会按「继承的模块/文件夹操作」+「端点自身操作」的顺序，将每个启用的操作翻译为
 // 等价的 pm.* 脚本片段并拼接。前置阶段从外层到内层执行；后置阶段从内层到外层执行。
 func composeStageScript(db *gorm.DB, ep *models.Endpoint, stage models.OperationStage) string {
-	levels := gatherOperationLevels(db, ep, stage)
+	return composeStageScriptWithEndpointOps(db, ep, stage, nil)
+}
+
+// composeStageScriptWithEndpointOps 与 composeStageScript 相同，但允许用当前编辑态的端点操作
+// 覆盖数据库里的端点操作。override 为 nil 时读取数据库；空切片表示端点当前明确没有操作。
+func composeStageScriptWithEndpointOps(db *gorm.DB, ep *models.Endpoint, stage models.OperationStage,
+	override []models.Operation,
+) string {
+	levels := gatherOperationLevelsWithEndpointOps(db, ep, stage, override)
 
 	var fragments []string
 	for _, ops := range levels {
@@ -50,7 +58,22 @@ func legacyStageScript(ep *models.Endpoint, stage models.OperationStage) string 
 
 // gatherOperationLevels 收集各层级的操作，按执行顺序返回二维列表。
 func gatherOperationLevels(db *gorm.DB, ep *models.Endpoint, stage models.OperationStage) [][]models.Operation {
+	return gatherOperationLevelsWithEndpointOps(db, ep, stage, nil)
+}
+
+func gatherOperationLevelsWithEndpointOps(db *gorm.DB, ep *models.Endpoint, stage models.OperationStage,
+	override []models.Operation,
+) [][]models.Operation {
 	endpointOps := loadOperations(db, models.OperationOwnerEndpoint, ep.ID, stage)
+	if override != nil {
+		endpointOps = endpointOps[:0]
+		for _, op := range override {
+			if op.Stage == string(stage) {
+				endpointOps = append(endpointOps, op)
+			}
+		}
+		sort.SliceStable(endpointOps, func(i, j int) bool { return endpointOps[i].SortOrder < endpointOps[j].SortOrder })
+	}
 
 	// 不继承时仅返回端点自身操作
 	if !ep.InheritOperations {

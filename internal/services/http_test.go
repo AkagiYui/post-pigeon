@@ -88,6 +88,72 @@ func decodeEcho(t *testing.T, body string) map[string]any {
 	return m
 }
 
+// TestSendRequestUsesCurrentEditorOverrides 验证已保存接口未点保存就直接发送时，
+// 认证、模块参数开关、操作与继承开关均以当前编辑态为准，而不是数据库旧值。
+func TestSendRequestUsesCurrentEditorOverrides(t *testing.T) {
+	db := newTestDB(t)
+	project := mustCreateProject(t, db, "current-editor-overrides")
+	module := defaultModule(t, db, project.ID)
+	if err := NewScopeSettingsService(db).SaveModuleSettings(module.ID, ModuleSettings{
+		AuthType: "bearer",
+		AuthData: models.ToJSON(models.BearerAuthData{Token: "module-token"}),
+		Params:   []models.ModuleParam{{Type: "query", Name: "trace", Value: "saved", Enabled: true}},
+		Operations: []models.Operation{{
+			Stage: "pre", Type: "script", Enabled: true,
+			Data: models.ToJSON(models.ScriptOperationData{Script: `pm.request.headers.add({key:"X-Module",value:"old"});`}),
+		}},
+	}); err != nil {
+		t.Fatalf("保存模块设置失败: %v", err)
+	}
+
+	es := NewEndpointService(db)
+	ep, err := es.CreateEndpoint(module.ID, nil, "E", "GET", "/echo")
+	if err != nil {
+		t.Fatalf("创建接口失败: %v", err)
+	}
+	if err := es.SaveEndpointData(EndpointSaveData{
+		ID: ep.ID, Name: ep.Name, Method: ep.Method, Path: ep.Path,
+		DisabledGlobalParams: `["trace"]`, InheritOperations: true,
+		Auth: &models.EndpointAuth{Type: "inherit"},
+		Operations: []models.Operation{{
+			Stage: "pre", Type: "script", Enabled: true,
+			Data: models.ToJSON(models.ScriptOperationData{Script: `pm.request.headers.add({key:"X-Saved",value:"old"});`}),
+		}},
+	}); err != nil {
+		t.Fatalf("保存接口旧配置失败: %v", err)
+	}
+
+	srv := echoServer(t)
+	hs := newTestHTTPService(t, db)
+	inheritOps := false
+	resp, err := hs.SendRequest(SendRequestData{
+		EndpointID: ep.ID, ModuleID: module.ID,
+		Method: "GET", BaseURL: srv.URL, Path: "/echo",
+		Auth:                 &models.EndpointAuth{Type: "none"},
+		DisabledGlobalParams: `[]`,
+		InheritOperations:    &inheritOps,
+		Operations: []models.Operation{{
+			Stage: "pre", Type: "script", Enabled: true,
+			Data: models.ToJSON(models.ScriptOperationData{Script: `pm.request.headers.add({key:"X-Current",value:"yes"});`}),
+		}},
+	})
+	if err != nil {
+		t.Fatalf("发送请求失败: %v", err)
+	}
+	echo := decodeEcho(t, resp.Body)
+	if echo["auth"] != "" {
+		t.Errorf("当前 none 没有压住模块认证: auth=%v", echo["auth"])
+	}
+	query, _ := echo["query"].(map[string]any)
+	if got := query["trace"]; got == nil {
+		t.Errorf("当前启用的模块参数没有发送: query=%v", query)
+	}
+	headers, _ := echo["headers"].(map[string]any)
+	if headers["X-Current"] != "yes" || headers["X-Saved"] != nil || headers["X-Module"] != nil {
+		t.Errorf("操作没有按当前编辑态执行: headers=%v", headers)
+	}
+}
+
 func TestHTTP_GET(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)

@@ -77,7 +77,9 @@ type Endpoint struct {
 	Tags        string `gorm:"type:text" json:"tags"` // JSON 字符串数组
 	Description string `gorm:"type:text" json:"description"`
 	// InheritOperations 是否继承上级（文件夹/模块）的前置后置操作，默认继承
-	InheritOperations bool `gorm:"default:true" json:"inheritOperations"`
+	// 不使用 gorm default:true：GORM 会把显式 false 当作零值省略，导致新建/复制时重新变成 true。
+	// 各创建入口必须明确写入期望值。
+	InheritOperations bool `json:"inheritOperations"`
 	// Source 这条接口是从哪种格式导入的：apifox / openapi / postman，空表示手工创建。
 	// SourceID 是它在来源系统里的稳定标识（Apifox 的接口 ID、OpenAPI 的 operationId）。
 	// 两者一起构成来源命名空间——不同格式的 ID 不在一个空间里，必须连 Source 一起比。

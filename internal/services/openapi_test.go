@@ -290,6 +290,24 @@ func TestDuplicateAndMoveEndpoint(t *testing.T) {
 	m := defaultModule(t, db, p.ID)
 
 	e1, _ := es.CreateEndpoint(m.ID, nil, "接口A", "GET", "/a")
+	proxyNone := models.ToJSON(models.EndpointProxy{Mode: string(models.EndpointProxyNone)})
+	if err := db.Model(&models.Endpoint{}).Where("id = ?", e1.ID).Updates(map[string]any{
+		"inherit_operations": false,
+		"proxy_config":       proxyNone,
+		"tls_config":         models.ToJSON(models.EndpointTLS{Mode: string(models.EndpointTLSInsecure)}),
+		"url_encoding":       string(models.URLEncodingOff),
+	}).Error; err != nil {
+		t.Fatalf("设置接口覆盖项失败: %v", err)
+	}
+	if err := db.Create(&models.EndpointAuth{EndpointID: e1.ID, Type: "none"}).Error; err != nil {
+		t.Fatalf("设置接口 none 认证失败: %v", err)
+	}
+	if err := db.Create(&models.Operation{
+		OwnerType: "endpoint", OwnerID: e1.ID, Stage: "pre", Type: "script", Enabled: true,
+		Data: models.ToJSON(models.ScriptOperationData{Script: "console.log('copy')"}),
+	}).Error; err != nil {
+		t.Fatalf("设置接口操作失败: %v", err)
+	}
 	// 复制
 	dup, err := es.DuplicateEndpoint(e1.ID)
 	if err != nil {
@@ -297,6 +315,14 @@ func TestDuplicateAndMoveEndpoint(t *testing.T) {
 	}
 	if dup.ID == e1.ID || dup.Name != "接口A 副本" {
 		t.Errorf("复制端点结果异常：%+v", dup)
+	}
+	dupDetail, _ := es.GetEndpoint(dup.ID)
+	if dupDetail.InheritOperations || dupDetail.ProxyConfig != proxyNone || dupDetail.Auth == nil || dupDetail.Auth.Type != "none" {
+		t.Errorf("复制端点丢失覆盖配置: inherit=%v proxy=%q auth=%+v",
+			dupDetail.InheritOperations, dupDetail.ProxyConfig, dupDetail.Auth)
+	}
+	if len(dupDetail.Operations) != 1 {
+		t.Errorf("复制端点操作数 = %d，期望 1", len(dupDetail.Operations))
 	}
 
 	// 重命名
@@ -327,15 +353,59 @@ func TestDuplicateFolderAndModule(t *testing.T) {
 	ps := NewProjectService(db)
 	p := mustCreateProject(t, db, "复制夹项目")
 	m := defaultModule(t, db, p.ID)
+	if err := db.Model(&models.Module{}).Where("id = ?", m.ID).Updates(map[string]any{
+		"auth_type": "bearer", "auth_data": `{"token":"module"}`, "endpoint_display": "url",
+	}).Error; err != nil {
+		t.Fatalf("设置模块配置失败: %v", err)
+	}
+	if err := db.Create(&models.ModuleParam{ModuleID: m.ID, Type: "query", Name: "global", Enabled: true}).Error; err != nil {
+		t.Fatalf("设置模块参数失败: %v", err)
+	}
+	if err := db.Create(&models.ModuleVariable{ModuleID: m.ID, Key: "mv", Enabled: false}).Error; err != nil {
+		t.Fatalf("设置模块变量失败: %v", err)
+	}
+	if err := db.Create(&models.Operation{OwnerType: "module", OwnerID: m.ID, Stage: "pre", Type: "script", Enabled: true}).Error; err != nil {
+		t.Fatalf("设置模块操作失败: %v", err)
+	}
 
 	folder, _ := fs.CreateFolder(m.ID, nil, "夹1")
-	_, _ = es.CreateEndpoint(m.ID, &folder.ID, "夹内接口", "GET", "/x")
+	if err := db.Model(&models.Folder{}).Where("id = ?", folder.ID).Updates(map[string]any{
+		"auth_type": "none", "auth_data": "",
+	}).Error; err != nil {
+		t.Fatalf("设置文件夹认证失败: %v", err)
+	}
+	if err := db.Create(&models.Operation{OwnerType: "folder", OwnerID: folder.ID, Stage: "pre", Type: "script", Enabled: true}).Error; err != nil {
+		t.Fatalf("设置文件夹操作失败: %v", err)
+	}
+	folderEP, _ := es.CreateEndpoint(m.ID, &folder.ID, "夹内接口", "GET", "/x")
+	proxyNone := models.ToJSON(models.EndpointProxy{Mode: string(models.EndpointProxyNone)})
+	if err := db.Model(&models.Endpoint{}).Where("id = ?", folderEP.ID).Updates(map[string]any{
+		"proxy_config": proxyNone, "inherit_operations": false,
+	}).Error; err != nil {
+		t.Fatalf("设置文件夹接口覆盖项失败: %v", err)
+	}
 	sub, _ := fs.CreateFolder(m.ID, &folder.ID, "子夹")
 	_, _ = es.CreateEndpoint(m.ID, &sub.ID, "子夹接口", "POST", "/y")
 
 	// 复制文件夹
-	if _, err := fs.DuplicateFolder(folder.ID); err != nil {
+	dupFolder, err := fs.DuplicateFolder(folder.ID)
+	if err != nil {
 		t.Fatalf("DuplicateFolder err=%v", err)
+	}
+	if dupFolder.AuthType != "none" {
+		t.Errorf("复制文件夹认证 = %q，期望 none", dupFolder.AuthType)
+	}
+	var dupFolderEP models.Endpoint
+	if err := db.Where("folder_id = ? AND name = ?", dupFolder.ID, "夹内接口").First(&dupFolderEP).Error; err != nil {
+		t.Fatalf("读取复制文件夹内接口失败: %v", err)
+	}
+	if dupFolderEP.ProxyConfig != proxyNone || dupFolderEP.InheritOperations {
+		t.Errorf("复制文件夹内接口丢失覆盖项: proxy=%q inherit=%v", dupFolderEP.ProxyConfig, dupFolderEP.InheritOperations)
+	}
+	var dupFolderOps int64
+	db.Model(&models.Operation{}).Where("owner_type = 'folder' AND owner_id = ?", dupFolder.ID).Count(&dupFolderOps)
+	if dupFolderOps != 1 {
+		t.Errorf("复制文件夹操作数 = %d，期望 1", dupFolderOps)
 	}
 	tree, _ := ps.GetProjectTree(p.ID)
 	// 模块层级应有 夹1 与 夹1 副本
@@ -348,8 +418,19 @@ func TestDuplicateFolderAndModule(t *testing.T) {
 	}
 
 	// 复制模块
-	if _, err := ms.DuplicateModule(m.ID); err != nil {
+	dupModule, err := ms.DuplicateModule(m.ID)
+	if err != nil {
 		t.Fatalf("DuplicateModule err=%v", err)
+	}
+	if dupModule.AuthType != "bearer" || dupModule.EndpointDisplay != "url" {
+		t.Errorf("复制模块丢失设置: auth=%q display=%q", dupModule.AuthType, dupModule.EndpointDisplay)
+	}
+	var moduleParams, moduleVars, moduleOps int64
+	db.Model(&models.ModuleParam{}).Where("module_id = ?", dupModule.ID).Count(&moduleParams)
+	db.Model(&models.ModuleVariable{}).Where("module_id = ?", dupModule.ID).Count(&moduleVars)
+	db.Model(&models.Operation{}).Where("owner_type = 'module' AND owner_id = ?", dupModule.ID).Count(&moduleOps)
+	if moduleParams != 1 || moduleVars != 1 || moduleOps != 1 {
+		t.Errorf("复制模块关联设置不完整: params=%d vars=%d ops=%d", moduleParams, moduleVars, moduleOps)
 	}
 	tree2, _ := ps.GetProjectTree(p.ID)
 	if len(tree2) != 2 {

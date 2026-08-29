@@ -242,7 +242,7 @@ export function authStateToData(a: AuthState): string {
 }
 
 export function toAuthModel(a: AuthState): EndpointAuth | null {
-  if (!a || a.type === "none") return null
+  if (!a) return null
   return new EndpointAuth({ type: a.type, data: authStateToData(a) })
 }
 
@@ -302,6 +302,6 @@ export function authDataToState(type?: string | null, data?: string | null): Aut
 }
 
 export function fromAuthModel(a?: EndpointAuth | null): AuthState {
-  return authDataToState(a?.type, a?.data)
+  // 后端以「无记录」表示 inherit；none 是一条显式记录，用来停止上级认证继承。
+  return authDataToState(a?.type || "inherit", a?.data)
 }
-

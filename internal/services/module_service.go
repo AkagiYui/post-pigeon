@@ -3,6 +3,7 @@ package services
 import (
 	"fmt"
 	"log/slog"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -145,14 +146,22 @@ func (s *ModuleService) DuplicateModule(id string) (*models.Module, error) {
 	s.db.Model(&models.Module{}).Where("project_id = ?", src.ProjectID).
 		Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
 
-	newModule := &models.Module{
-		ProjectID: src.ProjectID,
-		Name:      src.Name + " 副本",
-		SortOrder: maxSort + 1,
-	}
+	newModule := src
+	newModule.ID = ""
+	newModule.Name = src.Name + " 副本"
+	newModule.SortOrder = maxSort + 1
+	newModule.CreatedAt = time.Time{}
+	newModule.UpdatedAt = time.Time{}
+	newModule.BaseURLs = nil
+	newModule.Params = nil
+	newModule.Variables = nil
+	newModule.Endpoints = nil
+	newModule.Folders = nil
+	newModule.Histories = nil
+	newModule.Operations = nil
 
 	err := s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(newModule).Error; err != nil {
+		if err := tx.Create(&newModule).Error; err != nil {
 			return err
 		}
 
@@ -167,6 +176,31 @@ func (s *ModuleService) DuplicateModule(id string) (*models.Module, error) {
 			if err := tx.Create(&bu).Error; err != nil {
 				return err
 			}
+		}
+
+		var params []models.ModuleParam
+		if err := tx.Where("module_id = ?", src.ID).Order("sort_order ASC").Find(&params).Error; err != nil {
+			return err
+		}
+		for _, p := range params {
+			p.ID, p.ModuleID = "", newModule.ID
+			if err := tx.Create(&p).Error; err != nil {
+				return err
+			}
+		}
+
+		var variables []models.ModuleVariable
+		if err := tx.Where("module_id = ?", src.ID).Order("sort_order ASC").Find(&variables).Error; err != nil {
+			return err
+		}
+		for _, v := range variables {
+			v.ID, v.ModuleID = "", newModule.ID
+			if err := tx.Create(&v).Error; err != nil {
+				return err
+			}
+		}
+		if err := cloneOperations(tx, models.OperationOwnerModule, src.ID, newModule.ID, nil); err != nil {
+			return err
 		}
 
 		// 复制文件夹树：先复制根文件夹（parent_id 为空），保持层级结构
@@ -190,7 +224,7 @@ func (s *ModuleService) DuplicateModule(id string) (*models.Module, error) {
 			return err
 		}
 		for _, ep := range directEndpoints {
-			if err := copyEndpointRecord(tx, ep, newModule.ID, nil, ""); err != nil {
+			if _, err := copyEndpointRecord(tx, ep, newModule.ID, nil, ""); err != nil {
 				return err
 			}
 		}
@@ -202,7 +236,7 @@ func (s *ModuleService) DuplicateModule(id string) (*models.Module, error) {
 		return nil, fmt.Errorf("复制模块失败: %w", err)
 	}
 	slog.Info("模块已复制", "srcID", id, "newID", newModule.ID)
-	return newModule, nil
+	return &newModule, nil
 }
 
 // UpdateModuleSortOrder 更新模块排序

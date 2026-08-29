@@ -4,6 +4,7 @@ import (
 	"fmt"
 	"log/slog"
 	"slices"
+	"time"
 
 	"gorm.io/gorm"
 
@@ -205,13 +206,21 @@ func (s *FolderService) copyFolderTree(tx *gorm.DB, src models.Folder, parentID 
 		sort = sortOrder
 	}
 
-	newFolder := &models.Folder{
-		ModuleID:  moduleID,
-		ParentID:  parentID,
-		Name:      name,
-		SortOrder: sort,
+	newFolder := src
+	newFolder.ID = ""
+	newFolder.ModuleID = moduleID
+	newFolder.ParentID = parentID
+	newFolder.Name = name
+	newFolder.SortOrder = sort
+	newFolder.CreatedAt = time.Time{}
+	newFolder.UpdatedAt = time.Time{}
+	newFolder.Children = nil
+	newFolder.Endpoints = nil
+	newFolder.Operations = nil
+	if err := tx.Create(&newFolder).Error; err != nil {
+		return nil, err
 	}
-	if err := tx.Create(newFolder).Error; err != nil {
+	if err := cloneOperations(tx, models.OperationOwnerFolder, src.ID, newFolder.ID, nil); err != nil {
 		return nil, err
 	}
 
@@ -221,7 +230,7 @@ func (s *FolderService) copyFolderTree(tx *gorm.DB, src models.Folder, parentID 
 		return nil, err
 	}
 	for _, ep := range endpoints {
-		if err := copyEndpointRecord(tx, ep, moduleID, &newFolder.ID, ""); err != nil {
+		if _, err := copyEndpointRecord(tx, ep, moduleID, &newFolder.ID, ""); err != nil {
 			return nil, err
 		}
 	}
@@ -237,5 +246,5 @@ func (s *FolderService) copyFolderTree(tx *gorm.DB, src models.Folder, parentID 
 		}
 	}
 
-	return newFolder, nil
+	return &newFolder, nil
 }

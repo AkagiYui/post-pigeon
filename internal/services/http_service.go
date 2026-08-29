@@ -199,6 +199,11 @@ type SendRequestData struct {
 	TLSConfig string `json:"tlsConfig"`
 	// URLEncoding 接口级 URL 自动编码档位。空表示 inherit（跟随项目/全局）。
 	URLEncoding string `json:"urlEncoding"`
+	// DisabledGlobalParams / Operations / InheritOperations 携带当前编辑态。
+	// 已保存端点未保存就直接发送时，应以界面当前值为准，而不是回读数据库旧值。
+	DisabledGlobalParams string             `json:"disabledGlobalParams"`
+	Operations           []models.Operation `json:"operations"`
+	InheritOperations    *bool              `json:"inheritOperations"`
 	// RequestID 由前端生成的本次请求标识，用于中途取消（CancelRequest）。空则不可取消。
 	RequestID string `json:"requestId"`
 	// PreRequestScript 前置脚本，请求发送前执行
@@ -290,15 +295,31 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		var ep models.Endpoint
 		if err := s.db.Where("id = ?", data.EndpointID).First(&ep).Error; err == nil {
 			loadedEndpoint = &ep
-			data.PreRequestScript = composeStageScript(s.db, &ep, models.OperationStagePre)
-			data.PostResponseScript = composeStageScript(s.db, &ep, models.OperationStagePost)
+			if data.Operations != nil || data.InheritOperations != nil {
+				// 前端带来了当前编辑态：继承开关、端点操作和旧脚本回退都用当前值。
+				effectiveEndpoint := ep
+				if data.InheritOperations != nil {
+					effectiveEndpoint.InheritOperations = *data.InheritOperations
+				}
+				effectiveEndpoint.PreRequestScript = data.PreRequestScript
+				effectiveEndpoint.PostResponseScript = data.PostResponseScript
+				data.PreRequestScript = composeStageScriptWithEndpointOps(s.db, &effectiveEndpoint, models.OperationStagePre, data.Operations)
+				data.PostResponseScript = composeStageScriptWithEndpointOps(s.db, &effectiveEndpoint, models.OperationStagePost, data.Operations)
+			} else {
+				data.PreRequestScript = composeStageScript(s.db, &ep, models.OperationStagePre)
+				data.PostResponseScript = composeStageScript(s.db, &ep, models.OperationStagePost)
+			}
 		}
 	}
 	// 模块自动参数并入请求（query/cookie 计入 Params，header 计入 Headers）
 	modParams, modHeaders := s.loadModuleParams(data.ModuleID)
 	// 本接口禁用的全局(模块)查询参数：仅过滤 query 类型，按参数名匹配
 	if loadedEndpoint != nil {
-		if disabled := parseNameSet(loadedEndpoint.DisabledGlobalParams); len(disabled) > 0 {
+		disabledRaw := loadedEndpoint.DisabledGlobalParams
+		if strings.TrimSpace(data.DisabledGlobalParams) != "" {
+			disabledRaw = data.DisabledGlobalParams
+		}
+		if disabled := parseNameSet(disabledRaw); len(disabled) > 0 {
 			kept := modParams[:0]
 			for _, p := range modParams {
 				if p.Type == "query" && disabled[p.Name] {

@@ -354,9 +354,10 @@ func TestEndpointLifecycle(t *testing.T) {
 	// CreateFullEndpoint（一次性带关联）
 	full, err := es.CreateFullEndpoint(m.ID, nil, EndpointSaveData{
 		Name: "Full", Method: "PUT", Path: "/full", BodyType: "none",
-		Params:  []models.EndpointParam{{Type: "query", Name: "p", Value: "v", Enabled: true}},
-		Headers: []models.EndpointHeader{{Name: "H", Value: "1", Enabled: true}},
-		Auth:    &models.EndpointAuth{Type: "basic", Data: models.ToJSON(models.BasicAuthData{Username: "u", Password: "p"})},
+		InheritOperations: false,
+		Params:            []models.EndpointParam{{Type: "query", Name: "p", Value: "v", Enabled: true}},
+		Headers:           []models.EndpointHeader{{Name: "H", Value: "1", Enabled: true}},
+		Auth:              &models.EndpointAuth{Type: "basic", Data: models.ToJSON(models.BasicAuthData{Username: "u", Password: "p"})},
 	})
 	if err != nil {
 		t.Fatalf("CreateFullEndpoint err=%v", err)
@@ -364,6 +365,9 @@ func TestEndpointLifecycle(t *testing.T) {
 	fd, _ := es.GetEndpoint(full.ID)
 	if len(fd.Params) != 1 || len(fd.Headers) != 1 || fd.Auth == nil || fd.Auth.Type != "basic" {
 		t.Errorf("CreateFullEndpoint 关联数据不完整: params=%d headers=%d auth=%v", len(fd.Params), len(fd.Headers), fd.Auth)
+	}
+	if fd.InheritOperations {
+		t.Error("CreateFullEndpoint 应保留显式 inheritOperations=false")
 	}
 
 	// 删除 + 级联
@@ -402,12 +406,17 @@ func TestEndpointLifecycle(t *testing.T) {
 	}
 }
 
-// TestEndpointSaveDisabledAndAuthClear 验证：禁用标志经完整保存路径后保留；认证切回 none 时被清除
-func TestEndpointSaveDisabledAndAuthClear(t *testing.T) {
+// TestEndpointSaveDisabledAndAuthModes 验证禁用标志与认证三态都能经完整保存路径保留。
+func TestEndpointSaveDisabledAndAuthModes(t *testing.T) {
 	db := newTestDB(t)
 	es := NewEndpointService(db)
 	p := mustCreateProject(t, db, "P")
 	m := defaultModule(t, db, p.ID)
+	if err := db.Model(&models.Module{}).Where("id = ?", m.ID).Updates(map[string]any{
+		"auth_type": "bearer", "auth_data": models.ToJSON(models.BearerAuthData{Token: "module-token"}),
+	}).Error; err != nil {
+		t.Fatalf("设置模块认证失败: %v", err)
+	}
 	e, _ := es.CreateEndpoint(m.ID, nil, "E", "GET", "/")
 
 	// 保存：一个禁用参数 + 一个启用参数 + bearer 认证
@@ -438,19 +447,34 @@ func TestEndpointSaveDisabledAndAuthClear(t *testing.T) {
 		t.Fatalf("认证应为 bearer，实际 %+v", d.Auth)
 	}
 
-	// 再次保存：认证切回 none（nil）+ 清空参数
+	// 再次保存：显式 none 必须留下一条记录，阻止模块认证继续下传。
 	if err := es.SaveEndpointData(EndpointSaveData{
 		ID: e.ID, Name: "E", Method: "GET", Path: "/",
-		Params: []models.EndpointParam{}, Auth: nil,
+		Params: []models.EndpointParam{}, Auth: &models.EndpointAuth{Type: "none"},
 	}); err != nil {
-		t.Fatalf("SaveEndpointData(清除) err=%v", err)
+		t.Fatalf("SaveEndpointData(none) err=%v", err)
 	}
 	d, _ = es.GetEndpoint(e.ID)
-	if d.Auth != nil {
-		t.Errorf("切回 none 后认证应被清除，实际 %+v", d.Auth)
+	if d.Auth == nil || d.Auth.Type != "none" {
+		t.Fatalf("none 应作为显式认证记录保存，实际 %+v", d.Auth)
+	}
+	if effective := resolveEffectiveAuth(db, &d.Endpoint, d.Auth); effective == nil || effective.Type != "none" {
+		t.Errorf("none 应停止模块认证继承，实际 %+v", effective)
 	}
 	if len(d.Params) != 0 {
 		t.Errorf("清空后参数应为 0，实际 %d", len(d.Params))
+	}
+
+	// 显式 inherit 则重新继承模块 Bearer。
+	if err := es.SaveEndpointData(EndpointSaveData{
+		ID: e.ID, Name: "E", Method: "GET", Path: "/",
+		Auth: &models.EndpointAuth{Type: "inherit"},
+	}); err != nil {
+		t.Fatalf("SaveEndpointData(inherit) err=%v", err)
+	}
+	d, _ = es.GetEndpoint(e.ID)
+	if effective := resolveEffectiveAuth(db, &d.Endpoint, d.Auth); effective == nil || effective.Type != "bearer" {
+		t.Errorf("inherit 应恢复模块 Bearer，实际 %+v", effective)
 	}
 }
 

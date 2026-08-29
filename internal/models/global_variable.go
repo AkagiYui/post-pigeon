@@ -13,8 +13,9 @@ type GlobalVariable struct {
 	Key         string `gorm:"not null" json:"key"`
 	Value       string `json:"value"`
 	Description string `json:"description"`
-	Enabled     bool   `gorm:"not null;default:true" json:"enabled"`
-	SortOrder   int    `gorm:"not null;default:0" json:"sortOrder"`
+	// 不使用 gorm default:true，否则 GORM 会把显式 false 当作零值省略。
+	Enabled   bool `gorm:"not null" json:"enabled"`
+	SortOrder int  `gorm:"not null;default:0" json:"sortOrder"`
 }
 
 // BeforeCreate 创建前自动生成 UUID

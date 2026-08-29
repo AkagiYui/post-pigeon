@@ -259,6 +259,26 @@ func TestModuleVars_SaveRoundTrip(t *testing.T) {
 	}
 }
 
+// TestGlobalVariables_SaveDisabled 验证项目全局变量的显式禁用不会被数据库默认值改回启用。
+func TestGlobalVariables_SaveDisabled(t *testing.T) {
+	db := newTestDB(t)
+	p := mustCreateProject(t, db, "global-disabled")
+	svc := NewGlobalVariableService(db)
+	if err := svc.SaveGlobalVariables(p.ID, []models.GlobalVariable{
+		{Key: "on", Value: "1", Enabled: true},
+		{Key: "off", Value: "2", Enabled: false},
+	}); err != nil {
+		t.Fatalf("保存全局变量失败: %v", err)
+	}
+	got, err := svc.ListGlobalVariables(p.ID)
+	if err != nil {
+		t.Fatalf("读取全局变量失败: %v", err)
+	}
+	if len(got) != 2 || !got[0].Enabled || got[1].Enabled {
+		t.Fatalf("启用状态没有原样保存: %+v", got)
+	}
+}
+
 // TestModuleVars_SecretMasked 模块变量标记为 secret 后，其值不应出现在请求历史里。
 func TestModuleVars_SecretMasked(t *testing.T) {
 	db := newTestDB(t)

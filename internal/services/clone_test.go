@@ -207,6 +207,43 @@ func TestCloneProjectDefaultName(t *testing.T) {
 	}
 }
 
+// TestCloneProjectPreservesExplicitFalse 验证克隆时不会把显式 false 当作缺省值恢复为 true。
+func TestCloneProjectPreservesExplicitFalse(t *testing.T) {
+	db := newTestDB(t)
+	p := mustCreateProject(t, db, "false 状态")
+	m := defaultModule(t, db, p.ID)
+	if err := NewGlobalVariableService(db).SaveGlobalVariables(p.ID, []models.GlobalVariable{
+		{Key: "disabled", Value: "x", Enabled: false},
+	}); err != nil {
+		t.Fatalf("保存全局变量失败: %v", err)
+	}
+	if _, err := NewEndpointService(db).CreateFullEndpoint(m.ID, nil, EndpointSaveData{
+		Name: "no-inherit", Method: "GET", Path: "/", InheritOperations: false,
+	}); err != nil {
+		t.Fatalf("创建接口失败: %v", err)
+	}
+
+	clone, err := NewProjectService(db).CloneProject(p.ID, "clone")
+	if err != nil {
+		t.Fatalf("CloneProject err=%v", err)
+	}
+	var gv models.GlobalVariable
+	if err := db.Where("project_id = ? AND key = ?", clone.ID, "disabled").First(&gv).Error; err != nil {
+		t.Fatalf("读取克隆全局变量失败: %v", err)
+	}
+	if gv.Enabled {
+		t.Error("克隆把禁用的全局变量恢复成了启用")
+	}
+	var ep models.Endpoint
+	if err := db.Where("module_id IN (?) AND name = ?",
+		db.Model(&models.Module{}).Select("id").Where("project_id = ?", clone.ID), "no-inherit").First(&ep).Error; err != nil {
+		t.Fatalf("读取克隆接口失败: %v", err)
+	}
+	if ep.InheritOperations {
+		t.Error("克隆把 inheritOperations=false 恢复成了 true")
+	}
+}
+
 // TestCloneProjectNotFound 克隆不存在的项目应报错而不是建出空项目。
 func TestCloneProjectNotFound(t *testing.T) {
 	db := newTestDB(t)

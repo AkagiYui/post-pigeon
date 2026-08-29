@@ -88,6 +88,8 @@ func (s *EndpointService) CreateEndpoint(moduleID string, folderID *string, name
 		Path:      path,
 		SortOrder: maxSort + 1,
 		BodyType:  string(models.BodyTypeNone),
+		// 普通接口默认继承上级操作；文档等不继承的类型由各自创建入口显式覆盖。
+		InheritOperations: true,
 	}
 	if err := s.db.Create(endpoint).Error; err != nil {
 		slog.Error("创建端点失败", "error", err)
@@ -167,12 +169,12 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 			}
 		}
 
-		// 保存认证信息：始终先清除旧认证，再按需写入
-		// （切换为 none 或 nil 时仅清除，避免旧认证残留）
+		// 保存认证信息：始终先清除旧认证，再按需写入。
+		// nil 表示 inherit（不留记录）；none 必须作为显式记录保存，才能停止上级认证继承。
 		if err := tx.Where("endpoint_id = ?", data.ID).Delete(&models.EndpointAuth{}).Error; err != nil {
 			return err
 		}
-		if data.Auth != nil && data.Auth.Type != string(models.AuthTypeNone) {
+		if data.Auth != nil {
 			data.Auth.ID = ""
 			data.Auth.EndpointID = data.ID
 			if err := tx.Create(data.Auth).Error; err != nil {
@@ -539,10 +541,9 @@ func (s *EndpointService) ReorderEndpoints(orderedIDs []string) error {
 
 // DuplicateEndpoint 复制端点及其所有关联数据到同一位置
 func (s *EndpointService) DuplicateEndpoint(id string) (*models.Endpoint, error) {
-	// 加载源端点完整详情
-	src, err := s.GetEndpoint(id)
-	if err != nil {
-		return nil, err
+	var src models.Endpoint
+	if err := s.db.Where("id = ?", id).First(&src).Error; err != nil {
+		return nil, fmt.Errorf("获取端点失败: %w", err)
 	}
 
 	// 计算同位置的最大排序号
@@ -555,58 +556,11 @@ func (s *EndpointService) DuplicateEndpoint(id string) (*models.Endpoint, error)
 	}
 	query.Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
 
-	newEndpoint := &models.Endpoint{
-		ModuleID:             src.ModuleID,
-		FolderID:             src.FolderID,
-		Name:                 src.Name + " 副本",
-		Method:               src.Method,
-		Path:                 src.Path,
-		BodyType:             src.BodyType,
-		BodyContent:          src.BodyContent,
-		ContentType:          src.ContentType,
-		Timeout:              src.Timeout,
-		FollowRedirects:      src.FollowRedirects,
-		DisabledGlobalParams: src.DisabledGlobalParams,
-		ProxyConfig:          src.ProxyConfig,
-		TLSConfig:            src.TLSConfig,
-		URLEncoding:          src.URLEncoding,
-		SortOrder:            maxSort + 1,
-	}
-
-	err = s.db.Transaction(func(tx *gorm.DB) error {
-		if err := tx.Create(newEndpoint).Error; err != nil {
-			return err
-		}
-		for _, p := range src.Params {
-			p.ID = ""
-			p.EndpointID = newEndpoint.ID
-			if err := tx.Create(&p).Error; err != nil {
-				return err
-			}
-		}
-		for _, bf := range src.BodyFields {
-			bf.ID = ""
-			bf.EndpointID = newEndpoint.ID
-			if err := tx.Create(&bf).Error; err != nil {
-				return err
-			}
-		}
-		for _, h := range src.Headers {
-			h.ID = ""
-			h.EndpointID = newEndpoint.ID
-			if err := tx.Create(&h).Error; err != nil {
-				return err
-			}
-		}
-		if src.Auth != nil {
-			auth := *src.Auth
-			auth.ID = ""
-			auth.EndpointID = newEndpoint.ID
-			if err := tx.Create(&auth).Error; err != nil {
-				return err
-			}
-		}
-		return nil
+	var newEndpoint *models.Endpoint
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var copyErr error
+		newEndpoint, copyErr = copyEndpointRecord(tx, src, src.ModuleID, src.FolderID, src.Name+" 副本", maxSort+1)
+		return copyErr
 	})
 	if err != nil {
 		slog.Error("复制端点失败", "error", err)

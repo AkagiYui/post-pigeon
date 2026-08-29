@@ -447,17 +447,18 @@ func (s *ImportExportService) importFolders(tx *gorm.DB, moduleID string, parent
 func (s *ImportExportService) importEndpoints(tx *gorm.DB, moduleID string, folderID *string, endpoints []EndpointExport) error {
 	for _, ee := range endpoints {
 		newEndpoint := models.Endpoint{
-			ModuleID:        moduleID,
-			FolderID:        folderID,
-			Name:            ee.Name,
-			Method:          ee.Method,
-			Path:            ee.Path,
-			BodyType:        ee.BodyType,
-			BodyContent:     ee.BodyContent,
-			ContentType:     ee.ContentType,
-			Timeout:         ee.Timeout,
-			FollowRedirects: ee.FollowRedirects,
-			SortOrder:       ee.SortOrder,
+			ModuleID:          moduleID,
+			FolderID:          folderID,
+			Name:              ee.Name,
+			Method:            ee.Method,
+			Path:              ee.Path,
+			BodyType:          ee.BodyType,
+			BodyContent:       ee.BodyContent,
+			ContentType:       ee.ContentType,
+			Timeout:           ee.Timeout,
+			FollowRedirects:   ee.FollowRedirects,
+			InheritOperations: ee.InheritOperations,
+			SortOrder:         ee.SortOrder,
 		}
 		if err := tx.Create(&newEndpoint).Error; err != nil {
 			return err

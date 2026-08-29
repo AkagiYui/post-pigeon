@@ -738,6 +738,9 @@ export function ApiManagement(props: ApiManagementProps) {
     sendData.proxyConfig = ep.proxyConfig
     sendData.tlsConfig = ep.tlsConfig
     sendData.urlEncoding = ep.urlEncoding
+    sendData.disabledGlobalParams = JSON.stringify(ep.disabledGlobalParams || [])
+    sendData.operations = toOperationModels(ep.operations)
+    sendData.inheritOperations = ep.inheritOperations
     // 已保存端点由后端根据操作组合脚本；未保存请求在此把 script 类型操作拼接为前置/后置脚本
     sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript)
     sendData.postResponseScript = deriveScriptFromOps(ep.operations, "post", ep.postResponseScript)
@@ -1452,4 +1455,3 @@ export function ApiManagement(props: ApiManagementProps) {
     </>
   )
 }
-

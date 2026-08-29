@@ -49,9 +49,9 @@ function tlsModeFromJSON(json?: string): string {
   }
 }
 
-/** 将下拉选择的 key 转回接口 TLS JSON（inherit 存空串） */
-function tlsJSONFromMode(mode: string): string {
-  return mode === "strict" || mode === "insecure" ? JSON.stringify({ mode }) : ""
+/** 将下拉选择的 key 转回接口 TLS JSON；显式 inherit 让未保存的编辑态也能覆盖数据库旧值。 */
+export function tlsJSONFromMode(mode: string): string {
+  return JSON.stringify({ mode: mode === "strict" || mode === "insecure" ? mode : "inherit" })
 }
 
 /** 接口级跟随重定向选项：继承上级 / 显式开启 / 显式关闭 */
@@ -89,14 +89,19 @@ function proxyKeyFromJSON(json?: string): string {
   }
 }
 
-/** 将下拉选择的 key 转回接口代理 JSON（inherit 存空串） */
-function proxyJSONFromKey(key: string): string {
+/** 将下拉选择的 key 转回接口代理 JSON；inherit 也显式传给后端。 */
+export function proxyJSONFromKey(key: string): string {
   if (key === "none") return JSON.stringify({ mode: "none" })
   if (key.startsWith("ref:")) {
     const parts = key.split(":")
     return JSON.stringify({ mode: "ref", refScope: parts[1], refId: parts.slice(2).join(":") })
   }
-  return "" // inherit
+  return JSON.stringify({ mode: "inherit" })
+}
+
+/** URL 编码同样显式传 inherit，空串仅用于兼容旧数据。 */
+export function urlEncodingFromMode(mode: string): string {
+  return ["rfc3986", "whatwg", "off", "inherit"].includes(mode) ? mode : "inherit"
 }
 
 /** 接口状态选项 */
@@ -229,8 +234,8 @@ export function EndpointSettingsEditor(props: EndpointSettingsEditorProps) {
           <Select
             options={urlEncodingOptions()}
             value={props.urlEncoding || "inherit"}
-            // 「跟随项目」存空串，与代理 / TLS 的 inherit 一致
-            onChange={(v) => props.onChange?.({ urlEncoding: v === "inherit" ? "" : v })}
+            // 显式传 inherit，避免未保存直接发送时回落到数据库里的旧接口设置
+            onChange={(v) => props.onChange?.({ urlEncoding: urlEncodingFromMode(v) })}
             size="sm"
             class="w-64"
           />
