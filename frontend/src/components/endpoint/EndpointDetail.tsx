@@ -78,9 +78,10 @@ function tabLabelWithCount(label: string, count: number): JSX.Element {
   )
 }
 
-/** 响应标签 */
-function getResponseTabs() {
+/** 响应标签。SSE 是 HTTP 响应的一种呈现方式，因此保留所有常规元数据标签并额外展示时间线。 */
+function getResponseTabs(streaming = false) {
   return [
+    ...(streaming ? [{ key: "timeline", label: t("stream.messages") }] : []),
     { key: "body", label: t("response.body") },
     { key: "headers", label: t("response.headers") },
     { key: "cookies", label: t("response.cookies") },
@@ -324,6 +325,11 @@ export function EndpointDetail(props: EndpointDetailProps) {
   createEffect(on(() => props.response?.contentType, (ct) => {
     const auto = formatFromContentType(ct)
     if (auto) setFormat(auto)
+  }))
+
+  // SSE 到达后默认切换到 Timeline，但用户仍可返回常规 HTTP 响应标签检查 Header、Cookie 和实际请求。
+  createEffect(on(() => props.response?.streamId, (streamId) => {
+    if (streamId) setActiveResponseTab("timeline")
   }))
 
   // ---- 响应区尺寸调整 / 收起（上下布局调高度，左右布局调宽度） ----
@@ -692,12 +698,10 @@ export function EndpointDetail(props: EndpointDetailProps) {
                   </Show>
                 }
               >
-                {/* SSE 流式响应：实时事件流。WebSocket 的正文由消息面板接管，其余仍走标准响应 Tabs。 */}
-                <Show when={!isWs() && props.response!.streaming} fallback={
-                  /* 请求失败：展示错误信息，而非正常的响应标签页 */
-                  <Show
-                    when={!props.response!.error}
-                    fallback={
+                {/* 请求失败：展示错误信息，而非正常的响应标签页 */}
+                <Show
+                  when={!props.response!.error}
+                  fallback={
                       <div class="flex flex-col h-full">
                         <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
                           <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
@@ -710,13 +714,13 @@ export function EndpointDetail(props: EndpointDetailProps) {
                         </div>
                       </div>
                     }
-                  >
-                    <Tabs
-                      variant="line"
-                      tabs={getResponseTabs()}
-                      value={activeResponseTab()}
-                      onChange={setActiveResponseTab}
-                      extra={
+                >
+                  <Tabs
+                    variant="line"
+                    tabs={getResponseTabs(!isWs() && !!props.response!.streaming)}
+                    value={activeResponseTab()}
+                    onChange={setActiveResponseTab}
+                    extra={
                         <div class="flex items-center gap-3 text-xs text-muted-foreground">
                           {/* 上下布局：响应体工具栏移到状态码左侧，避免单独占一行（左右布局时工具栏留在面板内） */}
                           <Show when={!isWs() && responseLayout() === "bottom" && activeResponseTab() === "body"}>
@@ -753,8 +757,9 @@ export function EndpointDetail(props: EndpointDetailProps) {
                           <LayoutToggle />
                         </div>
                       }
-                    >
-                      {(key) => (
+                  >
+                    {(key) => (
+                      <Show when={!isWs() && key === "timeline"} fallback={
                         <Show when={isWs() && key === "body"} fallback={
                           <ResponsePanel
                             tab={key}
@@ -771,11 +776,11 @@ export function EndpointDetail(props: EndpointDetailProps) {
                         }>
                           <WebSocketResponse connId={ep().id} layout={responseLayout()} />
                         </Show>
-                      )}
-                    </Tabs>
-                  </Show>
-                }>
-                  <StreamEventLog streamId={props.response!.streamId!} onStop={stopStream} />
+                      }>
+                        <StreamEventLog streamId={props.response!.streamId!} onStop={stopStream} />
+                      </Show>
+                    )}
+                  </Tabs>
                 </Show>
               </Show>
             </div>
