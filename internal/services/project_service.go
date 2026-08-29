@@ -2,8 +2,11 @@
 package services
 
 import (
+	"encoding/json"
+	"errors"
 	"fmt"
 	"log/slog"
+	"strings"
 	"time"
 
 	"gorm.io/gorm"
@@ -181,6 +184,397 @@ func (s *ProjectService) DeleteProject(id string) error {
 		slog.Info("项目已删除", "id", id)
 		return nil
 	})
+}
+
+// CloneProject 克隆项目：把源项目原样复制成一个新项目，除名字外与源项目完全一致。
+// 覆盖挂在项目下的每一张表——模块、目录、接口及其参数/请求头/认证/响应示例与定义、
+// 前置后置操作、环境与变量、模块变量、全局变量、脚本库、项目级代理与 TLS 设置，
+// 以及运行状态：Cookie（会话跟着走，克隆件不必重新登录）、上次响应、请求历史。
+// newName 为空时用「源名称 + 副本」。
+func (s *ProjectService) CloneProject(id string, newName string) (*models.Project, error) {
+	var src models.Project
+	if err := s.db.Where("id = ?", id).First(&src).Error; err != nil {
+		if errors.Is(err, gorm.ErrRecordNotFound) {
+			return nil, fmt.Errorf("项目不存在: %s", id)
+		}
+		return nil, fmt.Errorf("获取项目失败: %w", err)
+	}
+
+	name := strings.TrimSpace(newName)
+	if name == "" {
+		name = src.Name + " 副本"
+	}
+
+	// 排到列表末尾，避免和源项目抢同一个 sort_order 后顺序随更新时间乱跳
+	var maxSort int64
+	s.db.Model(&models.Project{}).Select("COALESCE(MAX(sort_order), 0)").Scan(&maxSort)
+
+	dst := &models.Project{
+		Name:          name,
+		Description:   src.Description,
+		SortOrder:     maxSort + 1,
+		ProxySettings: src.ProxySettings,
+		TLSSettings:   src.TLSSettings,
+	}
+
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		if err := tx.Create(dst).Error; err != nil {
+			return err
+		}
+
+		// 环境与环境变量：模块前置 URL 按环境存，先建好环境拿到 旧ID -> 新ID 的映射
+		envIDs := make(map[string]string)
+		var envs []models.Environment
+		if err := tx.Where("project_id = ?", src.ID).Order("created_at ASC").Find(&envs).Error; err != nil {
+			return err
+		}
+		for _, env := range envs {
+			srcEnvID := env.ID
+			env.ID, env.ProjectID = "", dst.ID
+			env.CreatedAt, env.UpdatedAt = time.Time{}, time.Time{}
+			if err := tx.Create(&env).Error; err != nil {
+				return err
+			}
+			envIDs[srcEnvID] = env.ID
+
+			var envVars []models.EnvironmentVariable
+			if err := tx.Where("environment_id = ?", srcEnvID).Order("sort_order ASC").Find(&envVars).Error; err != nil {
+				return err
+			}
+			for _, v := range envVars {
+				v.ID, v.EnvironmentID = "", env.ID
+				if err := tx.Create(&v).Error; err != nil {
+					return err
+				}
+			}
+		}
+
+		// 全局变量
+		var globalVars []models.GlobalVariable
+		if err := tx.Where("project_id = ?", src.ID).Order("sort_order ASC").Find(&globalVars).Error; err != nil {
+			return err
+		}
+		for _, v := range globalVars {
+			v.ID, v.ProjectID = "", dst.ID
+			if err := tx.Create(&v).Error; err != nil {
+				return err
+			}
+		}
+
+		// 脚本库：前置后置操作会按 ID 引用它，同样先建好并留下映射
+		scriptIDs := make(map[string]string)
+		var scripts []models.ScriptLibrary
+		if err := tx.Where("project_id = ?", src.ID).Order("sort_order ASC").Find(&scripts).Error; err != nil {
+			return err
+		}
+		for _, sc := range scripts {
+			srcScriptID := sc.ID
+			sc.ID, sc.ProjectID = "", dst.ID
+			sc.CreatedAt, sc.UpdatedAt = time.Time{}, time.Time{}
+			if err := tx.Create(&sc).Error; err != nil {
+				return err
+			}
+			scriptIDs[srcScriptID] = sc.ID
+		}
+
+		// Cookie：会话状态跟着项目走，克隆件不用重新登录一遍
+		var cookies []models.StoredCookie
+		if err := tx.Where("project_id = ?", src.ID).Find(&cookies).Error; err != nil {
+			return err
+		}
+		for _, c := range cookies {
+			c.ID, c.ProjectID = "", dst.ID
+			if err := tx.Create(&c).Error; err != nil {
+				return err
+			}
+		}
+
+		// 模块及其下属内容
+		var modules []models.Module
+		if err := tx.Where("project_id = ?", src.ID).Order("sort_order ASC").Find(&modules).Error; err != nil {
+			return err
+		}
+		for _, module := range modules {
+			srcModuleID := module.ID
+			module.ID, module.ProjectID = "", dst.ID
+			module.CreatedAt, module.UpdatedAt = time.Time{}, time.Time{}
+			if err := tx.Create(&module).Error; err != nil {
+				return err
+			}
+			if err := cloneModuleContent(tx, srcModuleID, module.ID, envIDs, scriptIDs); err != nil {
+				return err
+			}
+		}
+
+		return nil
+	})
+	if err != nil {
+		slog.Error("克隆项目失败", "error", err, "srcId", id)
+		return nil, fmt.Errorf("克隆项目失败: %w", err)
+	}
+
+	slog.Info("项目已克隆", "srcId", id, "newId", dst.ID, "name", dst.Name)
+	return dst, nil
+}
+
+// cloneModuleContent 复制一个模块下的全部内容到已建好的新模块
+func cloneModuleContent(tx *gorm.DB, srcModuleID, dstModuleID string, envIDs, scriptIDs map[string]string) error {
+	// 前置 URL：环境 ID 要换成克隆出的新环境
+	var baseURLs []models.ModuleBaseURL
+	if err := tx.Where("module_id = ?", srcModuleID).Find(&baseURLs).Error; err != nil {
+		return err
+	}
+	for _, bu := range baseURLs {
+		envID, ok := envIDs[bu.EnvironmentID]
+		if !ok {
+			// 指向本项目之外的环境，属于脏数据，跳过而不是让整次克隆失败
+			slog.Warn("克隆项目：模块前置 URL 指向未知环境，已跳过", "moduleId", srcModuleID, "environmentId", bu.EnvironmentID)
+			continue
+		}
+		bu.ID, bu.ModuleID, bu.EnvironmentID = "", dstModuleID, envID
+		if err := tx.Create(&bu).Error; err != nil {
+			return err
+		}
+	}
+
+	// 模块级自动参数
+	var moduleParams []models.ModuleParam
+	if err := tx.Where("module_id = ?", srcModuleID).Order("sort_order ASC").Find(&moduleParams).Error; err != nil {
+		return err
+	}
+	for _, p := range moduleParams {
+		p.ID, p.ModuleID = "", dstModuleID
+		if err := tx.Create(&p).Error; err != nil {
+			return err
+		}
+	}
+
+	// 模块变量
+	var moduleVars []models.ModuleVariable
+	if err := tx.Where("module_id = ?", srcModuleID).Order("sort_order ASC").Find(&moduleVars).Error; err != nil {
+		return err
+	}
+	for _, v := range moduleVars {
+		v.ID, v.ModuleID = "", dstModuleID
+		if err := tx.Create(&v).Error; err != nil {
+			return err
+		}
+	}
+
+	if err := cloneOperations(tx, models.OperationOwnerModule, srcModuleID, dstModuleID, scriptIDs); err != nil {
+		return err
+	}
+
+	// 文件夹树：自顶向下复制，留下 旧ID -> 新ID 供端点认领自己的目录
+	folderIDs := make(map[string]string)
+	if err := cloneFolderLevel(tx, srcModuleID, dstModuleID, nil, nil, folderIDs, scriptIDs); err != nil {
+		return err
+	}
+
+	// 端点：文件夹建完后一次性复制，模块直属的（folder_id 为空）也在其中
+	endpointIDs := make(map[string]string)
+	var endpoints []models.Endpoint
+	if err := tx.Where("module_id = ?", srcModuleID).Order("sort_order ASC").Find(&endpoints).Error; err != nil {
+		return err
+	}
+	for _, ep := range endpoints {
+		srcEndpointID := ep.ID
+		var folderID *string
+		if ep.FolderID != nil {
+			if mapped, ok := folderIDs[*ep.FolderID]; ok {
+				folderID = &mapped
+			}
+		}
+		ep.ID, ep.ModuleID, ep.FolderID = "", dstModuleID, folderID
+		ep.CreatedAt, ep.UpdatedAt = time.Time{}, time.Time{}
+		if err := tx.Create(&ep).Error; err != nil {
+			return err
+		}
+		endpointIDs[srcEndpointID] = ep.ID
+		if err := cloneEndpointContent(tx, srcEndpointID, ep.ID, scriptIDs); err != nil {
+			return err
+		}
+	}
+
+	// 请求历史：CreatedAt 是「这次请求发生在什么时候」，属于内容，原样保留不重新打时间戳。
+	// endpoint_id 可空（不挂接口的临时请求），挂着的要换成克隆出的新接口。
+	var histories []models.RequestHistory
+	if err := tx.Where("module_id = ?", srcModuleID).Find(&histories).Error; err != nil {
+		return err
+	}
+	for _, h := range histories {
+		var endpointID *string
+		if h.EndpointID != nil {
+			if mapped, ok := endpointIDs[*h.EndpointID]; ok {
+				endpointID = &mapped
+			}
+		}
+		h.ID, h.ModuleID, h.EndpointID = "", dstModuleID, endpointID
+		if err := tx.Create(&h).Error; err != nil {
+			return err
+		}
+	}
+
+	return nil
+}
+
+// cloneFolderLevel 递归复制某个父文件夹下的一层文件夹，folderIDs 累积 旧ID -> 新ID 的映射
+func cloneFolderLevel(tx *gorm.DB, srcModuleID, dstModuleID string, srcParentID, dstParentID *string, folderIDs, scriptIDs map[string]string) error {
+	query := tx.Where("module_id = ?", srcModuleID)
+	if srcParentID == nil {
+		query = query.Where("parent_id IS NULL")
+	} else {
+		query = query.Where("parent_id = ?", *srcParentID)
+	}
+
+	var folders []models.Folder
+	if err := query.Order("sort_order ASC").Find(&folders).Error; err != nil {
+		return err
+	}
+	for _, f := range folders {
+		srcFolderID := f.ID
+		f.ID, f.ModuleID, f.ParentID = "", dstModuleID, dstParentID
+		f.CreatedAt, f.UpdatedAt = time.Time{}, time.Time{}
+		if err := tx.Create(&f).Error; err != nil {
+			return err
+		}
+		folderIDs[srcFolderID] = f.ID
+		if err := cloneOperations(tx, models.OperationOwnerFolder, srcFolderID, f.ID, scriptIDs); err != nil {
+			return err
+		}
+		dstFolderID := f.ID
+		if err := cloneFolderLevel(tx, srcModuleID, dstModuleID, &srcFolderID, &dstFolderID, folderIDs, scriptIDs); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// cloneEndpointContent 复制一个端点的全部关联数据到已建好的新端点
+func cloneEndpointContent(tx *gorm.DB, srcEndpointID, dstEndpointID string, scriptIDs map[string]string) error {
+	var params []models.EndpointParam
+	if err := tx.Where("endpoint_id = ?", srcEndpointID).Find(&params).Error; err != nil {
+		return err
+	}
+	for _, p := range params {
+		p.ID, p.EndpointID = "", dstEndpointID
+		if err := tx.Create(&p).Error; err != nil {
+			return err
+		}
+	}
+
+	var bodyFields []models.EndpointBodyField
+	if err := tx.Where("endpoint_id = ?", srcEndpointID).Find(&bodyFields).Error; err != nil {
+		return err
+	}
+	for _, bf := range bodyFields {
+		bf.ID, bf.EndpointID = "", dstEndpointID
+		if err := tx.Create(&bf).Error; err != nil {
+			return err
+		}
+	}
+
+	var headers []models.EndpointHeader
+	if err := tx.Where("endpoint_id = ?", srcEndpointID).Find(&headers).Error; err != nil {
+		return err
+	}
+	for _, h := range headers {
+		h.ID, h.EndpointID = "", dstEndpointID
+		if err := tx.Create(&h).Error; err != nil {
+			return err
+		}
+	}
+
+	// 认证一个端点至多一条，用 Find 取切片避免「没有认证」被当成查询错误
+	var auths []models.EndpointAuth
+	if err := tx.Where("endpoint_id = ?", srcEndpointID).Find(&auths).Error; err != nil {
+		return err
+	}
+	for _, a := range auths {
+		a.ID, a.EndpointID = "", dstEndpointID
+		if err := tx.Create(&a).Error; err != nil {
+			return err
+		}
+	}
+
+	var examples []models.ResponseExample
+	if err := tx.Where("endpoint_id = ?", srcEndpointID).Order("sort_order ASC").Find(&examples).Error; err != nil {
+		return err
+	}
+	for _, ex := range examples {
+		ex.ID, ex.EndpointID = "", dstEndpointID
+		if err := tx.Create(&ex).Error; err != nil {
+			return err
+		}
+	}
+
+	var schemas []models.ResponseSchema
+	if err := tx.Where("endpoint_id = ?", srcEndpointID).Order("sort_order ASC").Find(&schemas).Error; err != nil {
+		return err
+	}
+	for _, sc := range schemas {
+		sc.ID, sc.EndpointID = "", dstEndpointID
+		if err := tx.Create(&sc).Error; err != nil {
+			return err
+		}
+	}
+
+	// 上次响应每个端点至多一条；CreatedAt 是「这次响应收到的时刻」，保留原值
+	var responses []models.Response
+	if err := tx.Where("endpoint_id = ?", srcEndpointID).Find(&responses).Error; err != nil {
+		return err
+	}
+	for _, r := range responses {
+		r.ID, r.EndpointID = "", dstEndpointID
+		if err := tx.Create(&r).Error; err != nil {
+			return err
+		}
+	}
+
+	return cloneOperations(tx, models.OperationOwnerEndpoint, srcEndpointID, dstEndpointID, scriptIDs)
+}
+
+// cloneOperations 复制某个归属对象的前置/后置操作，并把引用脚本库的操作指向克隆出的新脚本
+func cloneOperations(tx *gorm.DB, ownerType models.OperationOwnerType, srcOwnerID, dstOwnerID string, scriptIDs map[string]string) error {
+	var ops []models.Operation
+	if err := tx.Where("owner_type = ? AND owner_id = ?", string(ownerType), srcOwnerID).
+		Order("sort_order ASC").Find(&ops).Error; err != nil {
+		return err
+	}
+	for _, op := range ops {
+		op.ID, op.OwnerID = "", dstOwnerID
+		if op.Type == string(models.OpTypeLibraryScript) {
+			op.Data = remapLibraryScriptID(op.Data, scriptIDs)
+		}
+		if err := tx.Create(&op).Error; err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+// remapLibraryScriptID 把 libraryScript 操作数据里的 libraryId 换成克隆出的新脚本 ID。
+// 按 map 改写而不是走 ScriptOperationData 结构体，避免把将来新增的字段在往返中丢掉；
+// 解析不出或映射不到时原样返回——留个指不到的引用，也好过让整次克隆失败。
+func remapLibraryScriptID(data string, scriptIDs map[string]string) string {
+	if data == "" {
+		return data
+	}
+	var raw map[string]any
+	if err := json.Unmarshal([]byte(data), &raw); err != nil {
+		return data
+	}
+	oldID, _ := raw["libraryId"].(string)
+	newID, ok := scriptIDs[oldID]
+	if !ok {
+		return data
+	}
+	raw["libraryId"] = newID
+	encoded, err := json.Marshal(raw)
+	if err != nil {
+		return data
+	}
+	return string(encoded)
 }
 
 // GetProjectTree 获取项目的完整树形结构（模块 + 文件夹 + 端点）

@@ -686,5 +686,17 @@
   "importexport.exportSecrets.hint": "导出文件是明文的。不包含凭据时，变量名与鉴权配置仍会保留，只是值留空，对方导入后自己填。",
   "importexport.exportSecrets.exclude": "不包含凭据",
   "importexport.exportSecrets.include": "包含凭据",
-  "error.http.file_missing": "读不到文件「{name}」，可能已被移动或删除，请重新选择"
+  "error.http.file_missing": "读不到文件「{name}」，可能已被移动或删除，请重新选择",
+  "project.clone": "克隆项目",
+  "project.clone.hint": "完整复制一份当前项目：模块、目录、接口、环境与变量、脚本库、代理与 TLS 设置、Cookie、上次响应与请求历史全都带过来，只有名字不同。",
+  "project.clone.newName": "新项目名称",
+  "project.clone.suffix": "副本",
+  "project.cloning": "克隆中...",
+  "project.cloned": "已克隆为「{name}」",
+  "project.delete.hint": "连同该项目下的模块、接口、环境、变量、脚本库与请求历史一并删除，且不可恢复。",
+  "project.delete.typeName": "请输入下面的项目名称以确认删除：",
+  "project.delete.nameMismatch": "名称不一致",
+  "project.deleted": "项目「{name}」已删除",
+  "project.openTabWillClose": "删除后会自动关闭它的标签页并离开这个项目",
+  "project.dangerZone": "危险操作"
 }

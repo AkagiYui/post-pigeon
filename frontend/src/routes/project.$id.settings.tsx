@@ -1,8 +1,8 @@
 // 项目设置路由
 // 使用左右分栏标签页，包含基本设置和环境设置
 import { Icon } from "@iconify-icon/solid"
-import { createFileRoute, useParams } from "@tanstack/solid-router"
-import { createSignal, onMount } from "solid-js"
+import { createFileRoute, useNavigate, useParams } from "@tanstack/solid-router"
+import { createSignal, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/PostPigeon/internal/services"
 import { CookieSettings } from "@/components/settings/CookieSettings"
@@ -12,13 +12,14 @@ import { ProxySettingsPanel } from "@/components/settings/ProxySettingsPanel"
 import { ScriptLibrarySettings } from "@/components/settings/ScriptLibrarySettings"
 import { TLSSettingsPanel } from "@/components/settings/TLSSettingsPanel"
 import { Button } from "@/components/ui/button"
+import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
 import { SideTabs } from "@/components/ui/tabs"
 import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
-import { setProjectNames } from "@/stores/app"
-import { toastError } from "@/stores/toast"
+import { activeProjectId as storeActiveProjectId, closeProject, openProjectIds, setProjectNames } from "@/stores/app"
+import { toastError, toastSuccess } from "@/stores/toast"
 
 /**
  * 项目设置标签列表。
@@ -46,6 +47,7 @@ export const Route = createFileRoute("/project/$id/settings")({
  */
 function ProjectSettingsPage() {
   const params = useParams({ from: "/project/$id/settings" })
+  const navigate = useNavigate()
   const projectId = () => params().id
 
   // ---- 路由状态缓存（自动保存/恢复） ----
@@ -60,6 +62,16 @@ function ProjectSettingsPage() {
   const [savedName, setSavedName] = createSignal("")
   const [savedDescription, setSavedDescription] = createSignal("")
   const isDirty = () => name().trim() !== savedName() || description().trim() !== savedDescription()
+
+  // ---- 克隆 / 删除（不进路由缓存：都是一次性的确认流程，离开页面就该重来） ----
+  const [cloneOpen, setCloneOpen] = createSignal(false)
+  const [cloneName, setCloneName] = createSignal("")
+  const [cloning, setCloning] = createSignal(false)
+  const [deleteOpen, setDeleteOpen] = createSignal(false)
+  // 删除前要求把项目名原样敲一遍，避免误删；空名项目（加载失败时）一律不放行
+  const [deleteInput, setDeleteInput] = createSignal("")
+  const [deleting, setDeleting] = createSignal(false)
+  const deleteNameMatched = () => savedName() !== "" && deleteInput().trim() === savedName()
 
   // 初始加载：优先恢复缓存中的输入内容，但后端已保存值始终以接口返回为准（用于判断是否变动）
   onMount(async () => {
@@ -125,6 +137,67 @@ function ProjectSettingsPage() {
       },
     },
   ])
+
+  /** 打开克隆对话框，名称默认填「原名 + 副本」 */
+  const openCloneDialog = () => {
+    setCloneName(`${savedName()} ${t("project.clone.suffix")}`.trim())
+    setCloneOpen(true)
+  }
+
+  /** 克隆项目：克隆件是独立的新项目，当前页面仍停在源项目上 */
+  const handleClone = async () => {
+    const id = projectId()
+    const target = cloneName().trim()
+    if (!id || !target || cloning()) return
+    try {
+      setCloning(true)
+      const cloned = await ProjectService.CloneProject(id, target)
+      setCloneOpen(false)
+      if (cloned) toastSuccess(t("project.cloned", { name: cloned.name }))
+    } catch (e) {
+      toastError(e, "error.op.createFailed")
+    } finally {
+      setCloning(false)
+    }
+  }
+
+  /** 打开删除对话框（每次都要求重新输入项目名） */
+  const openDeleteDialog = () => {
+    setDeleteInput("")
+    setDeleteOpen(true)
+  }
+
+  /** 删除项目：顶栏上该项目的标签页一并关掉，再离开这个已不存在的项目 */
+  const handleDelete = async () => {
+    const id = projectId()
+    if (!id || !deleteNameMatched() || deleting()) return
+    const deletedName = savedName()
+    try {
+      setDeleting(true)
+      await ProjectService.DeleteProject(id)
+      setDeleteOpen(false)
+
+      setProjectNames((prev) => {
+        const next = { ...prev }
+        delete next[id]
+        return next
+      })
+
+      // closeProject 会把激活项目顺移到下一个；顺移不到就只能回项目列表
+      if (openProjectIds().includes(id)) closeProject(id)
+      const nextId = storeActiveProjectId()
+      if (nextId && nextId !== id) {
+        navigate({ to: "/project/$id", params: { id: nextId } })
+      } else {
+        navigate({ to: "/" })
+      }
+      toastSuccess(t("project.deleted", { name: deletedName }))
+    } catch (e) {
+      toastError(e, "error.op.deleteFailed")
+    } finally {
+      setDeleting(false)
+    }
+  }
 
   // 带国际化标签的 tab 列表
   const tabLabels: Record<string, string> = {
@@ -195,6 +268,26 @@ function ProjectSettingsPage() {
                         {saving() ? t("common.saving") : t("common.save")}
                       </Button>
                     </div>
+
+                    {/* 克隆项目 */}
+                    <div class="space-y-3 rounded-md border border-border p-3">
+                      <div class="text-sm font-medium">{t("project.clone")}</div>
+                      <p class="text-xs text-muted-foreground">{t("project.clone.hint")}</p>
+                      <Button size="sm" variant="outline" onClick={openCloneDialog}>
+                        <Icon icon="lucide:copy" class="h-3.5 w-3.5" />
+                        {t("project.clone")}
+                      </Button>
+                    </div>
+
+                    {/* 删除项目 */}
+                    <div class="space-y-3 rounded-md border border-red-500/40 p-3">
+                      <div class="text-sm font-medium text-red-500">{t("project.dangerZone")}</div>
+                      <p class="text-xs text-muted-foreground">{t("project.delete.hint")}</p>
+                      <Button size="sm" variant="destructive" onClick={openDeleteDialog}>
+                        <Icon icon="lucide:trash-2" class="h-3.5 w-3.5" />
+                        {t("project.delete")}
+                      </Button>
+                    </div>
                   </div>
                 )
               case "environment":
@@ -242,6 +335,87 @@ function ProjectSettingsPage() {
           }}
         </SideTabs>
       </div>
+
+      {/* 克隆项目：只问一个新名字，其余内容原样复制 */}
+      <Dialog
+        open={cloneOpen()}
+        onClose={() => setCloneOpen(false)}
+        title={t("project.clone")}
+        closeOnEsc
+        closeOnOverlayClick
+      >
+        <div class="p-6 space-y-4">
+          <p class="text-sm text-muted-foreground select-text cursor-text">{t("project.clone.hint")}</p>
+          <div>
+            <label class="block text-sm font-medium mb-1.5">{t("project.clone.newName")}</label>
+            <Input
+              value={cloneName()}
+              onInput={(e) => setCloneName(e.currentTarget.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleClone()}
+              placeholder={t("project.name")}
+              disabled={cloning()}
+            />
+          </div>
+          <div class="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setCloneOpen(false)} disabled={cloning()}>
+              {t("common.cancel")}
+            </Button>
+            <Button onClick={handleClone} disabled={cloning() || !cloneName().trim()}>
+              {cloning() ? t("project.cloning") : t("common.confirm")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
+
+      {/* 删除项目：把项目名原样敲一遍才放行 */}
+      <Dialog
+        open={deleteOpen()}
+        onClose={() => setDeleteOpen(false)}
+        title={t("project.delete")}
+        closeOnEsc
+        closeOnOverlayClick
+      >
+        {/* 整块提示文本可选中复制：要照着敲的名字就在里面，不让选等于让人手抄 */}
+        <div class="p-6 space-y-4 select-text cursor-text">
+          <div class="flex items-start gap-3">
+            <div class="w-10 h-10 rounded-full bg-red-500/10 flex items-center justify-center shrink-0">
+              <Icon icon="lucide:triangle-alert" class="h-5 w-5 text-red-500" />
+            </div>
+            <div class="flex-1 space-y-2">
+              <p class="text-foreground">{t("project.delete.hint")}</p>
+              {/* 能走到项目设置页，这个项目必然开在顶栏上，标签页一定会被关掉 */}
+              <p class="text-sm text-amber-500 dark:text-amber-400 flex items-center gap-1.5">
+                <Icon icon="lucide:triangle-alert" class="h-3.5 w-3.5 shrink-0" />
+                {t("project.openTabWillClose")}
+              </p>
+            </div>
+          </div>
+
+          <div class="space-y-1.5">
+            <p class="text-sm text-muted-foreground">{t("project.delete.typeName")}</p>
+            <p class="rounded-md bg-muted px-2 py-1 font-mono text-sm break-all">{savedName()}</p>
+            <Input
+              value={deleteInput()}
+              onInput={(e) => setDeleteInput(e.currentTarget.value)}
+              onKeyDown={(e) => e.key === "Enter" && handleDelete()}
+              placeholder={t("project.name")}
+              disabled={deleting()}
+            />
+            <Show when={deleteInput().trim() !== "" && !deleteNameMatched()}>
+              <p class="text-xs text-red-500">{t("project.delete.nameMismatch")}</p>
+            </Show>
+          </div>
+
+          <div class="flex justify-end gap-2 pt-2">
+            <Button variant="outline" onClick={() => setDeleteOpen(false)} disabled={deleting()}>
+              {t("common.cancel")}
+            </Button>
+            <Button variant="destructive" onClick={handleDelete} disabled={deleting() || !deleteNameMatched()}>
+              {deleting() ? t("common.deleting") : t("project.delete")}
+            </Button>
+          </div>
+        </div>
+      </Dialog>
     </div>
   )
 }

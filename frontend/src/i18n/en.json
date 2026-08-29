@@ -686,5 +686,17 @@
   "importexport.exportSecrets.hint": "The export file is plain text. Without credentials, variable names and auth settings are still kept — only the values are left empty for the other side to fill in.",
   "importexport.exportSecrets.exclude": "Without credentials",
   "importexport.exportSecrets.include": "Include credentials",
-  "error.http.file_missing": "Cannot read file “{name}” — it may have been moved or deleted; please pick it again"
+  "error.http.file_missing": "Cannot read file “{name}” — it may have been moved or deleted; please pick it again",
+  "project.clone": "Clone Project",
+  "project.clone.hint": "Makes a complete copy of this project — modules, folders, endpoints, environments and variables, script library, proxy and TLS settings, cookies, last responses and request history all come along. Only the name differs.",
+  "project.clone.newName": "New project name",
+  "project.clone.suffix": "copy",
+  "project.cloning": "Cloning...",
+  "project.cloned": "Cloned as \"{name}\"",
+  "project.delete.hint": "Deletes the project along with its modules, endpoints, environments, variables, script library and request history. This cannot be undone.",
+  "project.delete.typeName": "To confirm, type the project name below:",
+  "project.delete.nameMismatch": "Name does not match",
+  "project.deleted": "Project \"{name}\" deleted",
+  "project.openTabWillClose": "Its tab will be closed and you will be taken out of this project.",
+  "project.dangerZone": "Danger Zone"
 }
