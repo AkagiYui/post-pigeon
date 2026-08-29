@@ -559,7 +559,10 @@ function TreeNodeItem(props: {
               <Icon icon="lucide:file-text" class="h-3.5 w-3.5 text-violet-500 shrink-0" />
             </Show>
             <Show when={props.node.endpointType === "websocket"}>
-              <Icon icon="lucide:webhook" class="h-3.5 w-3.5 text-teal-500 shrink-0" />
+              {/* 与 HTTP 方法徽章共用 w-6 图标列，保证端点名称左边界对齐 */}
+              <span class="flex w-6 shrink-0 justify-center">
+                <Icon icon="lucide:webhook" class="h-3.5 w-3.5 text-teal-500" />
+              </span>
             </Show>
             <Show when={(!props.node.endpointType || props.node.endpointType === "http") && props.node.method}>
               {/* 方法徽章：无底色，仅用文字颜色区分；固定 w-6 列宽以对齐各方法，同时把与名称的间距收紧到接近接口 Tab 栏 */}
