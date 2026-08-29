@@ -53,7 +53,11 @@ export function filterAndSortStreamMessages(
   const filtered = messages.filter((message) => {
     if (direction === "sent" && message.kind !== "sent") return false
     if (direction === "received" && message.kind !== "message") return false
-    return keyword === "" || message.data.toLocaleLowerCase().includes(keyword)
+    const searchable = [message.data, message.event, message.eventId, message.comment]
+      .filter((value): value is string => value != null)
+      .join("\n")
+      .toLocaleLowerCase()
+    return keyword === "" || searchable.includes(keyword)
   })
 
   if (order === "asc") return filtered

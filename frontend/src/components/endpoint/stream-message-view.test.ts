@@ -22,6 +22,14 @@ describe("WebSocket message view", () => {
       .toEqual([messages[1], messages[2]])
   })
 
+  it("SSE 协议字段也可被检索", () => {
+    const sse: StreamMessage = {
+      kind: "message", data: "payload", event: "invoice.updated", eventId: "evt-42", timestamp: 5,
+    }
+    expect(filterAndSortStreamMessages([sse], "EVT-42", "all", "asc")).toEqual([sse])
+    expect(filterAndSortStreamMessages([sse], "invoice", "all", "asc")).toEqual([sse])
+  })
+
   it("发送和接收筛选只包含对应的数据帧", () => {
     expect(filterAndSortStreamMessages(messages, "", "sent", "asc")).toEqual([messages[1]])
     expect(filterAndSortStreamMessages(messages, "", "received", "asc")).toEqual([messages[2]])

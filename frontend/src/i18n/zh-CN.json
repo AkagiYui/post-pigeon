@@ -428,6 +428,7 @@
   "stream.messageEncoding": "编码方式",
   "stream.closeMessageDetail": "关闭消息详情",
   "stream.noMessageContent": "无消息内容",
+  "stream.sseComment": "SSE 注释",
   "folder.convertToModule": "转换为模块",
   "folder.convertToModuleHint": "将此文件夹转换为新模块，其内容成为新模块的根内容。新模块的前置 URL 复制自当前所属模块。",
   "endpoint.param.globalValueReadonlyHint": "全局参数值只读，请前往设置页面修改",

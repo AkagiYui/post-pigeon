@@ -57,6 +57,8 @@ export function MessageLog(props: {
   direction?: StreamMessageDirection
   order?: StreamMessageOrder
   showTimestamp?: boolean
+  /** SSE 时间线额外展示 event/id/retry/comment 协议字段。 */
+  showSSEMetadata?: boolean
   selectedMessage?: StreamMessage
   onMessageSelect?: (message: StreamMessage) => void
   containerRef?: (element: HTMLDivElement) => void
@@ -114,7 +116,18 @@ export function MessageLog(props: {
                 {new Date(m.timestamp).toLocaleTimeString([], { hour12: false })}
               </span>
             </Show>
-            <span class="min-w-0 break-all whitespace-pre-wrap text-foreground">{displayData(m.data, m.binary)}</span>
+            <div class="min-w-0 flex-1">
+              <Show when={props.showSSEMetadata && (m.event || m.hasEventId || m.hasRetry)}>
+                <div class="mb-0.5 flex flex-wrap gap-1 text-[10px] text-muted-foreground">
+                  <Show when={m.event}><span class="rounded bg-muted px-1">event: {m.event}</span></Show>
+                  <Show when={m.hasEventId}><span class="rounded bg-muted px-1">id: {m.eventId ?? ""}</span></Show>
+                  <Show when={m.hasRetry}><span class="rounded bg-muted px-1">retry: {m.retry}ms</span></Show>
+                </div>
+              </Show>
+              <span class="break-all whitespace-pre-wrap text-foreground">
+                {m.hasComment ? `: ${m.comment ?? ""}` : displayData(m.data, m.binary)}
+              </span>
+            </div>
           </div>
         )}
       </For>
@@ -136,7 +149,7 @@ const messageEncodingOptions = [
 ]
 
 /** 选中一条 WebSocket 消息后展开的详情面板。 */
-function WebSocketMessageDetail(props: {
+function StreamMessageDetail(props: {
   message: StreamMessage
   layout: "right" | "bottom"
   onClose: () => void
@@ -168,7 +181,7 @@ function WebSocketMessageDetail(props: {
         <div class="min-w-0 flex-1">
           <p class="text-xs font-medium text-foreground">{t("stream.messageContent")}</p>
           <p class="text-[10px] text-muted-foreground">
-            {props.message.binary ? t("stream.binaryMessage") : t("stream.textMessage")}
+            {props.message.binary ? t("stream.binaryMessage") : props.message.hasComment ? t("stream.sseComment") : t("stream.textMessage")}
             {" · "}{new Date(props.message.timestamp).toLocaleTimeString([], { hour12: false })}
           </p>
         </div>
@@ -445,7 +458,7 @@ export function WebSocketResponse(props: { connId: string; layout?: "right" | "b
         />
         <Show when={selectedMessage()} keyed>
           {(message) => (
-            <WebSocketMessageDetail
+            <StreamMessageDetail
               message={message}
               layout={props.layout ?? "right"}
               onClose={() => selectStreamMessage(props.connId)}
@@ -460,18 +473,96 @@ export function WebSocketResponse(props: { connId: string; layout?: "right" | "b
 /** 流式响应区：实时事件流 + 停止按钮（用于响应体为 text/event-stream 的流式 HTTP 响应） */
 export function StreamEventLog(props: { streamId: string; onStop?: () => void }) {
   const status = createMemo(() => streamStatus(props.streamId))
+  const [query, setQuery] = createSignal("")
+  const [order, setOrder] = createSignal<StreamMessageOrder>("asc")
+  const [followLatest, setFollowLatest] = createSignal(true)
+  const [selectedMessage, setSelectedMessage] = createSignal<StreamMessage | undefined>(selectedStreamMessage(props.streamId))
+  const messageCount = createMemo(() => streamMessages(props.streamId).length)
+  let messageLogElement: HTMLDivElement | undefined
+  let scrollFrame: number | undefined
+  let releaseScrollFrame: number | undefined
+  let autoScrolling = false
+
+  createEffect(() => setSelectedMessage(selectedStreamMessage(props.streamId)))
+  createEffect(() => {
+    const count = messageCount()
+    const currentOrder = order()
+    if (!followLatest() || !messageLogElement) return
+    if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
+    scrollFrame = requestAnimationFrame(() => {
+      scrollFrame = undefined
+      const element = messageLogElement
+      if (!element || !followLatest() || messageCount() !== count) return
+      autoScrolling = true
+      element.scrollTop = latestMessageScrollTop(currentOrder, element.scrollHeight, element.clientHeight)
+      if (releaseScrollFrame !== undefined) cancelAnimationFrame(releaseScrollFrame)
+      releaseScrollFrame = requestAnimationFrame(() => { autoScrolling = false; releaseScrollFrame = undefined })
+    })
+  })
+  onCleanup(() => {
+    if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
+    if (releaseScrollFrame !== undefined) cancelAnimationFrame(releaseScrollFrame)
+  })
+
   return (
     <div class="flex flex-col h-full p-3 gap-2">
       <div class="flex items-center gap-2 shrink-0 text-xs text-muted-foreground">
         <StatusDot status={status()} />
         <span>{status() === "open" ? t("stream.streaming") : t("stream.streamEnded")}</span>
+        <Show when={messageCount() > 0}>
+          <span class="rounded-full bg-muted px-1.5 py-0.5 text-[10px] tabular-nums">{messageCount()}</span>
+        </Show>
         <span class="flex-1" />
         <Show when={status() === "open"}>
           <Button size="sm" variant="outline" onClick={props.onStop}><Icon icon="lucide:circle-stop" class="h-3.5 w-3.5" />{t("stream.stop")}</Button>
         </Show>
         <Button size="icon-sm" variant="ghost" onClick={() => clearStreamMessages(props.streamId)}><Icon icon="lucide:trash-2" class="h-3.5 w-3.5" /></Button>
       </div>
-      <MessageLog connId={props.streamId} />
+      <div class="flex items-center gap-2 shrink-0">
+        <div class="relative min-w-24 max-w-52 flex-1">
+          <Icon icon="lucide:search" class="pointer-events-none absolute left-2 top-1/2 z-1 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
+          <Input
+            size="sm"
+            value={query()}
+            onInput={(event) => setQuery(event.currentTarget.value)}
+            placeholder={t("stream.filterPlaceholder")}
+            aria-label={t("stream.filterPlaceholder")}
+            class="pl-7"
+          />
+        </div>
+        <Tooltip content={t(order() === "asc" ? "stream.order.oldestFirst" : "stream.order.newestFirst")}>
+          <Button size="icon-sm" variant="ghost" onClick={() => setOrder(value => value === "asc" ? "desc" : "asc")}>
+            <Icon icon={order() === "asc" ? "lucide:arrow-down" : "lucide:arrow-up"} class="h-3.5 w-3.5" />
+          </Button>
+        </Tooltip>
+        <label class="flex shrink-0 cursor-pointer select-none items-center gap-1.5 text-xs text-muted-foreground">
+          <Checkbox checked={followLatest()} onChange={(event) => setFollowLatest(event.currentTarget.checked)} />
+          <span>{t("stream.followLatest")}</span>
+        </label>
+      </div>
+      <div class="flex min-h-0 flex-1 gap-2">
+        <MessageLog
+          connId={props.streamId}
+          query={query()}
+          order={order()}
+          direction="all"
+          showTimestamp
+          showSSEMetadata
+          selectedMessage={selectedMessage()}
+          onMessageSelect={(message) => { setSelectedMessage(message); selectStreamMessage(props.streamId, message) }}
+          containerRef={(element) => { messageLogElement = element }}
+          onScroll={() => { if (followLatest() && !autoScrolling) setFollowLatest(false) }}
+        />
+        <Show when={selectedMessage()} keyed>
+          {(message) => (
+            <StreamMessageDetail
+              message={message}
+              layout="right"
+              onClose={() => selectStreamMessage(props.streamId)}
+            />
+          )}
+        </Show>
+      </div>
     </div>
   )
 }
