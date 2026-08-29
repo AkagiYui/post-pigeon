@@ -60,7 +60,7 @@ const methodColors: Record<string, string> = {
 const defaultMethodColor = "text-gray-600 dark:text-gray-400 bg-gray-500/10 dark:bg-gray-400/10"
 
 /** 请求设置标签 key（用于持久化状态校验） */
-const REQUEST_TAB_KEYS = ["params", "cookies", "body", "headers", "auth", "preOperations", "postOperations", "settings"]
+const REQUEST_TAB_KEYS = ["params", "body", "headers", "cookies", "auth", "preOperations", "postOperations", "settings"]
 
 /** 带数字徽标的标签标题：count>0 时在标题右侧显示计数气泡 */
 function tabLabelWithCount(label: string, count: number): JSX.Element {
@@ -286,9 +286,9 @@ export function EndpointDetail(props: EndpointDetailProps) {
   // 请求设置标签（前置/后置操作作为顶级 tab，位于认证与设置之间）
   const requestTabs = createMemo(() => [
     { key: "params", label: tabLabelWithCount(t("endpoint.params"), paramsCount()) },
-    { key: "cookies", label: t("endpoint.cookies") },
     { key: "body", label: t("endpoint.body") },
     { key: "headers", label: t("endpoint.headers") },
+    { key: "cookies", label: t("endpoint.cookies") },
     { key: "auth", label: t("endpoint.auth") },
     { key: "preOperations", label: tabLabelWithCount(t("op.stage.pre"), preOpsCount()) },
     { key: "postOperations", label: tabLabelWithCount(t("op.stage.post"), postOpsCount()) },
