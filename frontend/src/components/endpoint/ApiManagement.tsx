@@ -48,6 +48,7 @@ import {
   PostmanImportDialog,
 } from "@/components/endpoint/ImportDialogs"
 import { type ImportKind, ImportWizardDialog } from "@/components/endpoint/ImportWizard"
+import { restoreCachedWebSocketResponse } from "@/components/endpoint/response-visibility"
 import { ScopeSettingsDialog } from "@/components/endpoint/ScopeSettingsDialog"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
@@ -131,6 +132,9 @@ export function ApiManagement(props: ApiManagementProps) {
   const [requestTabs, setRequestTabs] = cache.createCachedSignal<RequestTab[]>("requestTabs", [])
   const [activeTabId, setActiveTabId] = cache.createCachedSignal<string | null>("activeTabId", null)
   const [responseData, setResponseData] = cache.createCachedSignal<ResponseData | null>("responseData", null)
+  // WS 连接存活于后端，消息存活于全局 stream store；握手响应也必须按接口保留，
+  // 否则切换接口会被另一个接口的 responseData 覆盖，切回来只能恢复正文消息，无法恢复响应 Tabs。
+  const webSocketResponseCache = new Map<string, ResponseData>()
   const [expandedIds, setExpandedIds] = cache.createCachedSignal<string[]>("expandedIds", [])
   const [unsavedRequests, setUnsavedRequests] = cache.createCachedSignal<Record<string, UnsavedRequestData>>("unsavedRequests", {})
   // 空的端点数据默认值
@@ -647,6 +651,10 @@ export function ApiManagement(props: ApiManagementProps) {
   }
 
   const loadSavedEndpointData = async (endpointId: string) => {
+    const currentResponse = responseData()
+    if (endpointData.type === "websocket" && endpointData.id && currentResponse) {
+      webSocketResponseCache.set(endpointData.id, currentResponse)
+    }
     const loadToken = ++savedEndpointLoadToken
     try {
       const detail = await EndpointService.GetEndpoint(endpointId)
@@ -691,9 +699,10 @@ export function ApiManagement(props: ApiManagementProps) {
           operations: fromOperationModels(detail.operations),
           examples: detail.examples || [], schemas: detail.schemas || [],
         } as EndpointData)
+        let loadedResponse: ResponseData | null = null
         if (detail.response) {
           // 持久化响应的 headers/cookies/actualRequest/timing 均为 JSON 字符串，需解析后再用
-          setResponseData({
+          loadedResponse = {
             statusCode: detail.response.statusCode,
             timing: toTimingData(safeParseJSON<Partial<TimingData>>(detail.response.timing, {})),
             size: detail.response.size, body: detail.response.body,
@@ -701,8 +710,14 @@ export function ApiManagement(props: ApiManagementProps) {
             cookies: safeParseJSON<CookieInfo[]>(detail.response.cookies, []),
             contentType: detail.response.contentType,
             actualRequest: safeParseJSON<ActualRequestInfo | null>(detail.response.actualRequest, null),
-          })
-        } else setResponseData(null)
+          }
+        }
+        setResponseData(restoreCachedWebSocketResponse(
+          endpointId,
+          detail.type === "websocket",
+          loadedResponse,
+          webSocketResponseCache,
+        ))
       }
     } catch (e) {
       if (loadToken === savedEndpointLoadToken) toastError(e, "error.op.loadFailed")
@@ -711,6 +726,10 @@ export function ApiManagement(props: ApiManagementProps) {
 
   // ---- 切换标签页 ----
   const handleTabChange = async (tabId: string) => {
+    const currentResponse = responseData()
+    if (endpointData.type === "websocket" && endpointData.id && currentResponse) {
+      webSocketResponseCache.set(endpointData.id, currentResponse)
+    }
     setActiveTabId(tabId)
     const tab = requestTabs().find(t => t.id === tabId)
     if (!tab) return
@@ -845,11 +864,12 @@ export function ApiManagement(props: ApiManagementProps) {
   /** WebSocket 握手与普通请求共用完整编辑态，后端统一解析变量、继承参数、认证与前置操作。 */
   const handleWSConnect = async (autoConvertProtocol: boolean) => {
     const ep = endpointData
-    const resp = await WebSocketService.Connect(ep.id, buildSendRequestData(ep), autoConvertProtocol)
+    const endpointId = ep.id
+    const resp = await WebSocketService.Connect(endpointId, buildSendRequestData(ep), autoConvertProtocol)
     if (resp) {
       // WebSocket 的 101 Upgrade（以及 4xx/5xx 握手拒绝）仍是一条标准 HTTP 响应。
       // 正文页签由消息流接管，其余响应页签继续复用普通请求的数据模型。
-      setResponseData({
+      const handshakeResponse: ResponseData = {
         statusCode: resp.statusCode,
         timing: toTimingData(resp.timing),
         size: resp.size,
@@ -864,7 +884,10 @@ export function ApiManagement(props: ApiManagementProps) {
         truncatedLimit: resp.truncatedLimit,
         rawBodyOmitted: resp.rawBodyOmitted,
         skipped: resp.skipped,
-      })
+      }
+      webSocketResponseCache.set(endpointId, handshakeResponse)
+      // 连接期间用户可能已经切到其它接口，不能用迟到的握手结果覆盖当前响应。
+      if (endpointData.id === endpointId) setResponseData(handshakeResponse)
     }
   }
 

@@ -11,3 +11,14 @@ export function shouldShowResponsePanel(
 ): boolean {
   return hasResponse || (isWebSocket && webSocketStatus !== "idle")
 }
+
+/** 优先恢复当前会话里按接口保存的 WebSocket 握手响应，以便完整重建响应 Tabs。 */
+export function restoreCachedWebSocketResponse<T>(
+  endpointId: string,
+  isWebSocket: boolean,
+  persistedResponse: T | null,
+  cache: ReadonlyMap<string, T>,
+): T | null {
+  if (isWebSocket && cache.has(endpointId)) return cache.get(endpointId)!
+  return persistedResponse
+}
