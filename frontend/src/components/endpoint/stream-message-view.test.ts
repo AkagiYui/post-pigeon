@@ -6,8 +6,10 @@ import {
   filterAndSortStreamMessages,
   inferMessageFormat,
   latestMessageScrollTop,
-  mergeStreamRecords,
+  mergeStreamCompletion,
   messageContentForDisplay,
+  extractStreamJSONPath,
+  decodeStreamResponseBodyChunks,
   streamResponseBody,
 } from "./stream-message-view"
 
@@ -63,7 +65,7 @@ describe("WebSocket message view", () => {
     expect(inferMessageFormat({ kind: "message", data: "<!doctype html><p>ok</p>", timestamp: 1 })).toBe("html")
   })
 
-  it("将 HTTP 流记录持续重组成响应体，并支持合并展示", () => {
+  it("将 HTTP 流记录持续重组成响应体", () => {
     const stream: StreamMessage[] = [
       { kind: "open", data: "200", timestamp: 1 },
       { kind: "message", data: "first", raw: "event: token\ndata: first", timestamp: 2 },
@@ -72,6 +74,44 @@ describe("WebSocket message view", () => {
       { kind: "close", data: "stream ended", timestamp: 5 },
     ]
     expect(streamResponseBody(stream, "sse")).toBe("event: token\ndata: first\n\n: keepalive\n\ndata: second")
-    expect(mergeStreamRecords(stream, "sse")).toMatchObject({ data: "first\nsecond", timestamp: 4 })
+  })
+
+  it("按 OpenAI 兼容协议提取正文与 reasoning，而非拼接原始 JSON", () => {
+    const stream: StreamMessage[] = [
+      { kind: "message", data: '{"id":"a","created":1,"model":"m","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"reasoning_content":"think"}}]}', timestamp: 1 },
+      { kind: "message", data: '{"id":"a","created":1,"model":"m","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":" hello"}}]}', timestamp: 2 },
+      { kind: "message", data: '{"id":"a","created":1,"model":"m","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":" world"}}]}', timestamp: 3 },
+    ]
+    expect(mergeStreamCompletion(stream)).toEqual({ format: "openai", content: " hello world", reasoning: "think" })
+  })
+
+  it("支持 Apifox 同样覆盖的 Claude、Gemini 与 Ollama 流格式", () => {
+    expect(mergeStreamCompletion([{ kind: "message", timestamp: 1, data: '{"type":"content_block_delta","delta":{"type":"text_delta","text":"Claude"}}' }]))
+      .toMatchObject({ format: "claude", content: "Claude" })
+    expect(mergeStreamCompletion([{ kind: "message", timestamp: 1, data: '{"modelVersion":"x","candidates":[{"content":{"role":"model","parts":[{"text":"Gemini"}]}}]}' }]))
+      .toMatchObject({ format: "gemini", content: "Gemini" })
+    expect(mergeStreamCompletion([{ kind: "message", timestamp: 1, data: '{"model":"llama","created_at":"x","message":{"role":"assistant","content":"Ollama"},"done":false}' }]))
+      .toMatchObject({ format: "ollama-chat", content: "Ollama" })
+    expect(mergeStreamCompletion([{ kind: "message", timestamp: 1, data: '{"model":"llama","created_at":"x","response":"Generate","done":false}' }]))
+      .toMatchObject({ format: "ollama-generate", content: "Generate" })
+  })
+
+  it("自动识别后锁定格式，后续其它 JSON 协议不会污染合并内容", () => {
+    const stream: StreamMessage[] = [
+      { kind: "message", timestamp: 1, data: '{"id":"a","created":1,"model":"m","object":"chat.completion.chunk","choices":[{"index":0,"delta":{"content":"A"}}]}' },
+      { kind: "message", timestamp: 2, data: '{"model":"llama","created_at":"x","response":"must not append","done":false}' },
+    ]
+    expect(mergeStreamCompletion(stream)).toMatchObject({ format: "openai", content: "A" })
+  })
+
+  it("自定义 JSONPath 仅提取指定字段", () => {
+    const data = '{"choices":[{"delta":{"text":"A"}},{"delta":{"text":"B"}}]}'
+    expect(extractStreamJSONPath(data, "$.choices[*].delta.text")).toEqual(["A", "B"])
+    expect(mergeStreamCompletion([{ kind: "message", data, timestamp: 1 }], "custom", "$.choices[*].delta.text"))
+      .toEqual({ format: "custom", content: "AB", reasoning: "" })
+  })
+
+  it("从原始 Base64 分块重组响应体，不损坏跨 chunk 的 UTF-8 字符", () => {
+    expect(decodeStreamResponseBodyChunks(["5Lg=", "rQ=="])).toBe("中")
   })
 })

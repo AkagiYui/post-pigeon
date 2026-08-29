@@ -22,7 +22,7 @@ import { formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLOR
 import { byteLength, cn, downloadTextFile, extensionForContentType, hasURLScheme } from "@/lib/utils"
 import { convertHTTPToWSProtocol, effectiveWSProtocolConversion } from "@/lib/ws-protocol"
 import { responseLayout, setResponseLayout, setWebSocketMessageDrafts, webSocketMessageDrafts } from "@/stores/app"
-import { markConnecting, streamMessages, streamStatus } from "@/stores/stream"
+import { markConnecting, streamMessages, streamResponseBodyChunks, streamStatus } from "@/stores/stream"
 import { toastError } from "@/stores/toast"
 
 import { AuthEditor } from "./AuthEditor"
@@ -35,7 +35,7 @@ import { CookiesEditor, ParamsEditor } from "./ParamsEditor"
 import { shouldShowResponsePanel } from "./response-visibility"
 import { ResponseBodyToolbar, ResponsePanel } from "./ResponsePanel"
 import { StreamEventLog, WebSocketMessageEditor, WebSocketResponse } from "./StreamPanels"
-import { streamResponseBody } from "./stream-message-view"
+import { decodeStreamResponseBodyChunks, streamResponseBody } from "./stream-message-view"
 
 /** HTTP 方法选项（用于 Combobox） */
 const methodOptions: ComboboxOption[] = [
@@ -333,12 +333,13 @@ export function EndpointDetail(props: EndpointDetailProps) {
     if (streamId) setActiveResponseTab("timeline")
   }))
 
-  // 流式响应不会在 SendRequest 返回时一次性携带 Body；使用与 Timeline 相同的记录缓存动态重组，
-  // 让用户切回常规「响应体」页签时看到截至当前已接收的完整协议内容。
+  // 流式响应不会在 SendRequest 返回时一次性携带 Body。优先使用后端逐 chunk 保留的原始字节（与
+  // Apifox 的 response.stream 相同）；旧会话或未收到字节时再从 Timeline 记录降级重组。
   const responseForDisplay = createMemo(() => {
     const response = props.response
     if (!response?.streaming || !response.streamId) return response
-    const body = streamResponseBody(streamMessages(response.streamId), response.streamFormat)
+    const chunks = streamResponseBodyChunks(response.streamId)
+    const body = decodeStreamResponseBodyChunks(chunks) || streamResponseBody(streamMessages(response.streamId), response.streamFormat)
     return { ...response, body, size: byteLength(body) }
   })
 

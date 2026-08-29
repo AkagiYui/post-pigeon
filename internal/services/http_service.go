@@ -1033,6 +1033,22 @@ func parseRecordStream(reader io.Reader, limits sseReadLimits, jsonSequence bool
 	return nil
 }
 
+// streamBodyTee 保留传输层的原始字节，同时交给记录解析器。Apifox 的普通响应体页签读取的也是
+// 独立保留的 response.stream，而不是把 Timeline 中已解析的事件重新拼出来；这样 CRLF、注释、
+// 空行和 UTF-8 跨 chunk 字符都能原样保留。
+type streamBodyTee struct {
+	reader io.Reader
+	emit   func([]byte)
+}
+
+func (r *streamBodyTee) Read(p []byte) (int, error) {
+	n, err := r.reader.Read(p)
+	if n > 0 && r.emit != nil {
+		r.emit(p[:n])
+	}
+	return n, err
+}
+
 // streamResponse 持续读取已识别的记录流，按格式解析后经 http:stream 事件推送。
 // SSE 可选择在正常 EOF 后重连；停止、读取错误和达到尝试上限都会发出 close 事件。
 func (s *HTTPService) streamResponse(resp *http.Response, connID string, ctx context.Context, cancel context.CancelFunc, limits sseReadLimits, format string, client *http.Client, requestTemplate *http.Request, reconnect sseReconnectOptions) {
@@ -1044,6 +1060,12 @@ func (s *HTTPService) streamResponse(resp *http.Response, connID string, ctx con
 	retryDelay := time.Second
 	attempts := 0
 	for {
+		body := &streamBodyTee{reader: resp.Body, emit: func(chunk []byte) {
+			emitStream(HTTPStreamEventName, StreamEvent{
+				ConnID: connID, Kind: "body", Binary: true,
+				Data: base64.StdEncoding.EncodeToString(chunk), Timestamp: nowMillis(),
+			})
+		}}
 		emitItem := func(item sseEvent) {
 			if item.HasEventID {
 				lastEventID, hasLastEventID = item.EventID, true
@@ -1064,9 +1086,9 @@ func (s *HTTPService) streamResponse(resp *http.Response, connID string, ctx con
 		}
 		var err error
 		if format == "sse" {
-			err = parseSSE(resp.Body, limits, emitItem)
+			err = parseSSE(body, limits, emitItem)
 		} else {
-			err = parseRecordStream(resp.Body, limits, format == "json-seq", emitItem)
+			err = parseRecordStream(body, limits, format == "json-seq", emitItem)
 		}
 		_ = resp.Body.Close()
 		if err != nil {

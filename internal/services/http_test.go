@@ -1,6 +1,7 @@
 package services
 
 import (
+	"bytes"
 	"context"
 	"encoding/base64"
 	"encoding/json"
@@ -128,6 +129,17 @@ func TestParseSSEHonorsResourceLimits(t *testing.T) {
 	}
 	if err := parseSSE(strings.NewReader(input), sseReadLimits{MaxEvents: 1}, func(sseEvent) {}); err == nil || !strings.Contains(err.Error(), "event limit") {
 		t.Fatalf("event count limit err=%v", err)
+	}
+}
+
+func TestStreamBodyTeePreservesRawBytes(t *testing.T) {
+	input := []byte("data: \xe4\xb8\xad\r\n\r\n")
+	var chunks [][]byte
+	got, err := io.ReadAll(&streamBodyTee{reader: bytes.NewReader(input), emit: func(chunk []byte) {
+		chunks = append(chunks, append([]byte(nil), chunk...))
+	}})
+	if err != nil || !bytes.Equal(got, input) || !bytes.Equal(bytes.Join(chunks, nil), input) {
+		t.Fatalf("got=%q chunks=%q err=%v", got, bytes.Join(chunks, nil), err)
 	}
 }
 

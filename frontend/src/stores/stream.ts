@@ -34,6 +34,8 @@ export type StreamStatus = "idle" | "connecting" | "open" | "closed" | "error"
 
 interface StreamState {
   messages: Record<string, StreamMessage[]>
+  /** HTTP 流响应的原始传输字节（base64 分块），不混进 Timeline 的记录列表。 */
+  responseBodyChunks: Record<string, string[]>
   status: Record<string, StreamStatus>
   /** 每个连接当前在详情面板中选中的消息；组件卸载后也保留。 */
   selectedMessages: Record<string, StreamMessage>
@@ -46,7 +48,7 @@ const HTTP_STREAM_EVENT = "http:stream"
 export const MAX_BUFFERED_STREAM_MESSAGES = 10_000
 
 const [state, setState] = createRoot(() => {
-  const [get, set] = createSignal<StreamState>({ messages: {}, status: {}, selectedMessages: {} })
+  const [get, set] = createSignal<StreamState>({ messages: {}, responseBodyChunks: {}, status: {}, selectedMessages: {} })
   return [get, set] as const
 })
 
@@ -73,8 +75,14 @@ function applyEvent(ev: StreamEventPayload | undefined) {
   if (!ev || !ev.connId) return
   setState((prev) => {
     const messages = { ...prev.messages }
+    const responseBodyChunks = { ...prev.responseBodyChunks }
     const status = { ...prev.status }
     const selectedMessages = { ...prev.selectedMessages }
+    // 后端以独立 body 事件发送原始字节；它只服务于普通响应体页签，不能作为一条 Timeline 消息显示。
+    if (ev.kind === "body") {
+      responseBodyChunks[ev.connId] = [...(responseBodyChunks[ev.connId] || []), ev.data]
+      return { messages, responseBodyChunks, status, selectedMessages }
+    }
     const list = messages[ev.connId] ? [...messages[ev.connId]] : []
     list.push({
       kind: ev.kind, data: ev.data, binary: ev.binary, timestamp: ev.timestamp,
@@ -92,7 +100,7 @@ function applyEvent(ev: StreamEventPayload | undefined) {
     if (ev.kind === "open") status[ev.connId] = "open"
     else if (ev.kind === "close") status[ev.connId] = "closed"
     else if (ev.kind === "error") status[ev.connId] = "error"
-    return { messages, status, selectedMessages }
+    return { messages, responseBodyChunks, status, selectedMessages }
   })
 }
 
@@ -111,6 +119,11 @@ if (typeof window !== "undefined") {
 /** 获取指定连接的消息列表 */
 export function streamMessages(connId: string): StreamMessage[] {
   return state().messages[connId] || []
+}
+
+/** 获取 HTTP 流原始响应体的 Base64 分块。 */
+export function streamResponseBodyChunks(connId: string): string[] {
+  return state().responseBodyChunks[connId] || []
 }
 
 /** 获取指定连接的状态 */
@@ -155,11 +168,13 @@ export function clearStreamMessages(connId: string) {
 export function clearStream(connId: string) {
   setState((prev) => {
     const messages = { ...prev.messages }
+    const responseBodyChunks = { ...prev.responseBodyChunks }
     const status = { ...prev.status }
     const selectedMessages = { ...prev.selectedMessages }
     delete messages[connId]
+    delete responseBodyChunks[connId]
     delete status[connId]
     delete selectedMessages[connId]
-    return { messages, status, selectedMessages }
+    return { messages, responseBodyChunks, status, selectedMessages }
   })
 }

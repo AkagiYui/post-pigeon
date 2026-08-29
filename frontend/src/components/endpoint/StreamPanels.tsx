@@ -36,8 +36,9 @@ import {
   filterAndSortStreamMessages,
   inferMessageFormat,
   latestMessageScrollTop,
-  mergeStreamRecords,
+  mergeStreamCompletion,
   messageContentForDisplay,
+  type StreamCompletionFormat,
   type StreamMessageDirection,
   type StreamMessageOrder,
   type StreamViewMode,
@@ -532,10 +533,20 @@ export function StreamEventLog(props: { streamId: string; streamFormat?: string;
   const [selectedMessage, setSelectedMessage] = createSignal<StreamMessage | undefined>(selectedStreamMessage(props.streamId))
   const [raw, setRaw] = createSignal(false)
   const [viewMode, setViewMode] = createSignal<StreamViewMode>("timeline")
+  const [completionFormat, setCompletionFormat] = createSignal<StreamCompletionFormat>("auto")
+  const [customJSONPath, setCustomJSONPath] = createSignal("")
   const messageCount = createMemo(() => streamMessages(props.streamId).length)
+  const completion = createMemo(() => mergeStreamCompletion(
+    streamMessages(props.streamId), completionFormat(), customJSONPath(),
+  ))
   const completionMessages = createMemo(() => {
-    const merged = mergeStreamRecords(streamMessages(props.streamId), props.streamFormat)
-    return merged ? [merged] : []
+    const merged = completion()
+    if (!merged) return []
+    const timestamp = streamMessages(props.streamId).at(-1)?.timestamp ?? Date.now()
+    return [
+      ...(merged.reasoning ? [{ kind: "message", data: merged.reasoning, event: "reasoning", timestamp }] : []),
+      { kind: "message", data: merged.content, event: "completion", timestamp },
+    ]
   })
   let messageLogElement: HTMLDivElement | undefined
   let scrollFrame: number | undefined
@@ -590,6 +601,38 @@ export function StreamEventLog(props: { streamId: string; streamFormat?: string;
         <Button size="icon-sm" variant="ghost" onClick={() => clearStreamMessages(props.streamId)}><Icon icon="lucide:trash-2" class="h-3.5 w-3.5" /></Button>
       </div>
       <div class="flex items-center gap-2 shrink-0">
+        <Show when={viewMode() === "completion"}>
+          <Select
+            size="sm"
+            value={completionFormat()}
+            onChange={(value) => setCompletionFormat(value as StreamCompletionFormat)}
+            options={[
+              { value: "auto", label: t("stream.completionAuto") },
+              { value: "openai", label: t("stream.completionOpenAI") },
+              { value: "gemini", label: t("stream.completionGemini") },
+              { value: "claude", label: t("stream.completionClaude") },
+              { value: "ollama-generate", label: t("stream.completionOllamaGenerate") },
+              { value: "ollama-chat", label: t("stream.completionOllamaChat") },
+              { value: "custom", label: t("stream.completionCustom") },
+            ]}
+            aria-label={t("stream.completionFormat")}
+            class="w-44 shrink-0"
+          />
+          <Show when={completionFormat() === "custom"}>
+            <Input
+              size="sm"
+              value={customJSONPath()}
+              onInput={(event) => setCustomJSONPath(event.currentTarget.value)}
+              placeholder={t("stream.completionJSONPath")}
+              aria-label={t("stream.completionJSONPath")}
+              class="min-w-36 flex-1 font-mono"
+            />
+          </Show>
+          <Show when={!completion()}>
+            <span class="text-xs text-muted-foreground">{t("stream.completionNoMatch")}</span>
+          </Show>
+        </Show>
+        <Show when={viewMode() === "timeline"}>
         <div class="relative min-w-24 max-w-52 flex-1">
           <Icon icon="lucide:search" class="pointer-events-none absolute left-2 top-1/2 z-1 h-3.5 w-3.5 -translate-y-1/2 text-muted-foreground" />
           <Input
@@ -614,6 +657,7 @@ export function StreamEventLog(props: { streamId: string; streamFormat?: string;
           <Checkbox checked={raw()} onChange={(event) => setRaw(event.currentTarget.checked)} />
           <span>{t("stream.rawRecords")}</span>
         </label>
+        </Show>
         <Select
           size="sm"
           value={viewMode()}
