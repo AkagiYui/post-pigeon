@@ -400,6 +400,8 @@
   "apifox.kind.doc": "Doc",
   "apifox.kind.request": "Request",
   "stream.messages": "Messages",
+  "stream.parseJSON": "Parse JSON",
+  "stream.formatJSON": "Format",
   "stream.streaming": "Streaming…",
   "stream.streamEnded": "Stream ended",
   "stream.stop": "Stop",

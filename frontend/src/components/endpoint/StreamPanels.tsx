@@ -6,9 +6,17 @@ import { createMemo, createSignal, For, Show } from "solid-js"
 
 import { WebSocketService } from "@/../bindings/PostPigeon/internal/services"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
 import { t } from "@/hooks/useI18n"
+import { parseJSONForDisplay } from "@/lib/format"
 import { cn } from "@/lib/utils"
+import {
+  formatWebSocketJSON,
+  parseWebSocketJSON,
+  setFormatWebSocketJSON,
+  setParseWebSocketJSON,
+} from "@/stores/app"
 import { clearStreamMessages, streamMessages, streamStatus } from "@/stores/stream"
 import { toastError } from "@/stores/toast"
 
@@ -20,8 +28,10 @@ export function StatusDot(props: { status: string }) {
 }
 
 /** 消息流日志（按 connId 从全局 store 读取，切换标签页不丢失） */
-export function MessageLog(props: { connId: string }) {
+export function MessageLog(props: { connId: string; parseJSON?: boolean; formatJSON?: boolean }) {
   const msgs = createMemo(() => streamMessages(props.connId))
+  const displayData = (data: string, binary?: boolean) =>
+    props.parseJSON && !binary ? parseJSONForDisplay(data, props.formatJSON ?? false) : data
   return (
     <div class="flex-1 min-h-0 overflow-auto rounded-md border border-border bg-input p-2 flex flex-col gap-1">
       <For each={msgs()} fallback={<div class="text-xs text-muted-foreground text-center py-4">{t("stream.noMessages")}</div>}>
@@ -34,7 +44,7 @@ export function MessageLog(props: { connId: string }) {
                   : m.kind === "error" ? "bg-red-500/15 text-red-500"
                     : "bg-muted text-muted-foreground",
             )}>{m.kind === "sent" ? "↑" : m.kind === "message" ? "↓" : m.kind}</span>
-            <span class="break-all whitespace-pre-wrap text-foreground">{m.data}</span>
+            <span class="break-all whitespace-pre-wrap text-foreground">{displayData(m.data, m.binary)}</span>
           </div>
         )}
       </For>
@@ -61,9 +71,24 @@ export function WebSocketResponse(props: { connId: string }) {
         <StatusDot status={status()} />
         <span>{t("stream.messages")}</span>
         <span class="flex-1" />
+        <label class="flex items-center gap-1.5 cursor-pointer select-none">
+          <Checkbox
+            checked={parseWebSocketJSON()}
+            onChange={(e) => setParseWebSocketJSON(e.currentTarget.checked)}
+          />
+          <span>{t("stream.parseJSON")}</span>
+        </label>
+        <label class={cn("flex items-center gap-1.5 select-none", parseWebSocketJSON() ? "cursor-pointer" : "cursor-not-allowed opacity-50")}>
+          <Checkbox
+            checked={formatWebSocketJSON()}
+            disabled={!parseWebSocketJSON()}
+            onChange={(e) => setFormatWebSocketJSON(e.currentTarget.checked)}
+          />
+          <span>{t("stream.formatJSON")}</span>
+        </label>
         <Button size="icon-sm" variant="ghost" onClick={() => clearStreamMessages(props.connId)}><Icon icon="lucide:trash-2" class="h-3.5 w-3.5" /></Button>
       </div>
-      <MessageLog connId={props.connId} />
+      <MessageLog connId={props.connId} parseJSON={parseWebSocketJSON()} formatJSON={formatWebSocketJSON()} />
       <div class="flex items-center gap-2 shrink-0">
         <Input size="sm" value={input()} onInput={(e) => setInput(e.currentTarget.value)} placeholder={t("stream.messagePlaceholder")} onKeyDown={(e) => e.key === "Enter" && send()} class="flex-1" disabled={status() !== "open"} />
         <Button size="sm" onClick={send} disabled={status() !== "open"}><Icon icon="lucide:send" class="h-3.5 w-3.5" />{t("stream.send")}</Button>

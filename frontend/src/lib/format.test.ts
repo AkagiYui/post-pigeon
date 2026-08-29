@@ -1,6 +1,6 @@
 import { describe, expect, it } from "vitest"
 
-import { convertJSON5ToJSON, decodeRawBody, formatBody, formatBuildTime, formatFromContentType, formatJSONC } from "./format"
+import { convertJSON5ToJSON, decodeRawBody, formatBody, formatBuildTime, formatFromContentType, formatJSONC, parseJSONForDisplay } from "./format"
 
 describe("formatFromContentType", () => {
   it("识别 JSON 及其结构化后缀", () => {
@@ -30,6 +30,11 @@ describe("formatBody", () => {
     expect(formatBody("{\"a\":1}", "json")).toBe("{\n  \"a\": 1\n}")
   })
 
+  it("解析 JSON 字符串中的 Unicode 转义", () => {
+    expect(formatBody("{\"content\":\"\\u003cp\\u003e111\\u003c/p\\u003e\"}", "json"))
+      .toBe("{\n  \"content\": \"<p>111</p>\"\n}")
+  })
+
   it("非法 JSON 原样返回", () => {
     expect(formatBody("not json", "json")).toBe("not json")
   })
@@ -40,6 +45,28 @@ describe("formatBody", () => {
 
   it("按标签缩进 XML", () => {
     expect(formatBody("<a><b>1</b></a>", "xml")).toBe("<a>\n  <b>1</b>\n</a>")
+  })
+})
+
+describe("parseJSONForDisplay", () => {
+  const escaped = "{ \"content\" : \"\\u003cp\\u003e111\\u003c/p\\u003e\", \"id\": 9007199254740993 }"
+
+  it("只解析时还原字符串转义并保留原排版与大整数", () => {
+    expect(parseJSONForDisplay(escaped, false))
+      .toBe("{ \"content\" : \"<p>111</p>\", \"id\": 9007199254740993 }")
+  })
+
+  it("按需格式化解析后的 JSON", () => {
+    expect(parseJSONForDisplay(escaped, true)).toBe([
+      "{",
+      "  \"content\": \"<p>111</p>\",",
+      "  \"id\": 9007199254740993",
+      "}",
+    ].join("\n"))
+  })
+
+  it("非法 JSON 原样返回", () => {
+    expect(parseJSONForDisplay("{ nope", true)).toBe("{ nope")
   })
 })
 

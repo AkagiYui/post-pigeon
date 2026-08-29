@@ -1,6 +1,6 @@
 // 请求体与响应体的格式化、编码解码工具
 import JSON5 from "json5"
-import { applyEdits, format as formatJSONCEdits } from "jsonc-parser"
+import { applyEdits, format as formatJSONCEdits, visit } from "jsonc-parser"
 
 /** 根据响应的 Content-Type 推断格式化方案（json / xml / html）；无法识别时返回 null */
 export function formatFromContentType(contentType: string | undefined | null): string | null {
@@ -29,6 +29,43 @@ export function formatBody(body: string, format: string): string {
     return formatMarkup(body)
   }
   return body
+}
+
+/**
+ * 解析用于展示的 JSON 文本。
+ *
+ * parse-only 模式只重写 JSON 字符串 token：例如把 `\u003c` 展示为 `<`，同时保留
+ * 原有空白、换行、键顺序和数字字面量。不能用 JSON.parse + JSON.stringify 做这件事，
+ * 否则即使不缩进也会压平排版，并可能改写超出 JS 安全整数范围的数字。
+ * pretty 为 true 时，再通过 jsonc-parser 仅调整空白与缩进。
+ * 非法 JSON 原样返回。
+ */
+export function parseJSONForDisplay(body: string, pretty: boolean): string {
+  if (!body) return body
+  try {
+    JSON.parse(body)
+  } catch {
+    return body
+  }
+
+  const replacements: Array<{ offset: number; length: number; text: string }> = []
+  visit(body, {
+    onObjectProperty(property, offset, length) {
+      replacements.push({ offset, length, text: JSON.stringify(property) })
+    },
+    onLiteralValue(value, offset, length) {
+      if (typeof value === "string") {
+        replacements.push({ offset, length, text: JSON.stringify(value) })
+      }
+    },
+  })
+
+  let decoded = body
+  for (let i = replacements.length - 1; i >= 0; i--) {
+    const edit = replacements[i]
+    decoded = decoded.slice(0, edit.offset) + edit.text + decoded.slice(edit.offset + edit.length)
+  }
+  return pretty ? formatJSONC(decoded) : decoded
 }
 
 /**

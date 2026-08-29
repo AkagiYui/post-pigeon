@@ -3,6 +3,7 @@ import { describe, expect, it } from "vitest"
 import {
   decodeStored,
   encodeStored,
+  isBoolean,
   isNullableString,
   isStringArray,
   isStringRecord,
@@ -50,6 +51,13 @@ describe("decodeStored", () => {
 })
 
 describe("守卫", () => {
+  it("isBoolean", () => {
+    expect(isBoolean(true)).toBe(true)
+    expect(isBoolean(false)).toBe(true)
+    expect(isBoolean("true")).toBe(false)
+    expect(isBoolean(1)).toBe(false)
+  })
+
   it("isStringArray", () => {
     expect(isStringArray([])).toBe(true)
     expect(isStringArray(["a"])).toBe(true)

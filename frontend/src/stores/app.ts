@@ -4,6 +4,7 @@ import { createEffect, createRoot, createSignal } from "solid-js"
 import type { Environment } from "@/../bindings/PostPigeon/internal/models"
 
 import {
+  isBoolean,
   isNullableString,
   isStringArray,
   isStringRecord,
@@ -42,6 +43,16 @@ const [responseLayout, setResponseLayout] = createSignal<"bottom" | "right">(
   loadFromStorage("responseLayout", "bottom" as const, oneOf("bottom", "right")),
 )
 
+/** WebSocket 文本消息是否解析合法 JSON 并还原字符串转义（持久化） */
+const [parseWebSocketJSON, setParseWebSocketJSON] = createSignal(
+  loadFromStorage("parseWebSocketJSON", true, isBoolean),
+)
+
+/** WebSocket JSON 消息解析后是否用两空格缩进（持久化） */
+const [formatWebSocketJSON, setFormatWebSocketJSON] = createSignal(
+  loadFromStorage("formatWebSocketJSON", true, isBoolean),
+)
+
 /** 设置模态框是否显示（不持久化） */
 const [settingsOpen, setSettingsOpen] = createSignal(false)
 
@@ -58,6 +69,8 @@ export {
   activeProjectId, setActiveProjectId,
   settingsOpen, setSettingsOpen,
   responseLayout, setResponseLayout,
+  parseWebSocketJSON, setParseWebSocketJSON,
+  formatWebSocketJSON, setFormatWebSocketJSON,
   currentEnvironmentIds, setCurrentEnvironmentIds,
   projectNames, setProjectNames,
   projectEnvironments, setProjectEnvironments,
@@ -100,6 +113,20 @@ if (typeof window !== "undefined") {
     // 监听并持久化 responseLayout
     createEffect(() => {
       saveToStorage("responseLayout", responseLayout())
+    })
+  })
+
+  createRoot(() => {
+    // 监听并持久化 WebSocket JSON 解析偏好
+    createEffect(() => {
+      saveToStorage("parseWebSocketJSON", parseWebSocketJSON())
+    })
+  })
+
+  createRoot(() => {
+    // 监听并持久化 WebSocket JSON 格式化偏好
+    createEffect(() => {
+      saveToStorage("formatWebSocketJSON", formatWebSocketJSON())
     })
   })
 }
