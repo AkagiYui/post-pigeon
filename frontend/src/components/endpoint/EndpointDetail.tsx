@@ -21,7 +21,7 @@ import { getStatusInfo, statusClass } from "@/lib/http-status"
 import { formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS } from "@/lib/types"
 import { byteLength, cn, downloadTextFile, extensionForContentType, hasURLScheme } from "@/lib/utils"
 import { convertHTTPToWSProtocol, effectiveWSProtocolConversion } from "@/lib/ws-protocol"
-import { responseLayout, setResponseLayout } from "@/stores/app"
+import { responseLayout, setResponseLayout, setWebSocketMessageDrafts, webSocketMessageDrafts } from "@/stores/app"
 import { markConnecting, streamStatus } from "@/stores/stream"
 import { toastError } from "@/stores/toast"
 
@@ -34,7 +34,7 @@ import { OperationsEditor } from "./OperationsEditor"
 import { CookiesEditor, ParamsEditor } from "./ParamsEditor"
 import { shouldShowResponsePanel } from "./response-visibility"
 import { ResponseBodyToolbar, ResponsePanel } from "./ResponsePanel"
-import { StreamEventLog, WebSocketResponse } from "./StreamPanels"
+import { StreamEventLog, WebSocketMessageEditor, WebSocketResponse } from "./StreamPanels"
 
 /** HTTP 方法选项（用于 Combobox） */
 const methodOptions: ComboboxOption[] = [
@@ -62,7 +62,7 @@ const methodColors: Record<string, string> = {
 const defaultMethodColor = "text-gray-600 dark:text-gray-400 bg-gray-500/10 dark:bg-gray-400/10"
 
 /** 请求设置标签 key（用于持久化状态校验） */
-const REQUEST_TAB_KEYS = ["params", "body", "headers", "cookies", "auth", "preOperations", "postOperations", "settings"]
+const REQUEST_TAB_KEYS = ["message", "params", "body", "headers", "cookies", "auth", "preOperations", "postOperations", "settings"]
 
 /** 带数字徽标的标签标题：count>0 时在标题右侧显示计数气泡 */
 function tabLabelWithCount(label: string, count: number): JSX.Element {
@@ -253,6 +253,7 @@ function EnvironmentBadge(props: {
  */
 export function EndpointDetail(props: EndpointDetailProps) {
   const ep = () => props.endpoint
+  const isWs = () => ep().type === "websocket"
 
   // 初始化标签页状态（从持久化存储恢复，或使用默认值）
   const [activeRequestTab, setActiveRequestTab] = createSignal("params")
@@ -265,10 +266,13 @@ export function EndpointDetail(props: EndpointDetailProps) {
       const saved = tabStateStore.get(id)
       if (saved) {
         // 兼容旧缓存（如已废弃的 "script" tab）：非法 key 回退到 params
-        setActiveRequestTab(REQUEST_TAB_KEYS.includes(saved.requestTab) ? saved.requestTab : "params")
+        const canRestoreMessageTab = isWs() && saved.requestTab === "message"
+        setActiveRequestTab(canRestoreMessageTab || (saved.requestTab !== "message" && REQUEST_TAB_KEYS.includes(saved.requestTab))
+          ? saved.requestTab
+          : isWs() ? "message" : "params")
         setActiveResponseTab(saved.responseTab)
       } else {
-        setActiveRequestTab("params")
+        setActiveRequestTab(isWs() ? "message" : "params")
         setActiveResponseTab("body")
       }
     },
@@ -292,6 +296,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
 
   // 请求设置标签（前置/后置操作作为顶级 tab，位于认证与设置之间）
   const requestTabs = createMemo(() => [
+    ...(isWs() ? [{ key: "message", label: t("stream.message") }] : []),
     { key: "params", label: tabLabelWithCount(t("endpoint.params"), paramsCount()) },
     { key: "body", label: t("endpoint.body") },
     { key: "headers", label: t("endpoint.headers") },
@@ -414,7 +419,6 @@ export function EndpointDetail(props: EndpointDetailProps) {
 
 
   // ---- WebSocket：连接/断开由顶部请求行的按钮驱动，连接存活于 Go 侧 ----
-  const isWs = () => ep().type === "websocket"
   const autoConvertWSProtocol = () => isWs() && effectiveWSProtocolConversion(
     ep().wsProtocolConversion,
     ep().inheritedWsProtocolConversion,
@@ -553,6 +557,11 @@ export function EndpointDetail(props: EndpointDetailProps) {
             >
               {(key) => {
                 switch (key) {
+                  case "message": return <WebSocketMessageEditor
+                    connId={ep().id}
+                    value={webSocketMessageDrafts()[ep().id] ?? ""}
+                    onChange={(value) => setWebSocketMessageDrafts(drafts => ({ ...drafts, [ep().id]: value }))}
+                  />
                   case "params": return <ParamsEditor
                     value={ep().params}
                     onChange={(v) => props.onChange?.({ params: v })}

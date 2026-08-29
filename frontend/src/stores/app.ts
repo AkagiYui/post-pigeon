@@ -53,6 +53,16 @@ const [formatWebSocketJSON, setFormatWebSocketJSON] = createSignal(
   loadFromStorage("formatWebSocketJSON", true, isBoolean),
 )
 
+/** WebSocket 消息发送成功后是否清空编辑器（持久化） */
+const [clearWebSocketMessageAfterSend, setClearWebSocketMessageAfterSend] = createSignal(
+  loadFromStorage("clearWebSocketMessageAfterSend", true, isBoolean),
+)
+
+/** WebSocket 消息草稿（按接口 ID 保存，持久化） */
+const [webSocketMessageDrafts, setWebSocketMessageDrafts] = createSignal<Record<string, string>>(
+  loadFromStorage("webSocketMessageDrafts", {}, isStringRecord),
+)
+
 /** 设置模态框是否显示（不持久化） */
 const [settingsOpen, setSettingsOpen] = createSignal(false)
 
@@ -71,6 +81,8 @@ export {
   responseLayout, setResponseLayout,
   parseWebSocketJSON, setParseWebSocketJSON,
   formatWebSocketJSON, setFormatWebSocketJSON,
+  clearWebSocketMessageAfterSend, setClearWebSocketMessageAfterSend,
+  webSocketMessageDrafts, setWebSocketMessageDrafts,
   currentEnvironmentIds, setCurrentEnvironmentIds,
   projectNames, setProjectNames,
   projectEnvironments, setProjectEnvironments,
@@ -127,6 +139,20 @@ if (typeof window !== "undefined") {
     // 监听并持久化 WebSocket JSON 格式化偏好
     createEffect(() => {
       saveToStorage("formatWebSocketJSON", formatWebSocketJSON())
+    })
+  })
+
+  createRoot(() => {
+    // 监听并持久化 WebSocket 发送后清空偏好
+    createEffect(() => {
+      saveToStorage("clearWebSocketMessageAfterSend", clearWebSocketMessageAfterSend())
+    })
+  })
+
+  createRoot(() => {
+    // 连接切换或应用重启后恢复各接口正在编辑的消息。
+    createEffect(() => {
+      saveToStorage("webSocketMessageDrafts", webSocketMessageDrafts())
     })
   })
 }
