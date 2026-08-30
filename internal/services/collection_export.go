@@ -58,7 +58,11 @@ func exportedDocument(fileName, mediaType, content string, err error) (*Exported
 }
 
 func (s *ImportExportService) exportPostmanCollection(module models.Module) (string, error) {
-	rootEndpoints, folders, children, folderEndpoints, err := s.exportModuleTree(module.ID)
+	return s.exportPostmanCollectionFiltered(module, nil)
+}
+
+func (s *ImportExportService) exportPostmanCollectionFiltered(module models.Module, selected map[string]bool) (string, error) {
+	rootEndpoints, folders, children, folderEndpoints, err := s.exportModuleTreeFiltered(module.ID, selected)
 	if err != nil {
 		return "", err
 	}
@@ -240,11 +244,15 @@ func postmanExportEvents(endpoint models.Endpoint) []any {
 }
 
 func (s *ImportExportService) exportHAR(module models.Module) (string, error) {
-	rootEndpoints, folders, _, folderEndpoints, err := s.exportModuleTree(module.ID)
+	return s.exportHARFiltered(module, nil, "")
+}
+
+func (s *ImportExportService) exportHARFiltered(module models.Module, selected map[string]bool, environmentID string) (string, error) {
+	rootEndpoints, folders, _, folderEndpoints, err := s.exportModuleTreeFiltered(module.ID, selected)
 	if err != nil {
 		return "", err
 	}
-	baseURL := s.exportBaseURL(module.ID)
+	baseURL := s.exportBaseURLForEnvironment(module.ID, environmentID)
 	entries := make([]any, 0)
 	appendEndpoint := func(endpoint models.Endpoint, pageRef string) {
 		detail, detailErr := NewEndpointService(s.db).GetEndpoint(endpoint.ID)
@@ -302,7 +310,11 @@ func (s *ImportExportService) exportHAR(module models.Module) (string, error) {
 }
 
 func (s *ImportExportService) exportMarkdown(module models.Module) (string, error) {
-	rootEndpoints, folders, _, folderEndpoints, err := s.exportModuleTree(module.ID)
+	return s.exportMarkdownFiltered(module, nil)
+}
+
+func (s *ImportExportService) exportMarkdownFiltered(module models.Module, selected map[string]bool) (string, error) {
+	rootEndpoints, folders, _, folderEndpoints, err := s.exportModuleTreeFiltered(module.ID, selected)
 	if err != nil {
 		return "", err
 	}
@@ -344,6 +356,10 @@ func (s *ImportExportService) exportMarkdown(module models.Module) (string, erro
 }
 
 func (s *ImportExportService) exportModuleTree(moduleID string) ([]models.Endpoint, []models.Folder, map[string][]models.Folder, map[string][]models.Endpoint, error) {
+	return s.exportModuleTreeFiltered(moduleID, nil)
+}
+
+func (s *ImportExportService) exportModuleTreeFiltered(moduleID string, selected map[string]bool) ([]models.Endpoint, []models.Folder, map[string][]models.Folder, map[string][]models.Endpoint, error) {
 	var endpoints []models.Endpoint
 	if err := s.db.Where("module_id = ? AND type = ?", moduleID, string(models.EndpointTypeHTTP)).Order("sort_order ASC").Find(&endpoints).Error; err != nil {
 		return nil, nil, nil, nil, apperr.Wrap(err, apperr.CodeExportFailed)
@@ -357,6 +373,30 @@ func (s *ImportExportService) exportModuleTree(moduleID string) ([]models.Endpoi
 		if folder.ParentID == nil && folder.Name == "__root" {
 			rootFolderID = folder.ID
 			break
+		}
+	}
+	if selected != nil {
+		filtered := endpoints[:0]
+		for _, endpoint := range endpoints {
+			if selected[endpoint.ID] {
+				filtered = append(filtered, endpoint)
+			}
+		}
+		endpoints = filtered
+	}
+	includedFolders := map[string]bool{}
+	folderByID := make(map[string]models.Folder, len(folders))
+	for _, folder := range folders {
+		folderByID[folder.ID] = folder
+	}
+	for _, endpoint := range endpoints {
+		for folderID := endpoint.FolderID; folderID != nil && *folderID != "" && !includedFolders[*folderID]; {
+			includedFolders[*folderID] = true
+			folder, ok := folderByID[*folderID]
+			if !ok {
+				break
+			}
+			folderID = folder.ParentID
 		}
 	}
 	var root []models.Endpoint
@@ -374,6 +414,9 @@ func (s *ImportExportService) exportModuleTree(moduleID string) ([]models.Endpoi
 		if folder.ID == rootFolderID {
 			continue
 		}
+		if selected != nil && !includedFolders[folder.ID] {
+			continue
+		}
 		if folder.ParentID != nil && *folder.ParentID == rootFolderID {
 			folder.ParentID = nil
 		}
@@ -386,8 +429,16 @@ func (s *ImportExportService) exportModuleTree(moduleID string) ([]models.Endpoi
 }
 
 func (s *ImportExportService) exportBaseURL(moduleID string) string {
+	return s.exportBaseURLForEnvironment(moduleID, "")
+}
+
+func (s *ImportExportService) exportBaseURLForEnvironment(moduleID, environmentID string) string {
 	var values []models.ModuleBaseURL
-	if err := s.db.Where("module_id = ?", moduleID).Order("base_url ASC").Find(&values).Error; err != nil {
+	query := s.db.Where("module_id = ?", moduleID)
+	if environmentID != "" {
+		query = query.Where("environment_id = ?", environmentID)
+	}
+	if err := query.Order("base_url ASC").Find(&values).Error; err != nil {
 		return ""
 	}
 	for _, value := range values {

@@ -11,6 +11,8 @@ import (
 
 	"PostPigeon/internal/apperr"
 	"PostPigeon/internal/models"
+
+	"github.com/goccy/go-yaml"
 )
 
 // 本文件把模块导出为 OpenAPI 3.1 文档。
@@ -49,6 +51,18 @@ type openAPIExportOper struct {
 	RequestBody *openAPIExportBody         `json:"requestBody,omitempty"`
 	Responses   map[string]openAPIExportRs `json:"responses"`
 	Security    []map[string][]string      `json:"security,omitempty"`
+	Source      string                     `json:"x-postpigeon-source,omitempty"`
+	SourceID    string                     `json:"x-postpigeon-source-id,omitempty"`
+}
+
+type openAPIExportBuildOptions struct {
+	SelectedEndpointIDs        map[string]bool
+	EnvironmentIDs             []string
+	FolderTags                 map[string][]string
+	AddFoldersToTags           bool
+	IncludeExtensionProperties bool
+	Title                      string
+	DocumentVersion            string
 }
 
 type openAPIExportParam struct {
@@ -91,28 +105,51 @@ func (s *ImportExportService) ExportOpenAPI(moduleID string) (string, error) {
 
 // ExportOpenAPIAs 按指定版本导出 OpenAPI 3.1、OpenAPI 3.0 或 Swagger 2.0。
 func (s *ImportExportService) ExportOpenAPIAs(moduleID, version string) (string, error) {
-	doc, err := s.buildOpenAPIExportDoc(moduleID)
+	return s.exportOpenAPIConfigured(moduleID, version, "json", openAPIExportBuildOptions{})
+}
+
+func (s *ImportExportService) exportOpenAPIConfigured(moduleID, version, fileFormat string, options openAPIExportBuildOptions) (string, error) {
+	doc, err := s.buildOpenAPIExportDocWithOptions(moduleID, options)
 	if err != nil {
 		return "", err
 	}
+	var encoded []byte
 	switch strings.TrimSpace(version) {
 	case "", "3.1", "3.1.0":
 		doc.OpenAPI = "3.1.0"
 	case "3.0", "3.0.3":
 		doc.OpenAPI = "3.0.3"
 	case "2", "2.0", "swagger2":
-		return marshalSwagger2(doc)
+		content, marshalErr := marshalSwagger2(doc)
+		if marshalErr != nil {
+			return "", marshalErr
+		}
+		encoded = []byte(content)
 	default:
 		return "", fmt.Errorf("不支持的 OpenAPI 导出版本 %q", version)
 	}
-	out, err := json.MarshalIndent(doc, "", "  ")
-	if err != nil {
-		return "", apperr.Wrap(err, apperr.CodeExportFailed)
+	if encoded == nil {
+		encoded, err = json.MarshalIndent(doc, "", "  ")
+		if err != nil {
+			return "", apperr.Wrap(err, apperr.CodeExportFailed)
+		}
 	}
-	return string(out), nil
+	if strings.EqualFold(strings.TrimSpace(fileFormat), "yaml") {
+		encoded, err = yaml.JSONToYAML(encoded)
+		if err != nil {
+			return "", apperr.Wrap(err, apperr.CodeExportFailed)
+		}
+	} else if normalized := strings.ToLower(strings.TrimSpace(fileFormat)); normalized != "" && normalized != "json" {
+		return "", fmt.Errorf("不支持的 OpenAPI 文件格式 %q", fileFormat)
+	}
+	return string(encoded), nil
 }
 
 func (s *ImportExportService) buildOpenAPIExportDoc(moduleID string) (*openAPIExportDoc, error) {
+	return s.buildOpenAPIExportDocWithOptions(moduleID, openAPIExportBuildOptions{})
+}
+
+func (s *ImportExportService) buildOpenAPIExportDocWithOptions(moduleID string, options openAPIExportBuildOptions) (*openAPIExportDoc, error) {
 	var module models.Module
 	if err := s.db.Where("id = ?", moduleID).First(&module).Error; err != nil {
 		return nil, apperr.Wrap(err, apperr.CodeModuleNotFound, apperr.P("id", moduleID))
@@ -123,19 +160,52 @@ func (s *ImportExportService) buildOpenAPIExportDoc(moduleID string) (*openAPIEx
 		Order("sort_order ASC").Find(&endpoints).Error; err != nil {
 		return nil, apperr.Wrap(err, apperr.CodeExportFailed)
 	}
+	if options.SelectedEndpointIDs != nil {
+		filtered := endpoints[:0]
+		for _, endpoint := range endpoints {
+			if options.SelectedEndpointIDs[endpoint.ID] {
+				filtered = append(filtered, endpoint)
+			}
+		}
+		endpoints = filtered
+	}
+	title := strings.TrimSpace(options.Title)
+	if title == "" {
+		title = module.Name
+	}
+	documentVersion := strings.TrimSpace(options.DocumentVersion)
+	if documentVersion == "" {
+		documentVersion = "1.0.0"
+	}
 
 	doc := &openAPIExportDoc{
 		OpenAPI: "3.1.0",
 		Info: openAPIExportInfo{
-			Title:   module.Name,
-			Version: "1.0.0",
+			Title:   title,
+			Version: documentVersion,
 		},
 		Paths: map[string]map[string]openAPIExportOper{},
 	}
 
 	// 服务器地址取模块在各环境下的前置 URL
 	var baseURLs []models.ModuleBaseURL
-	if err := s.db.Where("module_id = ?", moduleID).Find(&baseURLs).Error; err == nil {
+	baseURLQuery := s.db.Where("module_id = ?", moduleID)
+	if len(options.EnvironmentIDs) > 0 {
+		baseURLQuery = baseURLQuery.Where("environment_id IN ?", options.EnvironmentIDs)
+	}
+	if err := baseURLQuery.Find(&baseURLs).Error; err == nil {
+		environmentNames := map[string]string{}
+		if len(baseURLs) > 0 {
+			var environments []models.Environment
+			ids := make([]string, 0, len(baseURLs))
+			for _, item := range baseURLs {
+				ids = append(ids, item.EnvironmentID)
+			}
+			_ = s.db.Where("id IN ?", ids).Find(&environments).Error
+			for _, environment := range environments {
+				environmentNames[environment.ID] = environment.Name
+			}
+		}
 		seen := map[string]bool{}
 		for _, item := range baseURLs {
 			url := strings.TrimSpace(item.BaseURL)
@@ -143,7 +213,7 @@ func (s *ImportExportService) buildOpenAPIExportDoc(moduleID string) (*openAPIEx
 				continue
 			}
 			seen[url] = true
-			doc.Servers = append(doc.Servers, openAPIExportServer{URL: url})
+			doc.Servers = append(doc.Servers, openAPIExportServer{URL: url, Description: environmentNames[item.EnvironmentID]})
 		}
 		sort.Slice(doc.Servers, func(i, j int) bool { return doc.Servers[i].URL < doc.Servers[j].URL })
 	}
@@ -164,17 +234,25 @@ func (s *ImportExportService) buildOpenAPIExportDoc(moduleID string) (*openAPIEx
 			method = "get"
 		}
 
+		tags := parseTagList(endpoint.Tags)
+		if options.AddFoldersToTags {
+			tags = uniqueStrings(append(tags, options.FolderTags[endpoint.ID]...))
+		}
 		oper := openAPIExportOper{
 			Summary:     endpoint.Name,
 			Description: endpoint.Description,
 			OperationID: operationID(endpoint),
-			Tags:        parseTagList(endpoint.Tags),
+			Tags:        tags,
 			Deprecated:  endpoint.Status == "deprecated",
 			Responses: map[string]openAPIExportRs{
 				"200": {Description: "OK"},
 			},
 			Parameters:  exportParameters(detail),
 			RequestBody: exportRequestBody(endpoint, detail),
+		}
+		if options.IncludeExtensionProperties {
+			oper.Source = endpoint.Source
+			oper.SourceID = endpoint.SourceID
 		}
 		if scheme, security := exportSecurity(detail.Auth); scheme != nil {
 			maps.Copy(securitySchemes, scheme)

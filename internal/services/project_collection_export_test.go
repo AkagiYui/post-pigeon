@@ -10,6 +10,8 @@ import (
 	"testing"
 
 	"PostPigeon/internal/models"
+
+	"github.com/goccy/go-yaml"
 )
 
 func buildProjectExportFixture(t *testing.T) (*ImportExportService, models.Project) {
@@ -353,5 +355,172 @@ func TestExportProjectAsRejectsUnknownFormat(t *testing.T) {
 	svc, project := buildProjectExportFixture(t)
 	if _, err := svc.ExportProjectAs(project.ID, "unknown", false); err == nil {
 		t.Fatal("unknown project export format should fail")
+	}
+}
+
+func TestExportProjectConfiguredHonoursFolderEndpointAndTagScopes(t *testing.T) {
+	svc, project := buildProjectExportFixture(t)
+	var endpoints []models.Endpoint
+	if err := svc.db.Table("endpoints AS e").Select("e.*").Joins("JOIN modules AS m ON m.id = e.module_id").
+		Where("m.project_id = ? AND e.type = ?", project.ID, models.EndpointTypeHTTP).Order("e.path ASC").Find(&endpoints).Error; err != nil {
+		t.Fatal(err)
+	}
+	if len(endpoints) != 2 {
+		t.Fatalf("fixture endpoints=%d", len(endpoints))
+	}
+	var orderEndpoint, healthEndpoint models.Endpoint
+	for _, endpoint := range endpoints {
+		if endpoint.Path == "/health" {
+			healthEndpoint = endpoint
+		} else {
+			orderEndpoint = endpoint
+		}
+	}
+	if orderEndpoint.FolderID == nil {
+		t.Fatal("order endpoint has no folder")
+	}
+	if err := svc.db.Model(&models.Endpoint{}).Where("id = ?", orderEndpoint.ID).Update("tags", `["orders","internal"]`).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.db.Model(&models.Endpoint{}).Where("id = ?", healthEndpoint.ID).Update("tags", `["health"]`).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	for _, tc := range []struct {
+		name  string
+		scope ProjectExportScope
+		want  string
+		not   string
+	}{
+		{"folder", ProjectExportScope{Type: "folders", SelectedFolderIDs: []string{*orderEndpoint.FolderID}}, "/orders/{id}", "/health"},
+		{"endpoint", ProjectExportScope{Type: "endpoints", SelectedEndpointIDs: []string{healthEndpoint.ID}}, "/health", "/orders/{id}"},
+		{"tag", ProjectExportScope{Type: "tags", SelectedTags: []string{"orders"}}, "/orders/{id}", "/health"},
+		{"excluded tag", ProjectExportScope{Type: "all", ExcludedTags: []string{"internal"}}, "/health", "/orders/{id}"},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			doc, err := svc.ExportProjectConfigured(project.ID, ProjectExportOptions{Format: "markdown", Scope: tc.scope})
+			if err != nil {
+				t.Fatal(err)
+			}
+			if !strings.Contains(doc.Content, tc.want) || strings.Contains(doc.Content, tc.not) {
+				t.Fatalf("scope mismatch: want %q without %q\n%s", tc.want, tc.not, doc.Content)
+			}
+		})
+	}
+}
+
+func TestExportProjectConfiguredOpenAPIOptionsAndEnvironment(t *testing.T) {
+	svc, project := buildProjectExportFixture(t)
+	var firstModule models.Module
+	if err := svc.db.Where("project_id = ?", project.ID).Order("sort_order ASC").First(&firstModule).Error; err != nil {
+		t.Fatal(err)
+	}
+	var endpoint models.Endpoint
+	if err := svc.db.Where("module_id = ? AND path = ?", firstModule.ID, "/orders/{id}").First(&endpoint).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := svc.db.Model(&models.Endpoint{}).Where("id = ?", endpoint.ID).Updates(map[string]any{
+		"source": "apifox", "source_id": "remote-order", "tags": `["orders"]`,
+	}).Error; err != nil {
+		t.Fatal(err)
+	}
+	environment, err := NewEnvironmentService(svc.db).CreateEnvironment(project.ID, "staging")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := NewModuleService(svc.db).SetModuleBaseURL(firstModule.ID, environment.ID, "https://staging.example.com/api"); err != nil {
+		t.Fatal(err)
+	}
+
+	document, err := svc.ExportProjectConfigured(project.ID, ProjectExportOptions{
+		Format:         "openapi",
+		Scope:          ProjectExportScope{Type: "endpoints", SelectedEndpointIDs: []string{endpoint.ID}},
+		EnvironmentIDs: []string{environment.ID},
+		OpenAPI: ProjectOpenAPIExportOptions{
+			SpecVersion: "3.0", FileFormat: "yaml", Title: "Commerce API", DocumentVersion: "2026.8",
+			IncludeExtensionProperties: true, AddFoldersToTags: true,
+		},
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if document.FileName != "export project.openapi-3.0.zip" || document.MediaType != "application/zip" {
+		t.Fatalf("metadata=%+v", document)
+	}
+	raw, err := base64.StdEncoding.DecodeString(document.Content)
+	if err != nil {
+		t.Fatal(err)
+	}
+	zr, err := zip.NewReader(bytes.NewReader(raw), int64(len(raw)))
+	if err != nil || len(zr.File) != 1 || !strings.HasSuffix(zr.File[0].Name, ".yaml") {
+		t.Fatalf("yaml bundle err=%v files=%+v", err, zr.File)
+	}
+	reader, err := zr.File[0].Open()
+	if err != nil {
+		t.Fatal(err)
+	}
+	yamlContent, _ := io.ReadAll(reader)
+	_ = reader.Close()
+	jsonContent, err := yaml.YAMLToJSON(yamlContent)
+	if err != nil {
+		t.Fatalf("invalid yaml: %v\n%s", err, yamlContent)
+	}
+	var spec map[string]any
+	if err := json.Unmarshal(jsonContent, &spec); err != nil {
+		t.Fatal(err)
+	}
+	if spec["openapi"] != "3.0.3" {
+		t.Fatalf("openapi=%v", spec["openapi"])
+	}
+	info := spec["info"].(map[string]any)
+	if !strings.Contains(info["title"].(string), "Commerce API") || info["version"] != "2026.8" {
+		t.Fatalf("info=%v", info)
+	}
+	servers := spec["servers"].([]any)
+	server := servers[0].(map[string]any)
+	if server["url"] != "https://staging.example.com/api" || server["description"] != "staging" {
+		t.Fatalf("servers=%v", servers)
+	}
+	paths := spec["paths"].(map[string]any)
+	operation := paths["/orders/{id}"].(map[string]any)["post"].(map[string]any)
+	tags := operation["tags"].([]any)
+	if !containsAnyString(tags, "orders") || !containsAnyString(tags, "Orders") {
+		t.Fatalf("folder tag missing: %v", tags)
+	}
+	if operation["x-postpigeon-source"] != "apifox" || operation["x-postpigeon-source-id"] != "remote-order" {
+		t.Fatalf("extension properties missing: %v", operation)
+	}
+}
+
+func containsAnyString(values []any, wanted string) bool {
+	for _, value := range values {
+		if value == wanted {
+			return true
+		}
+	}
+	return false
+}
+
+func TestExportProjectConfiguredRejectsInvalidEnvironmentAndSwaggerMultiEnvironment(t *testing.T) {
+	svc, project := buildProjectExportFixture(t)
+	other := mustCreateProject(t, svc.db, "other project")
+	foreignEnvironment := firstEnvironment(t, svc.db, other.ID)
+	options := ProjectExportOptions{Format: "openapi", Scope: ProjectExportScope{Type: "all"}, OpenAPI: ProjectOpenAPIExportOptions{SpecVersion: "3.1", FileFormat: "json"}}
+	options.EnvironmentIDs = []string{foreignEnvironment.ID}
+	if _, err := svc.ExportProjectConfigured(project.ID, options); err == nil {
+		t.Fatal("foreign environment should fail")
+	}
+	var environments []models.Environment
+	if err := svc.db.Where("project_id = ?", project.ID).Find(&environments).Error; err != nil {
+		t.Fatal(err)
+	}
+	created, err := NewEnvironmentService(svc.db).CreateEnvironment(project.ID, "second")
+	if err != nil {
+		t.Fatal(err)
+	}
+	options.OpenAPI.SpecVersion = "2.0"
+	options.EnvironmentIDs = []string{environments[0].ID, created.ID}
+	if _, err := svc.ExportProjectConfigured(project.ID, options); err == nil || !strings.Contains(err.Error(), "只能选择一个环境") {
+		t.Fatalf("Swagger multi environment error=%v", err)
 	}
 }

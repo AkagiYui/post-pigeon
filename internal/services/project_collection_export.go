@@ -7,6 +7,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"html"
+	"os"
 	"sort"
 	"strings"
 	"unicode/utf8"
@@ -18,6 +19,23 @@ import (
 // ExportProjectAs 提供与 Apifox「项目设置 → 数据 → 导出」对应的项目级导出。
 // project 是 PostPigeon 的完整可回导文件；其余格式聚合项目下的全部模块。
 func (s *ImportExportService) ExportProjectAs(projectID, format string, includeSecrets bool) (*ExportedDocument, error) {
+	options := ProjectExportOptions{Format: format, IncludeSecrets: includeSecrets, Scope: ProjectExportScope{Type: "all"}}
+	switch strings.ToLower(strings.TrimSpace(format)) {
+	case "openapi31", "openapi3.1":
+		options.Format = "openapi"
+		options.OpenAPI.SpecVersion = "3.1"
+	case "openapi30", "openapi3.0":
+		options.Format = "openapi"
+		options.OpenAPI.SpecVersion = "3.0"
+	case "swagger2", "openapi2":
+		options.Format = "openapi"
+		options.OpenAPI.SpecVersion = "2.0"
+	}
+	return s.ExportProjectConfigured(projectID, options)
+}
+
+// ExportProjectConfigured 按项目导出页的完整设置生成文档。
+func (s *ImportExportService) ExportProjectConfigured(projectID string, options ProjectExportOptions) (*ExportedDocument, error) {
 	var project models.Project
 	if err := s.db.Where("id = ?", projectID).First(&project).Error; err != nil {
 		return nil, apperr.Wrap(err, apperr.CodeExportFailed)
@@ -27,34 +45,45 @@ func (s *ImportExportService) ExportProjectAs(projectID, format string, includeS
 		return nil, apperr.Wrap(err, apperr.CodeExportFailed)
 	}
 
+	format := strings.ToLower(strings.TrimSpace(options.Format))
+	if format == "project" || format == "postpigeon" || format == "json" {
+		if scopeType := strings.ToLower(strings.TrimSpace(options.Scope.Type)); scopeType != "" && scopeType != "all" {
+			return nil, fmt.Errorf("PostPigeon 完整项目备份只支持导出全部范围")
+		}
+		content, err := s.ExportProject(projectID, options.IncludeSecrets)
+		return exportedDocument(safeExportName(project.Name)+".postpigeon.json", "application/json", content, err)
+	}
+	selection, err := s.resolveProjectExportSelection(projectID, options.Scope)
+	if err != nil {
+		return nil, err
+	}
+	environmentIDs, err := s.validateProjectExportEnvironments(projectID, options.EnvironmentIDs)
+	if err != nil {
+		return nil, err
+	}
 	baseName := safeExportName(project.Name)
-	switch strings.ToLower(strings.TrimSpace(format)) {
+	switch format {
 	case "project", "postpigeon", "json":
-		content, err := s.ExportProject(projectID, includeSecrets)
-		return exportedDocument(baseName+".postpigeon.json", "application/json", content, err)
-	case "openapi31", "openapi3.1":
-		return s.exportProjectOpenAPIBundle(baseName, modules, "3.1", "openapi-3.1")
-	case "openapi30", "openapi3.0":
-		return s.exportProjectOpenAPIBundle(baseName, modules, "3.0", "openapi-3.0")
-	case "swagger2", "openapi2":
-		return s.exportProjectOpenAPIBundle(baseName, modules, "2.0", "swagger-2.0")
+		panic("native project export handled above")
+	case "openapi":
+		return s.exportProjectOpenAPIBundleConfigured(baseName, modules, selection, environmentIDs, options.OpenAPI)
 	case "postman":
-		content, err := s.exportProjectPostman(project, modules, includeSecrets)
+		content, err := s.exportProjectPostman(project, modules, options.IncludeSecrets, selection)
 		return exportedDocument(baseName+".postman_collection.json", "application/json", content, err)
 	case "har":
-		content, err := s.exportProjectHAR(project, modules, includeSecrets)
+		content, err := s.exportProjectHAR(project, modules, options.IncludeSecrets, selection, firstString(environmentIDs))
 		return exportedDocument(baseName+".har", "application/json", content, err)
 	case "markdown", "md":
-		content, err := s.exportProjectMarkdown(project, modules)
+		content, err := s.exportProjectMarkdown(project, modules, selection)
 		return exportedDocument(baseName+".md", "text/markdown", content, err)
 	case "html":
-		markdown, err := s.exportProjectMarkdown(project, modules)
+		markdown, err := s.exportProjectMarkdown(project, modules, selection)
 		if err != nil {
 			return nil, err
 		}
 		return exportedDocument(baseName+".html", "text/html", renderProjectHTML(project.Name, markdown), nil)
 	case "word", "docx":
-		markdown, err := s.exportProjectMarkdown(project, modules)
+		markdown, err := s.exportProjectMarkdown(project, modules, selection)
 		if err != nil {
 			return nil, err
 		}
@@ -67,23 +96,136 @@ func (s *ImportExportService) ExportProjectAs(projectID, format string, includeS
 			Content: base64.StdEncoding.EncodeToString(content), Encoding: "base64",
 		}, nil
 	default:
-		return nil, fmt.Errorf("不支持的项目导出格式 %q", format)
+		return nil, fmt.Errorf("不支持的项目导出格式 %q", options.Format)
 	}
+}
+
+func (s *ImportExportService) validateProjectExportEnvironments(projectID string, ids []string) ([]string, error) {
+	ids = uniqueStrings(ids)
+	if len(ids) == 0 {
+		return nil, nil
+	}
+	var count int64
+	if err := s.db.Model(&models.Environment{}).Where("project_id = ? AND id IN ?", projectID, ids).Count(&count).Error; err != nil {
+		return nil, apperr.Wrap(err, apperr.CodeExportFailed)
+	}
+	if count != int64(len(ids)) {
+		return nil, fmt.Errorf("导出环境包含不属于当前项目的环境")
+	}
+	return ids, nil
+}
+
+func uniqueStrings(values []string) []string {
+	seen := map[string]bool{}
+	out := make([]string, 0, len(values))
+	for _, value := range values {
+		value = strings.TrimSpace(value)
+		if value != "" && !seen[value] {
+			seen[value] = true
+			out = append(out, value)
+		}
+	}
+	return out
+}
+
+func firstString(values []string) string {
+	if len(values) == 0 {
+		return ""
+	}
+	return values[0]
+}
+
+func (s *ImportExportService) moduleHasSelectedEndpoints(moduleID string, selection *projectExportSelection) bool {
+	var count int64
+	ids := make([]string, 0, len(selection.endpointIDs))
+	for id := range selection.endpointIDs {
+		ids = append(ids, id)
+	}
+	if len(ids) == 0 {
+		return false
+	}
+	_ = s.db.Model(&models.Endpoint{}).Where("module_id = ? AND id IN ?", moduleID, ids).Count(&count).Error
+	return count > 0
+}
+
+// SaveExportedDocument 把生成结果写到用户通过系统保存面板选择的明确路径。
+func (s *ImportExportService) SaveExportedDocument(document ExportedDocument, path string) error {
+	if strings.TrimSpace(path) == "" {
+		return fmt.Errorf("保存路径不能为空")
+	}
+	content := []byte(document.Content)
+	if document.Encoding == "base64" {
+		decoded, err := base64.StdEncoding.DecodeString(document.Content)
+		if err != nil {
+			return apperr.Wrap(err, apperr.CodeExportFailed)
+		}
+		content = decoded
+	}
+	if err := os.WriteFile(path, content, 0o600); err != nil {
+		return apperr.Wrap(err, apperr.CodeExportFailed)
+	}
+	return nil
 }
 
 // OpenAPI 的 server 和 path 都属于单文档命名空间；多个模块可能有相同路径但指向不同服务。
 // 项目级导出因此打包为每模块一份规范，避免静默覆盖接口或篡改真实路径。
 func (s *ImportExportService) exportProjectOpenAPIBundle(baseName string, modules []models.Module, version, suffix string) (*ExportedDocument, error) {
+	return s.exportProjectOpenAPIBundleConfigured(baseName, modules, &projectExportSelection{endpointIDs: nil, folderTags: nil}, nil, ProjectOpenAPIExportOptions{
+		SpecVersion: version, FileFormat: "json",
+	})
+}
+
+func (s *ImportExportService) exportProjectOpenAPIBundleConfigured(baseName string, modules []models.Module, selection *projectExportSelection, environmentIDs []string, options ProjectOpenAPIExportOptions) (*ExportedDocument, error) {
+	version := strings.TrimSpace(options.SpecVersion)
+	if version == "" {
+		version = "3.1"
+	}
+	suffix := "openapi-3.1"
+	switch version {
+	case "3.1", "3.1.0":
+		version = "3.1"
+	case "3.0", "3.0.3":
+		version, suffix = "3.0", "openapi-3.0"
+	case "2", "2.0", "swagger2":
+		version, suffix = "2.0", "swagger-2.0"
+		if len(environmentIDs) > 1 {
+			return nil, fmt.Errorf("Swagger 2.0 只能选择一个环境")
+		}
+	default:
+		return nil, fmt.Errorf("不支持的 OpenAPI 导出版本 %q", options.SpecVersion)
+	}
+	fileFormat := strings.ToLower(strings.TrimSpace(options.FileFormat))
+	if fileFormat == "" {
+		fileFormat = "json"
+	}
+	if fileFormat != "json" && fileFormat != "yaml" {
+		return nil, fmt.Errorf("不支持的 OpenAPI 文件格式 %q", options.FileFormat)
+	}
 	var buf bytes.Buffer
 	zw := zip.NewWriter(&buf)
 	usedNames := map[string]int{}
 	for _, module := range modules {
-		content, err := s.ExportOpenAPIAs(module.ID, version)
+		if selection.endpointIDs != nil && !s.moduleHasSelectedEndpoints(module.ID, selection) {
+			continue
+		}
+		title := strings.TrimSpace(options.Title)
+		if title != "" && len(modules) > 1 {
+			title += " - " + module.Name
+		}
+		content, err := s.exportOpenAPIConfigured(module.ID, version, fileFormat, openAPIExportBuildOptions{
+			SelectedEndpointIDs:        selection.endpointIDs,
+			EnvironmentIDs:             environmentIDs,
+			FolderTags:                 selection.folderTags,
+			AddFoldersToTags:           options.AddFoldersToTags,
+			IncludeExtensionProperties: options.IncludeExtensionProperties,
+			Title:                      title,
+			DocumentVersion:            options.DocumentVersion,
+		})
 		if err != nil {
 			_ = zw.Close()
 			return nil, err
 		}
-		name := uniqueArchiveName(safeExportName(module.Name)+"."+suffix+".json", usedNames)
+		name := uniqueArchiveName(safeExportName(module.Name)+"."+suffix+"."+fileFormat, usedNames)
 		entry, err := zw.Create(name)
 		if err != nil {
 			_ = zw.Close()
@@ -116,7 +258,7 @@ func uniqueArchiveName(name string, used map[string]int) string {
 	return fmt.Sprintf("%s-%d%s", name[:ext], used[key], name[ext:])
 }
 
-func (s *ImportExportService) exportProjectPostman(project models.Project, modules []models.Module, includeSecrets bool) (string, error) {
+func (s *ImportExportService) exportProjectPostman(project models.Project, modules []models.Module, includeSecrets bool, selection *projectExportSelection) (string, error) {
 	items := make([]any, 0, len(modules))
 	variables := map[string]any{}
 	var globals []models.GlobalVariable
@@ -129,7 +271,10 @@ func (s *ImportExportService) exportProjectPostman(project models.Project, modul
 	}
 
 	for _, module := range modules {
-		content, err := s.exportPostmanCollection(module)
+		if !s.moduleHasSelectedEndpoints(module.ID, selection) {
+			continue
+		}
+		content, err := s.exportPostmanCollectionFiltered(module, selection.endpointIDs)
 		if err != nil {
 			return "", err
 		}
@@ -227,11 +372,14 @@ func redactPostmanItems(raw any) {
 	}
 }
 
-func (s *ImportExportService) exportProjectHAR(project models.Project, modules []models.Module, includeSecrets bool) (string, error) {
+func (s *ImportExportService) exportProjectHAR(project models.Project, modules []models.Module, includeSecrets bool, selection *projectExportSelection, environmentID string) (string, error) {
 	pages := make([]any, 0)
 	entries := make([]any, 0)
 	for _, module := range modules {
-		content, err := s.exportHAR(module)
+		if !s.moduleHasSelectedEndpoints(module.ID, selection) {
+			continue
+		}
+		content, err := s.exportHARFiltered(module, selection.endpointIDs, environmentID)
 		if err != nil {
 			return "", err
 		}
@@ -338,14 +486,17 @@ func maskDocumentStrings(value any, secrets []string) {
 	}
 }
 
-func (s *ImportExportService) exportProjectMarkdown(project models.Project, modules []models.Module) (string, error) {
+func (s *ImportExportService) exportProjectMarkdown(project models.Project, modules []models.Module, selection *projectExportSelection) (string, error) {
 	var out strings.Builder
 	fmt.Fprintf(&out, "# %s\n\n", project.Name)
 	if strings.TrimSpace(project.Description) != "" {
 		fmt.Fprintf(&out, "%s\n\n", project.Description)
 	}
 	for _, module := range modules {
-		content, err := s.exportMarkdown(module)
+		if !s.moduleHasSelectedEndpoints(module.ID, selection) {
+			continue
+		}
+		content, err := s.exportMarkdownFiltered(module, selection.endpointIDs)
 		if err != nil {
 			return "", err
 		}
