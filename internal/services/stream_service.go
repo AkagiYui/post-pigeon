@@ -303,41 +303,7 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 	}
 	end := time.Now()
 	lifecycle.finishResponse(end)
-	timing := models.TimingInfo{Total: durMs(end.Sub(start)), Reused: reused}
-	if !dnsStart.IsZero() && !dnsEnd.IsZero() {
-		timing.DNSLookup = durMs(dnsEnd.Sub(dnsStart))
-	}
-	if !connectStart.IsZero() && !connectEnd.IsZero() {
-		timing.TCPConnect = durMs(connectEnd.Sub(connectStart))
-	}
-	if !tlsStart.IsZero() && !tlsEnd.IsZero() {
-		timing.TLSHandshake = durMs(tlsEnd.Sub(tlsStart))
-	}
-	if !gotFirstByte.IsZero() {
-		timing.TTFB = durMs(gotFirstByte.Sub(start))
-		switch {
-		case !wroteRequest.IsZero():
-			timing.Wait = durMs(gotFirstByte.Sub(wroteRequest))
-		case !connectEnd.IsZero():
-			timing.Wait = durMs(gotFirstByte.Sub(connectEnd))
-		default:
-			timing.Wait = timing.TTFB
-		}
-	}
-	switch {
-	case !dnsStart.IsZero():
-		timing.Stalled = durMs(dnsStart.Sub(start))
-	case !connectStart.IsZero():
-		timing.Stalled = durMs(connectStart.Sub(start))
-	case !gotConn.IsZero():
-		timing.Stalled = durMs(gotConn.Sub(start))
-	}
-	if timing.Stalled < 0 {
-		timing.Stalled = 0
-	}
-	if timing.Wait < 0 {
-		timing.Wait = 0
-	}
+	timing := networkTimingFromTrace(trace, start, end)
 
 	if err != nil {
 		recorder.SetOutcome(models.RequestRunOutcomeFailed, requestAttemptError("websocket_handshake", err))

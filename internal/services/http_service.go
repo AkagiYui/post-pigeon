@@ -588,6 +588,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	initialCtx := transportcapture.WithAttempt(ctx, models.RequestAttemptCauseInitial, nil)
 	resp, err := client.Do(req.WithContext(trace.attach(initialCtx)))
 	if err != nil {
+		responseFinishedAt := time.Now()
+		lifecycle.finishResponse(responseFinishedAt)
 		classified := s.classifyRequestError(err, tracked, &timedOut)
 		outcome := models.RequestRunOutcomeFailed
 		if timedOut.Load() {
@@ -600,6 +602,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		out := &HTTPResponseData{
 			Headers: map[string][]string{}, ActualRequest: actualRequestFromRun(&run),
 			RequestRun: &run, Error: classified.Error(),
+			Timing: lifecycle.complete(
+				networkTimingFromTrace(trace, start, responseFinishedAt), time.Now()),
 		}
 		s.enqueuePersist(persistJob{data: data, resp: out})
 		return out, nil
@@ -610,12 +614,16 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	if needsDigest && resp.StatusCode == http.StatusUnauthorized {
 		retried, retryErr := s.retryWithDigest(ctx, client, req, resp, effectiveAuth, vars, requestBodyPreview(preparedSnapshot.Body), recorder.LastAttemptID())
 		if retryErr != nil {
+			responseFinishedAt := time.Now()
+			lifecycle.finishResponse(responseFinishedAt)
 			resp.Body.Close()
 			recorder.SetOutcome(models.RequestRunOutcomeFailed, requestAttemptError("digest", retryErr))
 			run := s.capturedRequestRun(recorder, data)
 			out := &HTTPResponseData{
 				StatusCode: resp.StatusCode, Headers: resp.Header,
 				ActualRequest: actualRequestFromRun(&run), RequestRun: &run, Error: retryErr.Error(),
+				Timing: lifecycle.complete(
+					networkTimingFromTrace(trace, start, responseFinishedAt), time.Now()),
 			}
 			s.enqueuePersist(persistJob{data: data, resp: out})
 			return out, nil
@@ -623,7 +631,6 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		if retried != nil {
 			resp.Body.Close()
 			resp = retried
-			start = time.Now()
 		}
 	}
 
@@ -632,7 +639,11 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	format := streamFormat(resp.Header.Get("Content-Type"))
 	if format != "" {
 		responseFinishedAt := time.Now()
-		lifecycle.finishResponse(responseFinishedAt)
+		networkFinishedAt := responseFinishedAt
+		if !gotFirstByte.IsZero() {
+			networkFinishedAt = gotFirstByte
+		}
+		lifecycle.finishResponse(networkFinishedAt)
 		recorder.SetOutcome(models.RequestRunOutcomeStreaming, nil)
 		run := s.capturedRequestRun(recorder, data)
 		streaming = true // 通知外层 defer：ctx 交由后台 goroutine 持有，勿在此处取消
@@ -660,9 +671,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			StatusCode:  resp.StatusCode,
 			Headers:     resp.Header,
 			ContentType: resp.Header.Get("Content-Type"),
-			Timing: lifecycle.complete(models.TimingInfo{
-				Total: durMs(responseFinishedAt.Sub(start)), Reused: reused,
-			}, time.Now()),
+			Timing: lifecycle.complete(
+				networkTimingFromTrace(trace, start, networkFinishedAt), time.Now()),
 			ActualRequest: actualRequestFromRun(&run),
 			RequestRun:    &run,
 			Streaming:     true,
@@ -681,6 +691,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	// IPC 和 SQLite（约 3 倍体积）。这里最多多读 1 字节以判定是否发生截断。
 	bodyBytes, truncated, err := readBodyWithLimit(resp.Body, limits.MaxResponseBytes)
 	if err != nil {
+		responseFinishedAt := time.Now()
+		lifecycle.finishResponse(responseFinishedAt)
 		classified := s.classifyRequestError(err, tracked, &timedOut)
 		outcome := models.RequestRunOutcomeFailed
 		if timedOut.Load() {
@@ -693,6 +705,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		out := &HTTPResponseData{
 			StatusCode: resp.StatusCode, Headers: resp.Header, ContentType: resp.Header.Get("Content-Type"),
 			ActualRequest: actualRequestFromRun(&run), RequestRun: &run, Error: classified.Error(),
+			Timing: lifecycle.complete(
+				networkTimingFromTrace(trace, start, responseFinishedAt), time.Now()),
 		}
 		s.enqueuePersist(persistJob{data: data, resp: out})
 		return out, nil
@@ -700,53 +714,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	end := time.Now()
 	lifecycle.finishResponse(end)
 
-	// 计算计时信息（含各阶段分解，单位毫秒，保留亚毫秒精度）
-	timing := models.TimingInfo{
-		Total:  durMs(end.Sub(start)),
-		Reused: reused,
-	}
-	if !dnsStart.IsZero() && !dnsEnd.IsZero() {
-		timing.DNSLookup = durMs(dnsEnd.Sub(dnsStart))
-	}
-	if !connectStart.IsZero() && !connectEnd.IsZero() {
-		timing.TCPConnect = durMs(connectEnd.Sub(connectStart))
-	}
-	if !tlsStart.IsZero() && !tlsEnd.IsZero() {
-		timing.TLSHandshake = durMs(tlsEnd.Sub(tlsStart))
-	}
-	if !gotFirstByte.IsZero() {
-		timing.TTFB = durMs(gotFirstByte.Sub(start))
-		// 下载内容：首字节 → 读取完成
-		timing.Download = durMs(end.Sub(gotFirstByte))
-		// 等待：请求写完 → 首字节（服务端处理）；缺请求写完时间点则回退到连接完成/开始
-		switch {
-		case !wroteRequest.IsZero():
-			timing.Wait = durMs(gotFirstByte.Sub(wroteRequest))
-		case !connectEnd.IsZero():
-			timing.Wait = durMs(gotFirstByte.Sub(connectEnd))
-		default:
-			timing.Wait = timing.TTFB
-		}
-	}
-	// 准备/阻塞：请求开始 → 开始建立连接（连接复用时接近 0）
-	switch {
-	case !dnsStart.IsZero():
-		timing.Stalled = durMs(dnsStart.Sub(start))
-	case !connectStart.IsZero():
-		timing.Stalled = durMs(connectStart.Sub(start))
-	case !gotConn.IsZero():
-		timing.Stalled = durMs(gotConn.Sub(start))
-	}
-	// 钳位，避免因时钟抖动出现的极小负值
-	if timing.Stalled < 0 {
-		timing.Stalled = 0
-	}
-	if timing.Wait < 0 {
-		timing.Wait = 0
-	}
-	if timing.Download < 0 {
-		timing.Download = 0
-	}
+	// 计算连续网络时间轴；TTFB 从连接就绪开始，包含请求上传和服务端等待。
+	timing := networkTimingFromTrace(trace, start, end)
 
 	// 解析 Cookie
 	cookies := parseCookies(resp.Cookies())

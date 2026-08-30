@@ -931,4 +931,7 @@ func TestHTTP_TimingBreakdown(t *testing.T) {
 	if resp.Timing.Total < resp.Timing.TTFB {
 		t.Errorf("Total(%g) 不应小于 TTFB(%g)", resp.Timing.Total, resp.Timing.TTFB)
 	}
+	if !timingNearlyEqual(resp.Timing.Total, timingPhaseTotal(resp.Timing)) {
+		t.Errorf("各阶段应完整覆盖总耗时: timing=%+v phaseTotal=%g", resp.Timing, timingPhaseTotal(resp.Timing))
+	}
 }

@@ -50,3 +50,74 @@ func nonNegativeDuration(duration time.Duration) float64 {
 	}
 	return durMs(duration)
 }
+
+// networkTimingFromTrace 把 httptrace 的时间点变成连续、互不重叠的网络阶段。
+// 每个阶段都从上一个里程碑结束处开始，因而 Socket + DNS + TCP + TLS + TTFB + 下载
+// 始终覆盖 networkStartedAt → responseFinishedAt，不会遗漏请求上传或重复计算握手时间。
+func networkTimingFromTrace(trace *httptraceCollector, networkStartedAt, responseFinishedAt time.Time) models.TimingInfo {
+	if trace == nil || networkStartedAt.IsZero() || responseFinishedAt.Before(networkStartedAt) {
+		return models.TimingInfo{}
+	}
+
+	current := networkStartedAt
+	firstNetworkEvent := earliestTimeAfter(networkStartedAt, responseFinishedAt,
+		traceTime(trace.dnsStart), traceTime(trace.connectStart), traceTime(trace.tlsStart), traceTime(trace.gotConn), traceTime(trace.gotFirstByte))
+	if firstNetworkEvent.IsZero() {
+		firstNetworkEvent = responseFinishedAt
+	}
+
+	timing := models.TimingInfo{Reused: traceBool(trace.reused)}
+	timing.Socket, current = advanceTiming(current, firstNetworkEvent, responseFinishedAt)
+	timing.DNSLookup, current = advanceTiming(current, traceTime(trace.dnsEnd), responseFinishedAt)
+	timing.TCPConnect, current = advanceTiming(current, traceTime(trace.connectEnd), responseFinishedAt)
+
+	tlsEnd := traceTime(trace.tlsEnd)
+	timing.TLSUsed = !traceTime(trace.tlsStart).IsZero() || !tlsEnd.IsZero()
+	if timing.TLSUsed {
+		timing.TLSHandshake, current = advanceTiming(current, tlsEnd, responseFinishedAt)
+	}
+
+	firstByte := traceTime(trace.gotFirstByte)
+	timing.Wait, current = advanceTiming(current, firstByte, responseFinishedAt)
+	timing.Download, current = advanceTiming(current, responseFinishedAt, responseFinishedAt)
+	timing.Stalled = timing.Socket
+	if !firstByte.IsZero() && !firstByte.Before(networkStartedAt) {
+		timing.TTFB = nonNegativeDuration(firstByte.Sub(networkStartedAt))
+	}
+	timing.Total = nonNegativeDuration(responseFinishedAt.Sub(networkStartedAt))
+	return timing
+}
+
+func traceTime(value *time.Time) time.Time {
+	if value == nil {
+		return time.Time{}
+	}
+	return *value
+}
+
+func traceBool(value *bool) bool {
+	return value != nil && *value
+}
+
+func earliestTimeAfter(start, end time.Time, candidates ...time.Time) time.Time {
+	var earliest time.Time
+	for _, candidate := range candidates {
+		if candidate.IsZero() || candidate.Before(start) || candidate.After(end) {
+			continue
+		}
+		if earliest.IsZero() || candidate.Before(earliest) {
+			earliest = candidate
+		}
+	}
+	return earliest
+}
+
+func advanceTiming(current, milestone, end time.Time) (float64, time.Time) {
+	if milestone.IsZero() || milestone.Before(current) {
+		return 0, current
+	}
+	if milestone.After(end) {
+		milestone = end
+	}
+	return nonNegativeDuration(milestone.Sub(current)), milestone
+}
