@@ -234,6 +234,16 @@ export interface ScriptRunResult {
 export interface ScriptResultsData {
   preRequest?: ScriptRunResult | null
   postResponse?: ScriptRunResult | null
+  operationResults?: OperationExecutionData[] | null
+}
+
+export interface OperationExecutionData {
+  operationId: string
+  passed: boolean
+  duration: number
+  error?: string
+  logs: ScriptLog[]
+  tests: ScriptTest[]
 }
 
 /** 请求各阶段计时（毫秒，含亚毫秒精度） */

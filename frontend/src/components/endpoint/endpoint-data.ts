@@ -17,9 +17,9 @@ import {
   type BodyFieldRow,
   emptyAuth,
   type HeaderRow,
-  type OperationRow,
   type InheritedOperationRow,
   type OperationOverrideRow,
+  type OperationRow,
   type ParamRow,
   type TimingData,
 } from "@/components/endpoint/editor-types"

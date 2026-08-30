@@ -8,7 +8,7 @@ import { createEffect, createMemo, createSignal, For, onMount, Show } from "soli
 import type { ScriptLibrary } from "@/../bindings/PostPigeon/internal/models"
 import { EndpointService, type OperationSource, ScriptLibraryService } from "@/../bindings/PostPigeon/internal/services"
 import { fromOperationModels } from "@/components/endpoint/endpoint-data"
-import { emptyOperation, type InheritedOperationRow, type OperationRow } from "@/components/endpoint/EndpointDetail"
+import { emptyOperation, type InheritedOperationRow, type OperationExecutionData, type OperationRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { CodeEditor } from "@/components/ui/code-editor"
@@ -30,6 +30,7 @@ export interface OperationsEditorProps {
   onInheritEnabledChange?: (enabled: boolean) => void
   /** null 表示删除当前作用域覆盖、恢复跟随上级。 */
   onInheritedOverride?: (operationId: string, enabled: boolean | null) => void
+  operationResults?: OperationExecutionData[]
 }
 
 const opTypeOptions = (stage?: OperationStage) => [
@@ -107,6 +108,7 @@ export function OperationsEditor(props: OperationsEditorProps) {
   )
   const beforeVariableOps = createMemo(() => stageOps().filter(item => item.op.phase !== "afterVariables"))
   const afterVariableOps = createMemo(() => stageOps().filter(item => item.op.phase === "afterVariables"))
+  const resultFor = (id: string) => props.operationResults?.find(result => result.operationId === id)
 
   const updateOp = (id: string, patch: Partial<OperationRow>) => {
     props.onChange(props.operations.map(o => o.id === id ? { ...o, ...patch } : o))
@@ -206,7 +208,7 @@ export function OperationsEditor(props: OperationsEditorProps) {
             <Show when={inheritedOpen()}>
               <div class="border-t border-border p-2 flex flex-col gap-2">
                 <For each={inheritedStageOps()}>
-                  {(item) => <InheritedOperationCard item={item} disabled={props.inheritEnabled === false} onOverride={props.onInheritedOverride} />}
+                  {(item) => <InheritedOperationCard item={item} result={resultFor(item.operation.id)} disabled={props.inheritEnabled === false} onOverride={props.onInheritedOverride} />}
                 </For>
               </div>
             </Show>
@@ -215,21 +217,21 @@ export function OperationsEditor(props: OperationsEditorProps) {
         <DragDropProvider onDragEnd={handleDragEnd}>
           <DragDropSensors />
           <SortableProvider ids={stageOps().map(item => item.op.id)}>
-        <Show when={stage() === "pre"} fallback={
-          <For each={stageOps()} fallback={<div class="text-sm text-muted-foreground text-center py-6">{t("op.empty")}</div>}>
-            {(item) => <OperationCard op={item.op} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onDuplicate={() => duplicateOp(item.op.id)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
-          </For>
-        }>
-          <For each={beforeVariableOps()}>
-            {(item) => <OperationCard op={item.op} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onDuplicate={() => duplicateOp(item.op.id)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
-          </For>
-          <div class="flex items-center gap-2 py-1 text-[11px] text-muted-foreground select-none">
-            <div class="h-px flex-1 bg-border" /><Icon icon="lucide:braces" class="h-3.5 w-3.5" /><span>{t("op.variableReplacement")}</span><div class="h-px flex-1 bg-border" />
-          </div>
-          <For each={afterVariableOps()}>
-            {(item) => <OperationCard op={item.op} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onDuplicate={() => duplicateOp(item.op.id)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
-          </For>
-        </Show>
+            <Show when={stage() === "pre"} fallback={
+              <For each={stageOps()} fallback={<div class="text-sm text-muted-foreground text-center py-6">{t("op.empty")}</div>}>
+                {(item) => <OperationCard op={item.op} result={resultFor(item.op.id)} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onDuplicate={() => duplicateOp(item.op.id)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
+              </For>
+            }>
+              <For each={beforeVariableOps()}>
+                {(item) => <OperationCard op={item.op} result={resultFor(item.op.id)} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onDuplicate={() => duplicateOp(item.op.id)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
+              </For>
+              <div class="flex items-center gap-2 py-1 text-[11px] text-muted-foreground select-none">
+                <div class="h-px flex-1 bg-border" /><Icon icon="lucide:braces" class="h-3.5 w-3.5" /><span>{t("op.variableReplacement")}</span><div class="h-px flex-1 bg-border" />
+              </div>
+              <For each={afterVariableOps()}>
+                {(item) => <OperationCard op={item.op} result={resultFor(item.op.id)} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onDuplicate={() => duplicateOp(item.op.id)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
+              </For>
+            </Show>
           </SortableProvider>
         </DragDropProvider>
       </div>
@@ -248,6 +250,7 @@ export function OperationsEditor(props: OperationsEditorProps) {
 
 function InheritedOperationCard(props: {
   item: InheritedOperationRow
+  result?: OperationExecutionData
   disabled: boolean
   onOverride?: (operationId: string, enabled: boolean | null) => void
 }) {
@@ -262,6 +265,7 @@ function InheritedOperationCard(props: {
         />
         <span class="text-xs font-medium">{op().name || opTypeOptions(op().stage).find(x => x.value === op().type)?.label || op().type}</span>
         <span class="text-[11px] text-muted-foreground">{t("op.from", { source: props.item.sourceName || props.item.sourceType })}</span>
+        <OperationResultBadge result={props.result} />
         <Show when={props.item.overridden}>
           <Button class="ml-auto" variant="ghost" size="sm" onClick={() => props.onOverride?.(op().id, null)}>
             <Icon icon="lucide:rotate-ccw" class="h-3 w-3" />{t("op.restoreFollowing")}
@@ -278,6 +282,7 @@ function InheritedOperationCard(props: {
 /** 单个操作卡片 */
 function OperationCard(props: {
   op: OperationRow
+  result?: OperationExecutionData
   libraries: ScriptLibrary[]
   onUpdate: (patch: Partial<OperationRow>) => void
   onDuplicate: () => void
@@ -313,6 +318,7 @@ function OperationCard(props: {
           placeholder={t("op.name")}
           class="flex-1"
         />
+        <OperationResultBadge result={props.result} />
         <Show when={op().stage === "pre"}>
           <Select
             options={[{ value: "beforeVariables", label: t("op.beforeVariables") }, { value: "afterVariables", label: t("op.afterVariables") }]}
@@ -330,6 +336,7 @@ function OperationCard(props: {
 
       {/* 卡片体 */}
       <Show when={expanded()}><div class="p-2">
+        <OperationResultDetails result={props.result} />
         <Show when={op().type === "script"}>
           <div class="h-48">
             <CodeEditor language="javascript" value={op().script} onChange={(v) => props.onUpdate({ script: v })} placeholder={t("op.scriptPlaceholder")} />
@@ -393,4 +400,22 @@ function OperationCard(props: {
       </div></Show>
     </div>
   )
+}
+
+function OperationResultBadge(props: { result?: OperationExecutionData }) {
+  return <Show when={props.result}>{(result) => (
+    <span class={cn("text-[10px] rounded px-1.5 py-0.5 shrink-0", result().passed ? "bg-green-500/15 text-green-600 dark:text-green-400" : "bg-red-500/15 text-red-600 dark:text-red-400")}>
+      {result().passed ? "✓" : "✕"} {result().duration} ms
+    </span>
+  )}</Show>
+}
+
+function OperationResultDetails(props: { result?: OperationExecutionData }) {
+  return <Show when={props.result && (props.result.error || props.result.logs.length || props.result.tests.length)}>
+    <div class="mb-2 rounded border border-border bg-muted/20 p-2 text-xs space-y-1">
+      <Show when={props.result?.error}><pre class="text-red-600 dark:text-red-400 whitespace-pre-wrap">{props.result?.error}</pre></Show>
+      <For each={props.result?.tests || []}>{(test) => <div class={test.passed ? "text-green-600 dark:text-green-400" : "text-red-600 dark:text-red-400"}>{test.passed ? "✓" : "✕"} {test.name}{test.error ? `: ${test.error}` : ""}</div>}</For>
+      <For each={props.result?.logs || []}>{(log) => <div class="font-mono text-muted-foreground">[{log.level}] {log.message}</div>}</For>
+    </div>
+  </Show>
 }

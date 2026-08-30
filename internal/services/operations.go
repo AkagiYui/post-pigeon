@@ -8,6 +8,7 @@ import (
 	"strings"
 
 	"PostPigeon/internal/models"
+	"PostPigeon/internal/scripting"
 
 	"gorm.io/gorm"
 )
@@ -54,7 +55,7 @@ func composeStageScriptWithEndpointStatePhase(db *gorm.DB, ep *models.Endpoint, 
 				continue
 			}
 			if frag := translateOperation(db, op); frag != "" {
-				fragments = append(fragments, frag)
+				fragments = append(fragments, instrumentOperation(op.ID, frag))
 			}
 		}
 	}
@@ -69,6 +70,93 @@ func composeStageScriptWithEndpointStatePhase(db *gorm.DB, ep *models.Endpoint, 
 	}
 	// 注入 JSONPath 取值辅助函数，供断言/提取变量使用
 	return jsonPathHelper + "\n" + strings.Join(fragments, "\n")
+}
+
+const operationMarkerPrefix = "__PP_OPERATION__"
+
+func instrumentOperation(id, fragment string) string {
+	quotedID := jsString(id)
+	return fmt.Sprintf(`{const __pp_op_id=%s;const __pp_op_start=Date.now();const __pp_test_start=pm.test.index();console.log(%s+"|start|"+__pp_op_id+"|"+__pp_op_start+"|"+__pp_test_start);try{%s}catch(__pp_op_error){console.error(%s+"|error|"+__pp_op_id+"|"+String(__pp_op_error));throw __pp_op_error}finally{console.log(%s+"|end|"+__pp_op_id+"|"+Date.now()+"|"+pm.test.index())}}`,
+		quotedID, jsString(operationMarkerPrefix), fragment, jsString(operationMarkerPrefix), jsString(operationMarkerPrefix))
+}
+
+func extractOperationResults(result *scripting.Result) []OperationExecutionResult {
+	if result == nil || len(result.Logs) == 0 {
+		return nil
+	}
+	type activeResult struct {
+		value     OperationExecutionResult
+		startTime int64
+		startTest int
+		completed bool
+	}
+	active := map[string]*activeResult{}
+	order := make([]string, 0)
+	cleaned := make([]scripting.LogEntry, 0, len(result.Logs))
+	for _, log := range result.Logs {
+		if !strings.HasPrefix(log.Message, operationMarkerPrefix+"|") {
+			cleaned = append(cleaned, log)
+			for _, id := range order {
+				if current := active[id]; current != nil && !current.completed {
+					current.value.Logs = append(current.value.Logs, log)
+				}
+			}
+			continue
+		}
+		parts := strings.SplitN(log.Message, "|", 5)
+		if len(parts) < 4 {
+			continue
+		}
+		kind, id := parts[1], parts[2]
+		switch kind {
+		case "start":
+			start, _ := strconv.ParseInt(parts[3], 10, 64)
+			startTest := 0
+			if len(parts) == 5 {
+				startTest, _ = strconv.Atoi(parts[4])
+			}
+			active[id] = &activeResult{value: OperationExecutionResult{OperationID: id, Passed: true, Logs: []scripting.LogEntry{}, Tests: []scripting.TestResult{}}, startTime: start, startTest: startTest}
+			order = append(order, id)
+		case "error":
+			if current := active[id]; current != nil && len(parts) == 4 {
+				current.value.Error = parts[3]
+				current.value.Passed = false
+			}
+		case "end":
+			current := active[id]
+			if current == nil {
+				continue
+			}
+			end, _ := strconv.ParseInt(parts[3], 10, 64)
+			current.value.Duration = max(0, end-current.startTime)
+			current.completed = true
+			endTest := current.startTest
+			if len(parts) == 5 {
+				endTest, _ = strconv.Atoi(parts[4])
+			}
+			endTest = min(endTest, len(result.Tests))
+			if current.startTest < endTest {
+				current.value.Tests = append(current.value.Tests, result.Tests[current.startTest:endTest]...)
+				for _, test := range current.value.Tests {
+					if !test.Passed && !test.Skipped {
+						current.value.Passed = false
+					}
+				}
+			}
+		}
+	}
+	result.Logs = cleaned
+	results := make([]OperationExecutionResult, 0, len(order))
+	for _, id := range order {
+		if current := active[id]; current != nil {
+			if !current.completed && result.Error != "" && current.value.Error == "" {
+				current.value.Error = result.Error
+				current.value.Passed = false
+			}
+			results = append(results, current.value)
+		}
+	}
+	return results
 }
 
 // legacyStageScript 返回端点上直接保存的阶段脚本（无操作时的回退来源）。

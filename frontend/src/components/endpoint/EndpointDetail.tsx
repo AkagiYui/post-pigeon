@@ -657,6 +657,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                     inheritEnabled={ep().inheritOperations}
                     onInheritEnabledChange={(enabled) => props.onChange?.({ inheritOperations: enabled })}
                     onInheritedOverride={overrideInheritedOperation}
+                    operationResults={props.response?.scripts?.operationResults || []}
                     onChange={(ops) => props.onChange?.({ operations: ops })}
                     projectId={props.projectId}
                   />
@@ -667,6 +668,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                     inheritEnabled={ep().inheritOperations}
                     onInheritEnabledChange={(enabled) => props.onChange?.({ inheritOperations: enabled })}
                     onInheritedOverride={overrideInheritedOperation}
+                    operationResults={props.response?.scripts?.operationResults || []}
                     onChange={(ops) => props.onChange?.({ operations: ops })}
                     projectId={props.projectId}
                   />

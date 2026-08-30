@@ -156,6 +156,43 @@ func TestDatabaseOperationExecutesSQLiteAndExposesRows(t *testing.T) {
 	}
 }
 
+func TestOperationResultsAreSplitByOperation(t *testing.T) {
+	db := newTestDB(t)
+	project := mustCreateProject(t, db, "inline operation results")
+	module := defaultModule(t, db, project.ID)
+	endpoint, err := NewEndpointService(db).CreateEndpoint(module.ID, nil, "inline", "GET", "/echo")
+	if err != nil {
+		t.Fatal(err)
+	}
+	ops := []models.Operation{
+		{Stage: "pre", Type: "script", Name: "first", Enabled: true, Data: models.ToJSON(models.ScriptOperationData{Script: `console.log('first-user-log'); pm.test('first test', () => pm.expect(1).to.equal(1));`})},
+		{Stage: "pre", Type: "script", Name: "second", Enabled: true, Data: models.ToJSON(models.ScriptOperationData{Script: `console.log('second-user-log');`})},
+	}
+	if err := syncOperations(db, models.OperationOwnerEndpoint, endpoint.ID, ops); err != nil {
+		t.Fatal(err)
+	}
+	var saved []models.Operation
+	db.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerEndpoint, endpoint.ID).Order("sort_order").Find(&saved)
+	server := echoServer(t)
+	resp, err := newTestHTTPService(t, db).SendRequest(SendRequestData{
+		EndpointID: endpoint.ID, ModuleID: module.ID, Method: "GET", BaseURL: server.URL, Path: "/echo",
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if resp.Scripts == nil || len(resp.Scripts.OperationResults) != 2 {
+		t.Fatalf("expected two inline operation results: %+v", resp.Scripts)
+	}
+	for i, result := range resp.Scripts.OperationResults {
+		if result.OperationID != saved[i].ID || !result.Passed || len(result.Logs) != 1 {
+			t.Fatalf("unexpected operation result %d: %+v", i, result)
+		}
+	}
+	if len(resp.Scripts.OperationResults[0].Tests) != 1 || !resp.Scripts.OperationResults[0].Tests[0].Passed {
+		t.Fatalf("assertion should be assigned to the first operation: %+v", resp.Scripts.OperationResults[0])
+	}
+}
+
 // TestSendRequestPostScriptMutatesBody 验证后置脚本可改写响应体（模拟解密场景）。
 func TestSendRequestPostScriptMutatesBody(t *testing.T) {
 	db := newTestDB(t)

@@ -221,8 +221,19 @@ type SendRequestData struct {
 
 // ScriptResults 前置/后置脚本的执行结果，随响应返回给前端展示
 type ScriptResults struct {
-	PreRequest   *scripting.Result `json:"preRequest,omitempty"`
-	PostResponse *scripting.Result `json:"postResponse,omitempty"`
+	PreRequest       *scripting.Result          `json:"preRequest,omitempty"`
+	PostResponse     *scripting.Result          `json:"postResponse,omitempty"`
+	OperationResults []OperationExecutionResult `json:"operationResults,omitempty"`
+}
+
+// OperationExecutionResult 是一条组合操作自己的执行结果，供编辑器就地展示。
+type OperationExecutionResult struct {
+	OperationID string                 `json:"operationId"`
+	Passed      bool                   `json:"passed"`
+	Duration    int64                  `json:"duration"`
+	Error       string                 `json:"error,omitempty"`
+	Logs        []scripting.LogEntry   `json:"logs"`
+	Tests       []scripting.TestResult `json:"tests"`
 }
 
 // HTTPResponseData HTTP 响应数据
@@ -304,6 +315,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			Stores:       stores,
 			DatabaseExec: s.executeDatabaseOperation,
 		})
+		scriptResults.OperationResults = append(scriptResults.OperationResults, extractOperationResults(scriptResults.PreRequest)...)
 		// 将脚本对请求的修改应用回 data
 		data.Method = reqCtx.Method
 		data.BodyContent = reqCtx.Body
@@ -351,6 +363,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		result := s.engine.Run(data.PreSendScript, scripting.Options{
 			Phase: scripting.PhasePreRequest, Request: reqCtx, Stores: stores, DatabaseExec: s.executeDatabaseOperation,
 		})
+		scriptResults.OperationResults = append(scriptResults.OperationResults, extractOperationResults(result)...)
 		scriptResults.PreRequest = mergeScriptResult(scriptResults.PreRequest, result)
 		data.Method = reqCtx.Method
 		data.BodyContent = reqCtx.Body
@@ -723,6 +736,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			Stores:       stores,
 			DatabaseExec: s.executeDatabaseOperation,
 		})
+		scriptResults.OperationResults = append(scriptResults.OperationResults, extractOperationResults(scriptResults.PostResponse)...)
 		// 应用后置脚本对响应的修改（setBody / headers）
 		if respCtx.Body != string(bodyBytes) {
 			responseData.Body = respCtx.Body

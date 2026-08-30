@@ -75,6 +75,19 @@ func (s *HTTPService) prepareRequestData(data *SendRequestData) preparedRequestD
 				data.PostResponseScript = composeStageScript(s.db, &endpoint, models.OperationStagePost)
 			}
 		}
+	} else if data.Operations != nil {
+		// 未保存请求同样按结构化操作执行（含断言、提取变量、数据库与逐条结果），
+		// 只是没有可继承的模块/文件夹来源。
+		ephemeral := models.Endpoint{
+			ModuleID: data.ModuleID, InheritOperations: false,
+			PreRequestScript: data.PreRequestScript, PostResponseScript: data.PostResponseScript,
+		}
+		data.PreRequestScript = composeStageScriptWithEndpointStatePhase(
+			s.db, &ephemeral, models.OperationStagePre, data.Operations, nil, "beforeVariables")
+		data.PreSendScript = composeStageScriptWithEndpointStatePhase(
+			s.db, &ephemeral, models.OperationStagePre, data.Operations, nil, "afterVariables")
+		data.PostResponseScript = composeStageScriptWithEndpointState(
+			s.db, &ephemeral, models.OperationStagePost, data.Operations, nil)
 	}
 
 	moduleParams, moduleHeaders := s.loadModuleParams(data.ModuleID)
