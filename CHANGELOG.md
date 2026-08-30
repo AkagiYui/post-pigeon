@@ -23,6 +23,13 @@ Release 正文后面备查。
   参数、请求头、请求体、认证、示例与 Schema；Postman 还会携带变量和前置/后置脚本，HAR 使用模块
   环境地址生成可重放请求。可能包含明文密钥的格式会在保存前明确提醒
 
+- **项目级导出覆盖完整项目与常用交付格式**：项目列表右键菜单和项目设置都可以导出整个项目。
+  原生项目文件可重新导入，保留环境与全局/模块变量、模块和目录、接口完整定义、响应示例与 Schema、
+  脚本库、各层级前置/后置操作及继承覆盖，并在导入时安全重映射脚本和操作引用；OpenAPI 3.1、
+  OpenAPI 3.0 与 Swagger 2.0 会按模块分别生成并打包为 ZIP，Postman Collection 和 HAR 聚合全部模块，
+  还可生成 Markdown、单文件 HTML 与可编辑 DOCX。导出前可以选择是否携带秘密变量、各层级认证凭据
+  和敏感请求头，排除凭据时会保留配置结构但清空秘密值
+
 - **实际请求代码生成扩展为 17 个目标**：从选中的真实网络请求可以生成 cURL、HTTPie、Wget、
   PowerShell、Fetch、Axios、Node.js HTTP、Python http.client、Python Requests、Go net/http、
   Java HttpClient、Kotlin OkHttp、C# HttpClient、PHP cURL、Ruby Net::HTTP、Rust Reqwest 与
