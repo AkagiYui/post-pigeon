@@ -3,7 +3,6 @@ package services
 import (
 	"encoding/json"
 	"fmt"
-	"slices"
 	"sort"
 	"strconv"
 	"strings"
@@ -25,7 +24,13 @@ func composeStageScript(db *gorm.DB, ep *models.Endpoint, stage models.Operation
 func composeStageScriptWithEndpointOps(db *gorm.DB, ep *models.Endpoint, stage models.OperationStage,
 	override []models.Operation,
 ) string {
-	levels := gatherOperationLevelsWithEndpointOps(db, ep, stage, override)
+	return composeStageScriptWithEndpointState(db, ep, stage, override, nil)
+}
+
+func composeStageScriptWithEndpointState(db *gorm.DB, ep *models.Endpoint, stage models.OperationStage,
+	override []models.Operation, operationOverrides []models.OperationOverride,
+) string {
+	levels := gatherOperationLevelsWithEndpointState(db, ep, stage, override, operationOverrides)
 
 	var fragments []string
 	for _, ops := range levels {
@@ -64,6 +69,12 @@ func gatherOperationLevels(db *gorm.DB, ep *models.Endpoint, stage models.Operat
 func gatherOperationLevelsWithEndpointOps(db *gorm.DB, ep *models.Endpoint, stage models.OperationStage,
 	override []models.Operation,
 ) [][]models.Operation {
+	return gatherOperationLevelsWithEndpointState(db, ep, stage, override, nil)
+}
+
+func gatherOperationLevelsWithEndpointState(db *gorm.DB, ep *models.Endpoint, stage models.OperationStage,
+	override []models.Operation, operationOverrides []models.OperationOverride,
+) [][]models.Operation {
 	endpointOps := loadOperations(db, models.OperationOwnerEndpoint, ep.ID, stage)
 	if override != nil {
 		endpointOps = endpointOps[:0]
@@ -80,29 +91,44 @@ func gatherOperationLevelsWithEndpointOps(db *gorm.DB, ep *models.Endpoint, stag
 		return [][]models.Operation{endpointOps}
 	}
 
-	moduleOps := loadOperations(db, models.OperationOwnerModule, ep.ModuleID, stage)
-
-	// 文件夹链：从根到叶
-	folderChain := folderChainToRoot(db, ep.FolderID) // 叶 -> 根
-	var folderLevelsRootFirst [][]models.Operation
-	for _, f := range slices.Backward(folderChain) {
-		folderLevelsRootFirst = append(folderLevelsRootFirst,
-			loadOperations(db, models.OperationOwnerFolder, f, stage))
+	inherited := inheritedOperationsForEndpoint(db, ep)
+	if operationOverrides != nil {
+		values := make(map[string]bool, len(operationOverrides))
+		for _, item := range operationOverrides {
+			values[item.OperationID] = item.Enabled
+		}
+		for i := range inherited {
+			// 当前编辑态覆盖列表是完整快照；先撤销数据库里的接口级覆盖，
+			// 再应用快照，确保“恢复跟随”在尚未保存时直接发送也立即生效。
+			inherited[i].Operation.Enabled = inherited[i].ParentEnabled
+			if enabled, ok := values[inherited[i].Operation.ID]; ok {
+				inherited[i].Operation.Enabled = enabled
+			}
+		}
+	}
+	inheritedOps := make([]models.Operation, 0, len(inherited))
+	for _, item := range inherited {
+		if item.Operation.Stage == string(stage) {
+			inheritedOps = append(inheritedOps, item.Operation)
+		}
 	}
 
 	if stage == models.OperationStagePre {
-		// 前置：模块 -> 文件夹(根->叶) -> 端点
-		levels := [][]models.Operation{moduleOps}
-		levels = append(levels, folderLevelsRootFirst...)
-		levels = append(levels, endpointOps)
-		return levels
+		return [][]models.Operation{inheritedOps, endpointOps}
 	}
-	// 后置：端点 -> 文件夹(叶->根) -> 模块
+	// 后置从内向外执行，但同一作用域内部仍保持用户定义的顺序。
+	var inheritedLevels [][]models.Operation
+	for _, op := range inheritedOps {
+		if len(inheritedLevels) == 0 || inheritedLevels[len(inheritedLevels)-1][0].OwnerType != op.OwnerType || inheritedLevels[len(inheritedLevels)-1][0].OwnerID != op.OwnerID {
+			inheritedLevels = append(inheritedLevels, []models.Operation{op})
+		} else {
+			inheritedLevels[len(inheritedLevels)-1] = append(inheritedLevels[len(inheritedLevels)-1], op)
+		}
+	}
 	levels := [][]models.Operation{endpointOps}
-	for _, f := range slices.Backward(folderLevelsRootFirst) {
-		levels = append(levels, f)
+	for i := len(inheritedLevels) - 1; i >= 0; i-- {
+		levels = append(levels, inheritedLevels[i])
 	}
-	levels = append(levels, moduleOps)
 	return levels
 }
 

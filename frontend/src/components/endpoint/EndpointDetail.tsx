@@ -312,10 +312,26 @@ export function EndpointDetail(props: EndpointDetailProps) {
   // 前置/后置操作的启用数量（含从模块/文件夹链继承的全局操作，用于 tab 标题数字徽标）
   const preOpsCount = () =>
     ep().operations.filter(o => o.stage === "pre" && o.enabled).length
-    + (ep().inheritOperations ? (props.inheritedOpCounts?.pre ?? 0) : 0)
+    + (ep().inheritOperations ? ep().inheritedOperations.filter(item => item.operation.stage === "pre" && item.operation.enabled).length : 0)
   const postOpsCount = () =>
     ep().operations.filter(o => o.stage === "post" && o.enabled).length
-    + (ep().inheritOperations ? (props.inheritedOpCounts?.post ?? 0) : 0)
+    + (ep().inheritOperations ? ep().inheritedOperations.filter(item => item.operation.stage === "post" && item.operation.enabled).length : 0)
+
+  const overrideInheritedOperation = (operationId: string, enabled: boolean | null) => {
+    const inherited = ep().inheritedOperations.map(item => {
+      if (item.operation.id !== operationId) return item
+      return {
+        ...item,
+        operation: { ...item.operation, enabled: enabled == null ? item.parentEnabled : enabled },
+        overridden: enabled != null,
+      }
+    })
+    const without = ep().operationOverrides.filter(item => item.operationId !== operationId)
+    props.onChange?.({
+      inheritedOperations: inherited,
+      operationOverrides: enabled == null ? without : [...without, { operationId, enabled }],
+    })
+  }
 
   // 参数 tab 的数字：所有 query 参数 + 路径参数 + 本接口启用的全局参数（见 countParams）
   const paramsCount = () => countParams({
@@ -637,12 +653,20 @@ export function EndpointDetail(props: EndpointDetailProps) {
                   case "preOperations": return <OperationsEditor
                     stage="pre"
                     operations={ep().operations}
+                    inheritedOperations={ep().inheritedOperations}
+                    inheritEnabled={ep().inheritOperations}
+                    onInheritEnabledChange={(enabled) => props.onChange?.({ inheritOperations: enabled })}
+                    onInheritedOverride={overrideInheritedOperation}
                     onChange={(ops) => props.onChange?.({ operations: ops })}
                     projectId={props.projectId}
                   />
                   case "postOperations": return <OperationsEditor
                     stage="post"
                     operations={ep().operations}
+                    inheritedOperations={ep().inheritedOperations}
+                    inheritEnabled={ep().inheritOperations}
+                    onInheritEnabledChange={(enabled) => props.onChange?.({ inheritOperations: enabled })}
+                    onInheritedOverride={overrideInheritedOperation}
                     onChange={(ops) => props.onChange?.({ operations: ops })}
                     projectId={props.projectId}
                   />

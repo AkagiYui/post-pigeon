@@ -41,16 +41,18 @@ type FolderSettings struct {
 	AuthType string `json:"authType"`
 	AuthData string `json:"authData"`
 	// HasInheritedAuth 表示不考虑当前文件夹覆盖时，父文件夹/模块链上是否存在有效认证。
-	HasInheritedAuth     bool               `json:"hasInheritedAuth"`
-	WSProtocolConversion string             `json:"wsProtocolConversion"`
-	ProxyConfig          string             `json:"proxyConfig"`
-	TLSConfig            string             `json:"tlsConfig"`
-	URLEncoding          string             `json:"urlEncoding"`
-	TimeoutMode          string             `json:"timeoutMode"`
-	Timeout              int                `json:"timeout"`
-	FollowRedirects      *bool              `json:"followRedirects"`
-	SendNoCacheHeaders   *bool              `json:"sendNoCacheHeaders"`
-	Operations           []models.Operation `json:"operations"`
+	HasInheritedAuth     bool                       `json:"hasInheritedAuth"`
+	WSProtocolConversion string                     `json:"wsProtocolConversion"`
+	ProxyConfig          string                     `json:"proxyConfig"`
+	TLSConfig            string                     `json:"tlsConfig"`
+	URLEncoding          string                     `json:"urlEncoding"`
+	TimeoutMode          string                     `json:"timeoutMode"`
+	Timeout              int                        `json:"timeout"`
+	FollowRedirects      *bool                      `json:"followRedirects"`
+	SendNoCacheHeaders   *bool                      `json:"sendNoCacheHeaders"`
+	Operations           []models.Operation         `json:"operations"`
+	InheritedOperations  []InheritedOperation       `json:"inheritedOperations"`
+	OperationOverrides   []models.OperationOverride `json:"operationOverrides"`
 }
 
 // GetModuleSettings 读取模块设置
@@ -192,6 +194,9 @@ func (s *ScopeSettingsService) GetFolderSettings(folderID string) (*FolderSettin
 	}
 	s.db.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerFolder, folderID).
 		Order("stage ASC, sort_order ASC").Find(&settings.Operations)
+	settings.InheritedOperations = inheritedOperationsForFolder(s.db, &f)
+	s.db.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerFolder, folderID).
+		Find(&settings.OperationOverrides)
 	return settings, nil
 }
 
@@ -211,28 +216,21 @@ func (s *ScopeSettingsService) SaveFolderSettings(folderID string, settings Fold
 		}).Error; err != nil {
 			return err
 		}
-		return saveScopeOperations(tx, models.OperationOwnerFolder, folderID, settings.Operations)
+		if err := saveScopeOperations(tx, models.OperationOwnerFolder, folderID, settings.Operations); err != nil {
+			return err
+		}
+		var folder models.Folder
+		if err := tx.Where("id = ?", folderID).First(&folder).Error; err != nil {
+			return err
+		}
+		return saveOperationOverrides(tx, models.OperationOwnerFolder, folderID,
+			settings.OperationOverrides, inheritedOperationsForFolder(tx, &folder))
 	})
 }
 
 // saveScopeOperations 整体替换某归属对象的操作。
 func saveScopeOperations(tx *gorm.DB, ownerType models.OperationOwnerType, ownerID string, ops []models.Operation) error {
-	if err := tx.Where("owner_type = ? AND owner_id = ?", ownerType, ownerID).Delete(&models.Operation{}).Error; err != nil {
-		return err
-	}
-	// 按阶段各自编号
-	stageOrder := map[string]int{}
-	for i := range ops {
-		ops[i].ID = ""
-		ops[i].OwnerType = string(ownerType)
-		ops[i].OwnerID = ownerID
-		ops[i].SortOrder = stageOrder[ops[i].Stage]
-		stageOrder[ops[i].Stage]++
-		if err := tx.Create(&ops[i]).Error; err != nil {
-			return err
-		}
-	}
-	return nil
+	return syncOperations(tx, ownerType, ownerID, ops)
 }
 
 func defaultAuthType(v, def string) string {

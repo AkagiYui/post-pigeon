@@ -8,6 +8,7 @@ import {
   EndpointHeader,
   EndpointParam,
   Operation,
+  OperationOverride,
   ResponseExample,
   ResponseSchema,
 } from "@/../bindings/PostPigeon/internal/models"
@@ -17,6 +18,8 @@ import {
   emptyAuth,
   type HeaderRow,
   type OperationRow,
+  type InheritedOperationRow,
+  type OperationOverrideRow,
   type ParamRow,
   type TimingData,
 } from "@/components/endpoint/editor-types"
@@ -30,6 +33,7 @@ export const endpointDefaults = {
   sendNoCacheHeaders: null as boolean | null,
   docContent: "", status: "", tags: "", description: "",
   inheritOperations: true, operations: [] as OperationRow[],
+  inheritedOperations: [] as InheritedOperationRow[], operationOverrides: [] as OperationOverrideRow[],
   disabledGlobalParams: [] as string[],
   proxyConfig: "",
   tlsConfig: "",
@@ -115,7 +119,7 @@ export function toOperationModels(rows: OperationRow[]): Operation[] {
       case "extractVar": data = JSON.stringify({ variable: r.varName, scope: r.varScope, source: r.varSource, expression: r.varExpression }); break
       case "wait": data = JSON.stringify({ milliseconds: r.waitMs }); break
     }
-    return new Operation({ stage: r.stage, type: r.type, name: r.name, enabled: r.enabled, sortOrder: i, data })
+    return new Operation({ id: r.id.startsWith("__unsaved_") ? "" : r.id, stage: r.stage, type: r.type, name: r.name, enabled: r.enabled, sortOrder: i, data })
   })
 }
 
@@ -137,7 +141,7 @@ export function operationToRow(o: Operation): OperationRow {
   let d: OperationDataPayload = {}
   try { d = o.data ? (JSON.parse(o.data) as OperationDataPayload) : {} } catch { d = {} }
   return {
-    id: crypto.randomUUID(),
+    id: o.id || generateTempId(),
     stage: (o.stage as OperationStage) || "pre",
     type: (o.type as OperationType) || "script",
     name: o.name || "", enabled: o.enabled,
@@ -152,6 +156,24 @@ export function operationToRow(o: Operation): OperationRow {
 
 export function fromOperationModels(arr?: Operation[] | null): OperationRow[] {
   return (arr || []).map(operationToRow)
+}
+
+export function fromInheritedOperationModels(arr?: Array<{
+  operation: Operation, sourceType: string, sourceId: string, sourceName: string,
+  parentEnabled: boolean, overridden: boolean,
+}> | null): InheritedOperationRow[] {
+  return (arr || []).map(item => ({
+    operation: operationToRow(item.operation),
+    sourceType: item.sourceType,
+    sourceId: item.sourceId,
+    sourceName: item.sourceName,
+    parentEnabled: item.parentEnabled,
+    overridden: item.overridden,
+  }))
+}
+
+export function toOperationOverrideModels(rows: OperationOverrideRow[]): OperationOverride[] {
+  return rows.map(row => new OperationOverride({ operationId: row.operationId, enabled: row.enabled }))
 }
 
 /** 参数 tab 数字徽标的输入 */

@@ -25,15 +25,17 @@ type EndpointDetail struct {
 	// InheritedWSProtocolConversion 是不考虑接口自身覆盖时，由父级链计算出的结果。
 	InheritedWSProtocolConversion bool `json:"inheritedWsProtocolConversion"`
 	// HasInheritedAuth 表示不考虑接口自身覆盖时，文件夹/模块链上是否存在会实际生效的认证。
-	HasInheritedAuth bool                       `json:"hasInheritedAuth"`
-	Params           []models.EndpointParam     `json:"params"`
-	BodyFields       []models.EndpointBodyField `json:"bodyFields"`
-	Headers          []models.EndpointHeader    `json:"headers"`
-	Auth             *models.EndpointAuth       `json:"auth"`
-	Response         *models.Response           `json:"response"`
-	Operations       []models.Operation         `json:"operations"`
-	Examples         []models.ResponseExample   `json:"examples"`
-	Schemas          []models.ResponseSchema    `json:"schemas"`
+	HasInheritedAuth    bool                       `json:"hasInheritedAuth"`
+	Params              []models.EndpointParam     `json:"params"`
+	BodyFields          []models.EndpointBodyField `json:"bodyFields"`
+	Headers             []models.EndpointHeader    `json:"headers"`
+	Auth                *models.EndpointAuth       `json:"auth"`
+	Response            *models.Response           `json:"response"`
+	Operations          []models.Operation         `json:"operations"`
+	InheritedOperations []InheritedOperation       `json:"inheritedOperations"`
+	OperationOverrides  []models.OperationOverride `json:"operationOverrides"`
+	Examples            []models.ResponseExample   `json:"examples"`
+	Schemas             []models.ResponseSchema    `json:"schemas"`
 }
 
 // GetEndpoint 获取端点完整详情
@@ -71,6 +73,9 @@ func (s *EndpointService) GetEndpoint(id string) (*EndpointDetail, error) {
 	// 加载前置/后置操作、响应示例、响应定义
 	s.db.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerEndpoint, id).
 		Order("stage ASC, sort_order ASC").Find(&detail.Operations)
+	detail.InheritedOperations = inheritedOperationsForEndpoint(s.db, &endpoint)
+	s.db.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerEndpoint, id).
+		Find(&detail.OperationOverrides)
 	s.db.Where("endpoint_id = ?", id).Order("sort_order ASC").Find(&detail.Examples)
 	s.db.Where("endpoint_id = ?", id).Order("sort_order ASC").Find(&detail.Schemas)
 
@@ -204,19 +209,20 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 			}
 		}
 
-		// 保存前置/后置操作：先删除端点自身操作再创建
+		// 保存前置/后置操作：保留稳定 ID，以供下级覆盖引用。
 		if data.Operations != nil {
-			if err := tx.Where("owner_type = ? AND owner_id = ?", models.OperationOwnerEndpoint, data.ID).
-				Delete(&models.Operation{}).Error; err != nil {
+			if err := syncOperations(tx, models.OperationOwnerEndpoint, data.ID, data.Operations); err != nil {
 				return err
 			}
-			for i := range data.Operations {
-				data.Operations[i].ID = ""
-				data.Operations[i].OwnerType = string(models.OperationOwnerEndpoint)
-				data.Operations[i].OwnerID = data.ID
-				if err := tx.Create(&data.Operations[i]).Error; err != nil {
-					return err
-				}
+		}
+		if data.OperationOverrides != nil {
+			var endpoint models.Endpoint
+			if err := tx.Where("id = ?", data.ID).First(&endpoint).Error; err != nil {
+				return err
+			}
+			if err := saveOperationOverrides(tx, models.OperationOwnerEndpoint, data.ID,
+				data.OperationOverrides, inheritedOperationsForEndpoint(tx, &endpoint)); err != nil {
+				return err
 			}
 		}
 
@@ -303,6 +309,9 @@ func (s *EndpointService) CreateTypedEndpoint(moduleID string, folderID *string,
 // ON DELETE CASCADE 自动级联删除；这里只需显式清理多态归属的 Operation（外键无法覆盖）。
 func (s *EndpointService) DeleteEndpoint(id string) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := deleteOperationOverrides(tx, models.OperationOwnerEndpoint, []string{id}); err != nil {
+			return err
+		}
 		if err := deleteOperations(tx, models.OperationOwnerEndpoint, []string{id}); err != nil {
 			return err
 		}
@@ -370,6 +379,7 @@ type EndpointSaveData struct {
 	Headers                []models.EndpointHeader    `json:"headers"`
 	Auth                   *models.EndpointAuth       `json:"auth"`
 	Operations             []models.Operation         `json:"operations"`
+	OperationOverrides     []models.OperationOverride `json:"operationOverrides"`
 	Examples               []models.ResponseExample   `json:"examples"`
 	Schemas                []models.ResponseSchema    `json:"schemas"`
 }

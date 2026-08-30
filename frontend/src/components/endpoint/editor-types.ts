@@ -66,6 +66,10 @@ export interface EndpointData {
   hasInheritedAuth: boolean
   /** 前置/后置操作列表 */
   operations: OperationRow[]
+  /** 从模块/文件夹继承的操作（只读内容，可在当前接口覆盖启用状态） */
+  inheritedOperations: InheritedOperationRow[]
+  /** 当前接口显式覆盖的继承操作 */
+  operationOverrides: OperationOverrideRow[]
   /** 响应示例（不在此编辑，仅透传保存以免丢失） */
   examples: ResponseExample[]
   /** 响应定义（不在此编辑，仅透传保存以免丢失） */
@@ -122,6 +126,20 @@ export interface OperationRow {
   varExpression: string
   // wait
   waitMs: number
+}
+
+export interface InheritedOperationRow {
+  operation: OperationRow
+  sourceType: string
+  sourceId: string
+  sourceName: string
+  parentEnabled: boolean
+  overridden: boolean
+}
+
+export interface OperationOverrideRow {
+  operationId: string
+  enabled: boolean
 }
 
 /** 创建一个空操作行 */

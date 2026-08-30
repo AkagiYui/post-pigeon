@@ -419,6 +419,7 @@ func autoMigrate(db *gorm.DB) error {
 		&models.EndpointHeader{},
 		&models.EndpointAuth{},
 		&models.Operation{},
+		&models.OperationOverride{},
 		&models.ResponseExample{},
 		&models.ResponseSchema{},
 		&models.ScriptLibrary{},

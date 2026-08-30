@@ -118,6 +118,12 @@ func (s *ModuleService) DeleteModule(id string) error {
 		if err := deleteOperations(tx, models.OperationOwnerEndpoint, endpointIDs); err != nil {
 			return err
 		}
+		if err := deleteOperationOverrides(tx, models.OperationOwnerEndpoint, endpointIDs); err != nil {
+			return err
+		}
+		if err := deleteOperationOverrides(tx, models.OperationOwnerFolder, folderIDs); err != nil {
+			return err
+		}
 		if err := deleteOperations(tx, models.OperationOwnerFolder, folderIDs); err != nil {
 			return err
 		}

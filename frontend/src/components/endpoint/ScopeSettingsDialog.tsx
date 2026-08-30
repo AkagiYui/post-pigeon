@@ -3,11 +3,11 @@
 import { Icon } from "@iconify-icon/solid"
 import { createEffect, createSignal, Show } from "solid-js"
 
-import { ModuleParam, ModuleVariable, SelectableProxy } from "@/../bindings/PostPigeon/internal/models"
+import { ModuleParam, ModuleVariable, OperationOverride, SelectableProxy } from "@/../bindings/PostPigeon/internal/models"
 import { FolderSettings, ModuleSettings, ProxyService, ScopeSettingsService } from "@/../bindings/PostPigeon/internal/services"
 import { AuthEditor } from "@/components/endpoint/AuthEditor"
-import { authDataToState, authStateToData, fromOperationModels, hasEffectiveAuth, toOperationModels } from "@/components/endpoint/endpoint-data"
-import { type AuthState, emptyAuth, type OperationRow, tabLabelWithCount } from "@/components/endpoint/EndpointDetail"
+import { authDataToState, authStateToData, fromInheritedOperationModels, fromOperationModels, hasEffectiveAuth, toOperationModels } from "@/components/endpoint/endpoint-data"
+import { type AuthState, emptyAuth, type InheritedOperationRow, type OperationOverrideRow, type OperationRow, tabLabelWithCount } from "@/components/endpoint/EndpointDetail"
 import { proxyJSONFromKey, proxyKeyFromJSON, tlsJSONFromMode, tlsModeFromJSON } from "@/components/endpoint/EndpointSettingsEditor"
 import { OperationsEditor } from "@/components/endpoint/OperationsEditor"
 import { Button } from "@/components/ui/button"
@@ -60,6 +60,8 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
   const [sendNoCacheHeaders, setSendNoCacheHeaders] = createSignal<boolean | null>(null)
   const [selectableProxies, setSelectableProxies] = createSignal<SelectableProxy[]>([])
   const [operations, setOperations] = createSignal<OperationRow[]>([])
+  const [inheritedOperations, setInheritedOperations] = createSignal<InheritedOperationRow[]>([])
+  const [operationOverrides, setOperationOverrides] = createSignal<OperationOverrideRow[]>([])
   const [params, setParams] = createSignal<ParamRow[]>([])
   const [vars, setVars] = createSignal<VarRow[]>([])
   const [saving, setSaving] = createSignal(false)
@@ -85,6 +87,8 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
         setFollowRedirects(s?.followRedirects ?? null)
         setSendNoCacheHeaders(s?.sendNoCacheHeaders ?? null)
         setOperations(fromOperationModels(s?.operations))
+        setInheritedOperations([])
+        setOperationOverrides([])
         setParams((s?.params || []).map(p => ({ id: crypto.randomUUID(), type: p.type || "query", name: p.name, value: p.value, enabled: p.enabled })))
         setVars((s?.variables || []).map(v => ({ id: crypto.randomUUID(), key: v.key, value: v.value, description: v.description, enabled: v.enabled, isSecret: v.isSecret })))
       } else {
@@ -100,6 +104,8 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
         setFollowRedirects(s?.followRedirects ?? null)
         setSendNoCacheHeaders(s?.sendNoCacheHeaders ?? null)
         setOperations(fromOperationModels(s?.operations))
+        setInheritedOperations(fromInheritedOperationModels(s?.inheritedOperations))
+        setOperationOverrides((s?.operationOverrides || []).map(item => ({ operationId: item.operationId, enabled: item.enabled })))
       }
     } catch (e) { toastError(e, "error.op.loadFailed") }
   }
@@ -117,7 +123,7 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
         const mv = vars().filter(v => v.key.trim()).map(v => new ModuleVariable({ key: v.key.trim(), value: v.value, description: v.description, enabled: v.enabled, isSecret: v.isSecret }))
         await ScopeSettingsService.SaveModuleSettings(props.scopeId, new ModuleSettings({ authType, authData, wsProtocolConversion: wsProtocolConversion(), proxyConfig: proxyConfig(), tlsConfig: tlsConfig(), urlEncoding: urlEncoding(), timeoutMode: timeoutMode(), timeout: timeout(), followRedirects: followRedirects(), sendNoCacheHeaders: sendNoCacheHeaders(), params: mp, variables: mv, operations: ops }))
       } else {
-        await ScopeSettingsService.SaveFolderSettings(props.scopeId, new FolderSettings({ authType, authData, wsProtocolConversion: wsProtocolConversion(), proxyConfig: proxyConfig(), tlsConfig: tlsConfig(), urlEncoding: urlEncoding(), timeoutMode: timeoutMode(), timeout: timeout(), followRedirects: followRedirects(), sendNoCacheHeaders: sendNoCacheHeaders(), operations: ops }))
+        await ScopeSettingsService.SaveFolderSettings(props.scopeId, new FolderSettings({ authType, authData, wsProtocolConversion: wsProtocolConversion(), proxyConfig: proxyConfig(), tlsConfig: tlsConfig(), urlEncoding: urlEncoding(), timeoutMode: timeoutMode(), timeout: timeout(), followRedirects: followRedirects(), sendNoCacheHeaders: sendNoCacheHeaders(), operations: ops, inheritedOperations: [], operationOverrides: operationOverrides().map(item => new OperationOverride({ operationId: item.operationId, enabled: item.enabled })) }))
       }
       setLoadedFor("")
       props.onClose()
@@ -143,6 +149,18 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
   const addVar = () => setVars(prev => [...prev, { id: crypto.randomUUID(), key: "", value: "", description: "", enabled: true, isSecret: false }])
   const removeVar = (id: string) => setVars(prev => prev.filter(v => v.id !== id))
   const updateVar = (id: string, field: keyof VarRow, value: string | boolean) => setVars(prev => prev.map(v => v.id === id ? { ...v, [field]: value } : v))
+
+  const overrideInheritedOperation = (operationId: string, enabled: boolean | null) => {
+    setInheritedOperations(items => items.map(item => item.operation.id === operationId ? {
+      ...item,
+      operation: { ...item.operation, enabled: enabled == null ? item.parentEnabled : enabled },
+      overridden: enabled != null,
+    } : item))
+    setOperationOverrides(items => {
+      const without = items.filter(item => item.operationId !== operationId)
+      return enabled == null ? without : [...without, { operationId, enabled }]
+    })
+  }
 
   const booleanOptions = () => [
     { value: "inherit", label: t("inherit.parent") },
@@ -194,7 +212,7 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
                 </div>
               )
               if (key === "auth") return <AuthEditor value={auth()} onChange={setAuth} />
-              if (key === "operations") return <OperationsEditor operations={operations()} onChange={setOperations} projectId={props.projectId} />
+              if (key === "operations") return <OperationsEditor operations={operations()} inheritedOperations={inheritedOperations()} onInheritedOverride={overrideInheritedOperation} onChange={setOperations} projectId={props.projectId} />
               if (key === "params") return (
                 <div class="p-3 h-full overflow-auto">
                   <p class="text-sm text-muted-foreground mb-2">{t("scope.autoParamsHint")}</p>

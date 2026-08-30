@@ -6,7 +6,7 @@ import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 
 import type { ScriptLibrary } from "@/../bindings/PostPigeon/internal/models"
 import { ScriptLibraryService } from "@/../bindings/PostPigeon/internal/services"
-import { emptyOperation, type OperationRow } from "@/components/endpoint/EndpointDetail"
+import { emptyOperation, type InheritedOperationRow, type OperationRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { CodeEditor } from "@/components/ui/code-editor"
@@ -23,6 +23,11 @@ export interface OperationsEditorProps {
   projectId?: string
   /** 固定到单一阶段（pre/post）：提供时隐藏内部阶段切换，仅编辑该阶段。 */
   stage?: OperationStage
+  inheritedOperations?: InheritedOperationRow[]
+  inheritEnabled?: boolean
+  onInheritEnabledChange?: (enabled: boolean) => void
+  /** null 表示删除当前作用域覆盖、恢复跟随上级。 */
+  onInheritedOverride?: (operationId: string, enabled: boolean | null) => void
 }
 
 const opTypeOptions = () => [
@@ -66,6 +71,7 @@ export function OperationsEditor(props: OperationsEditorProps) {
   const [internalStage, setInternalStage] = createSignal<OperationStage>("pre")
   const stage = () => props.stage ?? internalStage()
   const [libraries, setLibraries] = createSignal<ScriptLibrary[]>([])
+  const [inheritedOpen, setInheritedOpen] = createSignal(false)
 
   onMount(async () => {
     if (!props.projectId) return
@@ -78,6 +84,9 @@ export function OperationsEditor(props: OperationsEditorProps) {
   // 当前阶段的操作（保持在整表中的索引以便原地更新）
   const stageOps = createMemo(() =>
     props.operations.map((op, idx) => ({ op, idx })).filter(x => x.op.stage === stage()),
+  )
+  const inheritedStageOps = createMemo(() =>
+    (props.inheritedOperations || []).filter(item => item.operation.stage === stage()),
   )
 
   const updateOp = (id: string, patch: Partial<OperationRow>) => {
@@ -132,6 +141,28 @@ export function OperationsEditor(props: OperationsEditorProps) {
       </Show>
 
       <div class="flex-1 flex flex-col gap-2 min-h-0">
+        <Show when={inheritedStageOps().length > 0}>
+          <div class="border border-border rounded-md overflow-hidden bg-muted/20">
+            <button class="w-full flex items-center gap-2 px-3 py-2 text-xs text-left" onClick={() => setInheritedOpen(v => !v)}>
+              <Icon icon={inheritedOpen() ? "lucide:chevron-down" : "lucide:chevron-right"} class="h-3.5 w-3.5" />
+              <span class="font-medium">继承的操作</span>
+              <span class="text-muted-foreground">{inheritedStageOps().length}</span>
+              <Show when={props.onInheritEnabledChange}>
+                <span class="ml-auto flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
+                  <Checkbox checked={props.inheritEnabled !== false} onChange={(e) => props.onInheritEnabledChange?.(e.currentTarget.checked)} />
+                  <span>启用继承</span>
+                </span>
+              </Show>
+            </button>
+            <Show when={inheritedOpen()}>
+              <div class="border-t border-border p-2 flex flex-col gap-2">
+                <For each={inheritedStageOps()}>
+                  {(item) => <InheritedOperationCard item={item} disabled={props.inheritEnabled === false} onOverride={props.onInheritedOverride} />}
+                </For>
+              </div>
+            </Show>
+          </div>
+        </Show>
         <For each={stageOps()} fallback={<div class="text-sm text-muted-foreground text-center py-6">{t("op.empty")}</div>}>
           {(item) => (
             <OperationCard
@@ -150,6 +181,35 @@ export function OperationsEditor(props: OperationsEditorProps) {
         <Icon icon="lucide:plus" class="h-3 w-3" />
         {t("op.add")}
       </Button>
+    </div>
+  )
+}
+
+function InheritedOperationCard(props: {
+  item: InheritedOperationRow
+  disabled: boolean
+  onOverride?: (operationId: string, enabled: boolean | null) => void
+}) {
+  const op = () => props.item.operation
+  return (
+    <div class={cn("border border-border rounded-md bg-background", (props.disabled || !op().enabled) && "opacity-60")}>
+      <div class="flex items-center gap-2 px-2 py-1.5">
+        <Checkbox
+          checked={op().enabled}
+          disabled={props.disabled || !props.onOverride}
+          onChange={(e) => props.onOverride?.(op().id, e.currentTarget.checked)}
+        />
+        <span class="text-xs font-medium">{op().name || opTypeOptions().find(x => x.value === op().type)?.label || op().type}</span>
+        <span class="text-[11px] text-muted-foreground">来自 {props.item.sourceName || props.item.sourceType}</span>
+        <Show when={props.item.overridden}>
+          <Button class="ml-auto" variant="ghost" size="sm" onClick={() => props.onOverride?.(op().id, null)}>
+            <Icon icon="lucide:rotate-ccw" class="h-3 w-3" />恢复跟随
+          </Button>
+        </Show>
+      </div>
+      <Show when={(op().type === "script" || op().type === "libraryScript") && op().script}>
+        <div class="h-24 border-t border-border"><CodeEditor language="javascript" value={op().script} readOnly /></div>
+      </Show>
     </div>
   )
 }

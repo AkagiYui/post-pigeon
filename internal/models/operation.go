@@ -51,6 +51,24 @@ type Operation struct {
 	Data string `gorm:"type:text" json:"data"`
 }
 
+// OperationOverride 记录文件夹或接口对某条继承操作的启用状态覆盖。
+// Operation.Enabled 是操作所有者定义的默认值；覆盖沿文件夹链向下传递，
+// 接口覆盖只影响当前接口。没有记录即表示继续跟随上级。
+type OperationOverride struct {
+	ID          string `gorm:"primaryKey" json:"id"`
+	OwnerType   string `gorm:"not null;uniqueIndex:idx_operation_override" json:"ownerType"`
+	OwnerID     string `gorm:"not null;uniqueIndex:idx_operation_override" json:"ownerId"`
+	OperationID string `gorm:"not null;uniqueIndex:idx_operation_override;index" json:"operationId"`
+	Enabled     bool   `json:"enabled"`
+}
+
+func (o *OperationOverride) BeforeCreate(tx *gorm.DB) error {
+	if o.ID == "" {
+		o.ID = uuid.New().String()
+	}
+	return nil
+}
+
 // BeforeCreate 创建前自动生成 UUID
 func (o *Operation) BeforeCreate(tx *gorm.DB) error {
 	if o.ID == "" {

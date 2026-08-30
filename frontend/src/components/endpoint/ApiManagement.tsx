@@ -25,6 +25,7 @@ import {
   fromAuthModel,
   fromBodyFieldModels,
   fromHeaderModels,
+  fromInheritedOperationModels,
   fromOperationModels,
   fromParamModels,
   generateTempId,
@@ -34,6 +35,7 @@ import {
   toBodyFieldModels,
   toHeaderModels,
   toOperationModels,
+  toOperationOverrideModels,
   toParamModels,
   toTimingData,
 } from "@/components/endpoint/endpoint-data"
@@ -720,6 +722,8 @@ export function ApiManagement(props: ApiManagementProps) {
           inheritedWsProtocolConversion: detail.inheritedWsProtocolConversion ?? true,
           hasInheritedAuth: detail.hasInheritedAuth ?? false,
           operations: fromOperationModels(detail.operations),
+          inheritedOperations: fromInheritedOperationModels(detail.inheritedOperations),
+          operationOverrides: (detail.operationOverrides || []).map(item => ({ operationId: item.operationId, enabled: item.enabled })),
           examples: detail.examples || [], schemas: detail.schemas || [],
         } as EndpointData)
         let loadedResponse: ResponseData | null = null
@@ -782,7 +786,9 @@ export function ApiManagement(props: ApiManagementProps) {
         streamRenderMarkdown: unsaved.streamRenderMarkdown ?? false,
         inheritedWsProtocolConversion: unsaved.inheritedWsProtocolConversion ?? true,
         hasInheritedAuth: unsaved.hasInheritedAuth ?? false,
-        operations: unsaved.operations ?? [], examples: unsaved.examples ?? [], schemas: unsaved.schemas ?? [],
+        operations: unsaved.operations ?? [],
+        inheritedOperations: [], operationOverrides: [],
+        examples: unsaved.examples ?? [], schemas: unsaved.schemas ?? [],
       } as EndpointData)
     }
   }
@@ -830,6 +836,7 @@ export function ApiManagement(props: ApiManagementProps) {
     sendData.urlEncoding = ep.urlEncoding
     sendData.disabledGlobalParams = JSON.stringify(ep.disabledGlobalParams || [])
     sendData.operations = toOperationModels(ep.operations)
+    sendData.operationOverrides = toOperationOverrideModels(ep.operationOverrides)
     sendData.inheritOperations = ep.inheritOperations
     // 已保存端点由后端根据操作组合脚本；未保存请求在此把 script 类型操作拼接为前置/后置脚本
     sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript)
@@ -987,6 +994,7 @@ export function ApiManagement(props: ApiManagementProps) {
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
         operations: toOperationModels(ep.operations),
+        operationOverrides: toOperationOverrideModels(ep.operationOverrides),
         examples: (ep.examples as ResponseExample[]) || [], schemas: (ep.schemas as ResponseSchema[]) || [],
       })
       setRequestTabs(pt => pt.map(t => t.id === ep.id ? { ...t, dirty: false } : t))
@@ -1022,7 +1030,7 @@ export function ApiManagement(props: ApiManagementProps) {
         streamRenderMarkdown: ep.streamRenderMarkdown,
         params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
         headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
-        operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
+        operations: toOperationModels(ep.operations), operationOverrides: [], examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
       })
       // 新建端点后，把前置/后置操作补存（CreateFullEndpoint 不含操作）
       if (created && ep.operations.length > 0) {
@@ -1045,7 +1053,7 @@ export function ApiManagement(props: ApiManagementProps) {
           streamRenderMarkdown: ep.streamRenderMarkdown,
           params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
           headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
-          operations: toOperationModels(ep.operations), examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
+          operations: toOperationModels(ep.operations), operationOverrides: [], examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
         })
       }
       if (created) {

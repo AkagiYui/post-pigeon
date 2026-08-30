@@ -204,9 +204,10 @@ type SendRequestData struct {
 	URLEncoding string `json:"urlEncoding"`
 	// DisabledGlobalParams / Operations / InheritOperations 携带当前编辑态。
 	// 已保存端点未保存就直接发送时，应以界面当前值为准，而不是回读数据库旧值。
-	DisabledGlobalParams string             `json:"disabledGlobalParams"`
-	Operations           []models.Operation `json:"operations"`
-	InheritOperations    *bool              `json:"inheritOperations"`
+	DisabledGlobalParams string                     `json:"disabledGlobalParams"`
+	Operations           []models.Operation         `json:"operations"`
+	OperationOverrides   []models.OperationOverride `json:"operationOverrides"`
+	InheritOperations    *bool                      `json:"inheritOperations"`
 	// RequestID 由前端生成的本次请求标识，用于中途取消（CancelRequest）。空则不可取消。
 	RequestID string `json:"requestId"`
 	// PreRequestScript 前置脚本，请求发送前执行
