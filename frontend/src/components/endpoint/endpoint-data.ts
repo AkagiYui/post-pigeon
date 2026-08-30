@@ -73,10 +73,13 @@ export function safeParseJSON<T>(s: unknown, fallback: T): T {
 /** 将原始计时对象（后端 TimingInfo 或持久化 JSON）映射为 TimingData，缺省补零。 */
 export function toTimingData(raw: Partial<TimingData> | null | undefined): TimingData {
   const t = raw || {}
+  const socket = t.socket || t.stalled || 0
   return {
-    total: t.total || 0, dnsLookup: t.dnsLookup || 0, tlsHandshake: t.tlsHandshake || 0,
+    total: t.total || 0, prepare: t.prepare || 0, socket,
+    dnsLookup: t.dnsLookup || 0, tlsHandshake: t.tlsHandshake || 0,
     tcpConnect: t.tcpConnect || 0, ttfb: t.ttfb || 0,
-    stalled: t.stalled || 0, wait: t.wait || 0, download: t.download || 0, reused: !!t.reused,
+    stalled: t.stalled || socket, wait: t.wait || 0, download: t.download || 0,
+    process: t.process || 0, reused: !!t.reused, tlsUsed: !!t.tlsUsed || (t.tlsHandshake || 0) > 0,
   }
 }
 

@@ -32,6 +32,7 @@ import { EndpointSettingsEditor } from "./EndpointSettingsEditor"
 import { HeadersEditor } from "./HeadersEditor"
 import { OperationsEditor } from "./OperationsEditor"
 import { CookiesEditor, ParamsEditor } from "./ParamsEditor"
+import { buildTimingWaterfall, type TimingWaterfallPhase } from "./response-timing"
 import { shouldShowResponsePanel } from "./response-visibility"
 import { ResponseBodyToolbar, ResponsePanel } from "./ResponsePanel"
 import { decodeStreamResponseBodyChunks, streamResponseBody } from "./stream-message-view"
@@ -881,44 +882,76 @@ export function EndpointDetail(props: EndpointDetailProps) {
 
 /** 响应耗时卡片：展示各阶段耗时（准备 / DNS / TCP / TLS / 等待 / 下载） */
 function ResponseTimingCard(props: { timing: TimingData }) {
-  const tm = () => props.timing
-  const phases = () => {
-    const v = tm()
-    return [
-      { label: t("timing.stalled"), value: v.stalled, cacheable: false },
-      { label: t("timing.dns"), value: v.dnsLookup, cacheable: true },
-      { label: t("timing.tcp"), value: v.tcpConnect, cacheable: true },
-      { label: t("timing.tls"), value: v.tlsHandshake, cacheable: true },
-      { label: t("timing.wait"), value: v.wait, cacheable: false },
-      { label: t("timing.download"), value: v.download, cacheable: false },
-    ]
+  const waterfall = createMemo(() => buildTimingWaterfall(props.timing))
+  const phaseLabel = (key: TimingWaterfallPhase["key"]) => t(`timing.${key}`)
+  const phaseValue = (phase: TimingWaterfallPhase) => {
+    const isCache = props.timing.reused && phase.cacheable && phase.value <= 0
+    return isCache ? t("timing.cache") : formatTiming(phase.value)
   }
-  const total = () => tm().total || phases().reduce((a, p) => a + Math.max(0, p.value), 0)
+
+  const TimingBar = (barProps: {
+    group: "prepare" | "network" | "process"
+    offsetPercent?: number
+    widthPercent?: number
+  }) => (
+    <div class="flex h-[18px] min-w-0">
+      <div
+        class={cn("h-full", barProps.group === "prepare" ? "bg-muted-foreground/10" : "bg-transparent")}
+        style={{ width: `${waterfall().preparePercent}%` }}
+      />
+      <div class="w-px shrink-0 bg-muted-foreground/15" />
+      <div class="relative h-full" style={{ width: `${waterfall().networkPercent}%` }}>
+        <Show when={barProps.group === "network" && (barProps.widthPercent || 0) > 0}>
+          <div
+            class="absolute inset-y-0 rounded-sm bg-accent"
+            style={{ left: `${barProps.offsetPercent || 0}%`, width: `${barProps.widthPercent || 0}%` }}
+          />
+        </Show>
+      </div>
+      <div class="w-px shrink-0 bg-muted-foreground/15" />
+      <div
+        class={cn("h-full", barProps.group === "process" ? "bg-muted-foreground/10" : "bg-transparent")}
+        style={{ width: `${waterfall().processPercent}%` }}
+      />
+    </div>
+  )
+
+  const TimingRow = (rowProps: {
+    label: string
+    value: number
+    group: "prepare" | "network" | "process"
+    offsetPercent?: number
+    widthPercent?: number
+    muted?: boolean
+    displayValue?: string
+  }) => (
+    <div class={cn("grid grid-cols-[7rem_minmax(10rem,1fr)_5.5rem] items-center gap-2 text-xs", rowProps.muted && "text-muted-foreground/70")}>
+      <span class="truncate">{rowProps.label}</span>
+      <TimingBar group={rowProps.group} offsetPercent={rowProps.offsetPercent} widthPercent={rowProps.widthPercent} />
+      <span class="text-right tabular-nums">{rowProps.displayValue ?? formatTiming(rowProps.value)}</span>
+    </div>
+  )
+
   return (
-    <div class="w-64 flex flex-col gap-1.5">
+    <div class="w-[30rem] max-w-[calc(100vw-2rem)] flex flex-col gap-1.5">
       <div class="flex items-center justify-between pb-1.5 border-b border-border">
         <span class="text-xs font-medium text-foreground">{t("response.time")}</span>
-        <span class="text-xs font-semibold tabular-nums text-foreground">{formatTiming(total())}</span>
+        <span class="text-xs font-semibold tabular-nums text-foreground">{formatTiming(waterfall().total)}</span>
       </div>
-      <For each={phases()}>
-        {(p) => {
-          const isCache = () => tm().reused && p.cacheable && p.value <= 0
-          const pct = () => total() > 0 ? Math.min(100, Math.max(0, p.value) / total() * 100) : 0
-          return (
-            <div class="flex items-center gap-2 text-xs">
-              <span class="w-16 shrink-0 text-muted-foreground truncate">{p.label}</span>
-              <div class="flex-1 h-1.5 rounded-full bg-muted overflow-hidden">
-                <Show when={!isCache() && p.value > 0}>
-                  <div class="h-full rounded-full bg-accent" style={{ width: `${pct()}%` }} />
-                </Show>
-              </div>
-              <span class="w-16 shrink-0 text-right tabular-nums text-muted-foreground">
-                {isCache() ? t("timing.cache") : formatTiming(Math.max(0, p.value))}
-              </span>
-            </div>
-          )
-        }}
+      <TimingRow label={t("timing.stalled")} value={waterfall().prepare} group="prepare" muted />
+      <For each={waterfall().phases}>
+        {(phase) => (
+          <TimingRow
+            label={phaseLabel(phase.key)}
+            value={phase.value}
+            group="network"
+            offsetPercent={phase.offsetPercent}
+            widthPercent={phase.widthPercent}
+            displayValue={phaseValue(phase)}
+          />
+        )}
       </For>
+      <TimingRow label={t("timing.process")} value={waterfall().process} group="process" muted />
     </div>
   )
 }

@@ -61,8 +61,14 @@ describe("safeParseJSON", () => {
 describe("toTimingData", () => {
   it("缺省字段补零", () => {
     expect(toTimingData({ total: 12 })).toEqual({
-      total: 12, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0,
-      ttfb: 0, stalled: 0, wait: 0, download: 0, reused: false,
+      total: 12, prepare: 0, socket: 0, dnsLookup: 0, tlsHandshake: 0, tcpConnect: 0,
+      ttfb: 0, stalled: 0, wait: 0, download: 0, process: 0, reused: false, tlsUsed: false,
+    })
+  })
+
+  it("旧计时数据把 stalled 恢复为 Socket，并从 TLS 耗时推断安全连接", () => {
+    expect(toTimingData({ stalled: 4, tlsHandshake: 2 })).toMatchObject({
+      socket: 4, stalled: 4, tlsUsed: true,
     })
   })
 

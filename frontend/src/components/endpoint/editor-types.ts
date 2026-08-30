@@ -270,6 +270,10 @@ export interface OperationExecutionData {
 /** 请求各阶段计时（毫秒，含亚毫秒精度） */
 export interface TimingData {
   total: number
+  /** 进入请求流程 → 开始网络发送 */
+  prepare: number
+  /** 等待可用连接 / 开始新连接 */
+  socket: number
   dnsLookup: number
   tlsHandshake: number
   tcpConnect: number
@@ -280,8 +284,12 @@ export interface TimingData {
   wait: number
   /** 下载内容：首字节 → 读取完成 */
   download: number
+  /** 响应体读取完成 → 响应交付前 */
+  process: number
   /** 连接是否复用（DNS/TCP/TLS 命中缓存） */
   reused: boolean
+  /** 是否实际建立了 TLS 连接 */
+  tlsUsed: boolean
 }
 
 export interface ResponseData {
