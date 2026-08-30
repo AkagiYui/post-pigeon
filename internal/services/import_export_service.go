@@ -23,37 +23,46 @@ func NewImportExportService(db *gorm.DB) *ImportExportService {
 
 // ExportData 导出数据结构
 type ExportData struct {
-	Version      string               `json:"version"`    // 导出格式版本
-	ExportedAt   time.Time            `json:"exportedAt"` // 导出时间
-	Project      models.Project       `json:"project"`
-	Environments []models.Environment `json:"environments"`
-	Modules      []ModuleExport       `json:"modules"`
+	Version         string                  `json:"version"`    // 导出格式版本
+	ExportedAt      time.Time               `json:"exportedAt"` // 导出时间
+	Project         models.Project          `json:"project"`
+	Environments    []models.Environment    `json:"environments"`
+	GlobalVariables []models.GlobalVariable `json:"globalVariables,omitempty"`
+	Scripts         []models.ScriptLibrary  `json:"scripts,omitempty"`
+	Modules         []ModuleExport          `json:"modules"`
 }
 
 // ModuleExport 模块导出数据
 type ModuleExport struct {
 	models.Module
-	BaseURLs  []models.ModuleBaseURL  `json:"baseUrls"`
-	Params    []models.ModuleParam    `json:"params,omitempty"`
-	Variables []models.ModuleVariable `json:"variables,omitempty"`
-	Folders   []FolderExport          `json:"folders"`
-	Endpoints []EndpointExport        `json:"endpoints"`
+	BaseURLs   []models.ModuleBaseURL  `json:"baseUrls"`
+	Params     []models.ModuleParam    `json:"params,omitempty"`
+	Variables  []models.ModuleVariable `json:"variables,omitempty"`
+	Operations []models.Operation      `json:"operations,omitempty"`
+	Folders    []FolderExport          `json:"folders"`
+	Endpoints  []EndpointExport        `json:"endpoints"`
 }
 
 // FolderExport 文件夹导出数据
 type FolderExport struct {
 	models.Folder
-	Children  []FolderExport   `json:"children"`
-	Endpoints []EndpointExport `json:"endpoints"`
+	Operations         []models.Operation         `json:"operations,omitempty"`
+	OperationOverrides []models.OperationOverride `json:"operationOverrides,omitempty"`
+	Children           []FolderExport             `json:"children"`
+	Endpoints          []EndpointExport           `json:"endpoints"`
 }
 
 // EndpointExport 端点导出数据
 type EndpointExport struct {
 	models.Endpoint
-	Params     []models.EndpointParam     `json:"params"`
-	BodyFields []models.EndpointBodyField `json:"bodyFields"`
-	Headers    []models.EndpointHeader    `json:"headers"`
-	Auth       *models.EndpointAuth       `json:"auth"`
+	Params             []models.EndpointParam     `json:"params"`
+	BodyFields         []models.EndpointBodyField `json:"bodyFields"`
+	Headers            []models.EndpointHeader    `json:"headers"`
+	Auth               *models.EndpointAuth       `json:"auth"`
+	Operations         []models.Operation         `json:"operations,omitempty"`
+	OperationOverrides []models.OperationOverride `json:"operationOverrides,omitempty"`
+	Examples           []models.ResponseExample   `json:"examples,omitempty"`
+	Schemas            []models.ResponseSchema    `json:"schemas,omitempty"`
 }
 
 // ExportSecretSummary 导出前的凭据统计，供界面决定要不要问一句。
@@ -272,6 +281,12 @@ func (s *ImportExportService) ExportProject(projectID string, includeSecrets boo
 		s.db.Where("environment_id = ?", environments[i].ID).Find(&environments[i].Variables)
 	}
 
+	var globalVariables []models.GlobalVariable
+	s.db.Where("project_id = ?", projectID).Order("sort_order ASC").Find(&globalVariables)
+
+	var scripts []models.ScriptLibrary
+	s.db.Where("project_id = ?", projectID).Order("sort_order ASC").Find(&scripts)
+
 	// 获取模块
 	var modules []models.Module
 	s.db.Where("project_id = ?", projectID).Order("sort_order ASC").Find(&modules)
@@ -284,6 +299,7 @@ func (s *ImportExportService) ExportProject(projectID string, includeSecrets boo
 		s.db.Where("module_id = ?", module.ID).Find(&me.BaseURLs)
 		s.db.Where("module_id = ?", module.ID).Order("sort_order ASC").Find(&me.Params)
 		s.db.Where("module_id = ?", module.ID).Order("sort_order ASC").Find(&me.Variables)
+		me.Operations = s.exportOperations(s.db, models.OperationOwnerModule, module.ID)
 
 		// 获取顶级文件夹
 		me.Folders = s.exportFolders(s.db, module.ID, nil)
@@ -295,11 +311,13 @@ func (s *ImportExportService) ExportProject(projectID string, includeSecrets boo
 	}
 
 	data := ExportData{
-		Version:      "1.1",
-		ExportedAt:   time.Now(),
-		Project:      project,
-		Environments: environments,
-		Modules:      moduleExports,
+		Version:         "1.2",
+		ExportedAt:      time.Now(),
+		Project:         project,
+		Environments:    environments,
+		GlobalVariables: globalVariables,
+		Scripts:         scripts,
+		Modules:         moduleExports,
 	}
 
 	if !includeSecrets {
@@ -329,9 +347,11 @@ func (s *ImportExportService) exportFolders(db *gorm.DB, moduleID string, parent
 	result := make([]FolderExport, 0, len(folders))
 	for _, folder := range folders {
 		fe := FolderExport{
-			Folder:    folder,
-			Children:  s.exportFolders(db, moduleID, &folder.ID),
-			Endpoints: s.exportEndpoints(db, moduleID, &folder.ID),
+			Folder:             folder,
+			Operations:         s.exportOperations(db, models.OperationOwnerFolder, folder.ID),
+			OperationOverrides: s.exportOperationOverrides(db, models.OperationOwnerFolder, folder.ID),
+			Children:           s.exportFolders(db, moduleID, &folder.ID),
+			Endpoints:          s.exportEndpoints(db, moduleID, &folder.ID),
 		}
 		result = append(result, fe)
 	}
@@ -356,9 +376,26 @@ func (s *ImportExportService) exportEndpoints(db *gorm.DB, moduleID string, fold
 		db.Where("endpoint_id = ?", endpoint.ID).Order("sort_order ASC").Find(&ee.BodyFields)
 		db.Where("endpoint_id = ?", endpoint.ID).Find(&ee.Headers)
 		db.Where("endpoint_id = ?", endpoint.ID).First(&ee.Auth)
+		ee.Operations = s.exportOperations(db, models.OperationOwnerEndpoint, endpoint.ID)
+		ee.OperationOverrides = s.exportOperationOverrides(db, models.OperationOwnerEndpoint, endpoint.ID)
+		db.Where("endpoint_id = ?", endpoint.ID).Order("sort_order ASC").Find(&ee.Examples)
+		db.Where("endpoint_id = ?", endpoint.ID).Order("sort_order ASC").Find(&ee.Schemas)
 		result = append(result, ee)
 	}
 	return result
+}
+
+func (s *ImportExportService) exportOperations(db *gorm.DB, ownerType models.OperationOwnerType, ownerID string) []models.Operation {
+	var operations []models.Operation
+	db.Where("owner_type = ? AND owner_id = ?", string(ownerType), ownerID).
+		Order("stage ASC, sort_order ASC").Find(&operations)
+	return operations
+}
+
+func (s *ImportExportService) exportOperationOverrides(db *gorm.DB, ownerType models.OperationOwnerType, ownerID string) []models.OperationOverride {
+	var overrides []models.OperationOverride
+	db.Where("owner_type = ? AND owner_id = ?", string(ownerType), ownerID).Find(&overrides)
+	return overrides
 }
 
 // ImportProject 从 JSON 导入项目
@@ -376,21 +413,37 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 	var project *models.Project
 	err := s.db.Transaction(func(tx *gorm.DB) error {
 		// 创建项目（生成新 ID 避免冲突）
-		project = &models.Project{
-			Name:                 data.Project.Name,
-			Description:          data.Project.Description,
-			ProxySettings:        data.Project.ProxySettings,
-			TLSSettings:          data.Project.TLSSettings,
-			URLEncoding:          data.Project.URLEncoding,
-			WSProtocolConversion: data.Project.WSProtocolConversion,
-			TimeoutMode:          data.Project.TimeoutMode,
-			Timeout:              data.Project.Timeout,
-			FollowRedirects:      data.Project.FollowRedirects,
-			SendNoCacheHeaders:   data.Project.SendNoCacheHeaders,
-		}
+		importedProject := data.Project
+		importedProject.ID = ""
+		importedProject.CreatedAt, importedProject.UpdatedAt = time.Time{}, time.Time{}
+		importedProject.Modules = nil
+		importedProject.Environments = nil
+		importedProject.GlobalVariables = nil
+		importedProject.Scripts = nil
+		project = &importedProject
 		if err := tx.Create(project).Error; err != nil {
 			return fmt.Errorf("创建项目失败: %w", err)
 		}
+
+		for _, variable := range data.GlobalVariables {
+			variable.ID, variable.ProjectID = "", project.ID
+			if err := tx.Create(&variable).Error; err != nil {
+				return err
+			}
+		}
+
+		// 脚本要先于操作导入，libraryScript 操作才能改写成新脚本 ID。
+		scriptIDMap := make(map[string]string, len(data.Scripts))
+		for _, script := range data.Scripts {
+			oldID := script.ID
+			script.ID, script.ProjectID = "", project.ID
+			script.CreatedAt, script.UpdatedAt = time.Time{}, time.Time{}
+			if err := tx.Create(&script).Error; err != nil {
+				return err
+			}
+			scriptIDMap[oldID] = script.ID
+		}
+		operationIDMap := make(map[string]string)
 
 		// 旧环境 ID -> 新环境 ID 映射，用于恢复模块前置 URL
 		envIDMap := make(map[string]string)
@@ -426,22 +479,17 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 
 		// 导入模块
 		for _, me := range data.Modules {
-			newModule := models.Module{
-				ProjectID:            project.ID,
-				Name:                 me.Name,
-				SortOrder:            me.SortOrder,
-				AuthType:             me.AuthType,
-				AuthData:             me.AuthData,
-				EndpointDisplay:      me.EndpointDisplay,
-				WSProtocolConversion: me.WSProtocolConversion,
-				ProxyConfig:          me.ProxyConfig,
-				TLSConfig:            me.TLSConfig,
-				URLEncoding:          me.URLEncoding,
-				TimeoutMode:          me.TimeoutMode,
-				Timeout:              me.Timeout,
-				FollowRedirects:      me.FollowRedirects,
-				SendNoCacheHeaders:   me.SendNoCacheHeaders,
-			}
+			newModule := me.Module
+			newModule.ID, newModule.ProjectID = "", project.ID
+			newModule.CreatedAt, newModule.UpdatedAt = time.Time{}, time.Time{}
+			newModule.BaseURLs = nil
+			newModule.Params = nil
+			newModule.Variables = nil
+			newModule.Endpoints = nil
+			newModule.Folders = nil
+			newModule.Histories = nil
+			newModule.RequestRuns = nil
+			newModule.Operations = nil
 			if err := tx.Create(&newModule).Error; err != nil {
 				return err
 			}
@@ -474,13 +522,17 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 				}
 			}
 
+			if err := importOperations(tx, models.OperationOwnerModule, newModule.ID, me.Operations, scriptIDMap, operationIDMap); err != nil {
+				return err
+			}
+
 			// 导入文件夹
-			if err := s.importFolders(tx, newModule.ID, nil, me.Folders, data.Version); err != nil {
+			if err := s.importFolders(tx, newModule.ID, nil, me.Folders, data.Version, scriptIDMap, operationIDMap); err != nil {
 				return err
 			}
 
 			// 导入直属端点
-			if err := s.importEndpoints(tx, newModule.ID, nil, me.Endpoints, data.Version); err != nil {
+			if err := s.importEndpoints(tx, newModule.ID, nil, me.Endpoints, data.Version, scriptIDMap, operationIDMap); err != nil {
 				return err
 			}
 		}
@@ -497,35 +549,31 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 }
 
 // importFolders 递归导入文件夹
-func (s *ImportExportService) importFolders(tx *gorm.DB, moduleID string, parentID *string, folders []FolderExport, version string) error {
+func (s *ImportExportService) importFolders(tx *gorm.DB, moduleID string, parentID *string, folders []FolderExport, version string, scriptIDMap, operationIDMap map[string]string) error {
 	for _, fe := range folders {
-		newFolder := models.Folder{
-			ModuleID:             moduleID,
-			ParentID:             parentID,
-			Name:                 fe.Name,
-			SortOrder:            fe.SortOrder,
-			AuthType:             fe.AuthType,
-			AuthData:             fe.AuthData,
-			WSProtocolConversion: fe.WSProtocolConversion,
-			ProxyConfig:          fe.ProxyConfig,
-			TLSConfig:            fe.TLSConfig,
-			URLEncoding:          fe.URLEncoding,
-			TimeoutMode:          fe.TimeoutMode,
-			Timeout:              fe.Timeout,
-			FollowRedirects:      fe.FollowRedirects,
-			SendNoCacheHeaders:   fe.SendNoCacheHeaders,
-		}
+		newFolder := fe.Folder
+		newFolder.ID, newFolder.ModuleID, newFolder.ParentID = "", moduleID, parentID
+		newFolder.CreatedAt, newFolder.UpdatedAt = time.Time{}, time.Time{}
+		newFolder.Children = nil
+		newFolder.Endpoints = nil
+		newFolder.Operations = nil
 		if err := tx.Create(&newFolder).Error; err != nil {
+			return err
+		}
+		if err := importOperations(tx, models.OperationOwnerFolder, newFolder.ID, fe.Operations, scriptIDMap, operationIDMap); err != nil {
+			return err
+		}
+		if err := importOperationOverrides(tx, models.OperationOwnerFolder, newFolder.ID, fe.OperationOverrides, operationIDMap); err != nil {
 			return err
 		}
 
 		// 递归导入子文件夹
-		if err := s.importFolders(tx, moduleID, &newFolder.ID, fe.Children, version); err != nil {
+		if err := s.importFolders(tx, moduleID, &newFolder.ID, fe.Children, version, scriptIDMap, operationIDMap); err != nil {
 			return err
 		}
 
 		// 导入端点
-		if err := s.importEndpoints(tx, moduleID, &newFolder.ID, fe.Endpoints, version); err != nil {
+		if err := s.importEndpoints(tx, moduleID, &newFolder.ID, fe.Endpoints, version, scriptIDMap, operationIDMap); err != nil {
 			return err
 		}
 	}
@@ -533,28 +581,22 @@ func (s *ImportExportService) importFolders(tx *gorm.DB, moduleID string, parent
 }
 
 // importEndpoints 导入端点
-func (s *ImportExportService) importEndpoints(tx *gorm.DB, moduleID string, folderID *string, endpoints []EndpointExport, version string) error {
+func (s *ImportExportService) importEndpoints(tx *gorm.DB, moduleID string, folderID *string, endpoints []EndpointExport, version string, scriptIDMap, operationIDMap map[string]string) error {
 	for _, ee := range endpoints {
-		newEndpoint := models.Endpoint{
-			ModuleID:             moduleID,
-			FolderID:             folderID,
-			Name:                 ee.Name,
-			Method:               ee.Method,
-			Path:                 ee.Path,
-			BodyType:             ee.BodyType,
-			BodyContent:          ee.BodyContent,
-			ContentType:          ee.ContentType,
-			Timeout:              ee.Timeout,
-			TimeoutMode:          importTimeoutMode(version, ee.TimeoutMode, ee.Timeout),
-			FollowRedirects:      ee.FollowRedirects,
-			SendNoCacheHeaders:   ee.SendNoCacheHeaders,
-			ProxyConfig:          ee.ProxyConfig,
-			TLSConfig:            ee.TLSConfig,
-			URLEncoding:          ee.URLEncoding,
-			WSProtocolConversion: ee.WSProtocolConversion,
-			InheritOperations:    ee.InheritOperations,
-			SortOrder:            ee.SortOrder,
-		}
+		newEndpoint := ee.Endpoint
+		newEndpoint.ID, newEndpoint.ModuleID, newEndpoint.FolderID = "", moduleID, folderID
+		newEndpoint.TimeoutMode = importTimeoutMode(version, ee.TimeoutMode, ee.Timeout)
+		newEndpoint.CreatedAt, newEndpoint.UpdatedAt = time.Time{}, time.Time{}
+		newEndpoint.Params = nil
+		newEndpoint.BodyFields = nil
+		newEndpoint.Headers = nil
+		newEndpoint.Auth = nil
+		newEndpoint.Response = nil
+		newEndpoint.Examples = nil
+		newEndpoint.Schemas = nil
+		newEndpoint.Histories = nil
+		newEndpoint.RequestRuns = nil
+		newEndpoint.Operations = nil
 		if err := tx.Create(&newEndpoint).Error; err != nil {
 			return err
 		}
@@ -568,6 +610,9 @@ func (s *ImportExportService) importEndpoints(tx *gorm.DB, moduleID string, fold
 				Value:       p.Value,
 				Description: p.Description,
 				Enabled:     p.Enabled,
+				DataType:    p.DataType,
+				Required:    p.Required,
+				Example:     p.Example,
 			}
 			if err := tx.Create(&newParam).Error; err != nil {
 				return err
@@ -595,6 +640,8 @@ func (s *ImportExportService) importEndpoints(tx *gorm.DB, moduleID string, fold
 				Value:       h.Value,
 				Description: h.Description,
 				Enabled:     h.Enabled,
+				Required:    h.Required,
+				Example:     h.Example,
 			}
 			if err := tx.Create(&newHeader).Error; err != nil {
 				return err
@@ -611,6 +658,57 @@ func (s *ImportExportService) importEndpoints(tx *gorm.DB, moduleID string, fold
 			if err := tx.Create(&newAuth).Error; err != nil {
 				return err
 			}
+		}
+
+		for _, example := range ee.Examples {
+			example.ID, example.EndpointID = "", newEndpoint.ID
+			if err := tx.Create(&example).Error; err != nil {
+				return err
+			}
+		}
+		for _, schema := range ee.Schemas {
+			schema.ID, schema.EndpointID = "", newEndpoint.ID
+			if err := tx.Create(&schema).Error; err != nil {
+				return err
+			}
+		}
+		if err := importOperations(tx, models.OperationOwnerEndpoint, newEndpoint.ID, ee.Operations, scriptIDMap, operationIDMap); err != nil {
+			return err
+		}
+		if err := importOperationOverrides(tx, models.OperationOwnerEndpoint, newEndpoint.ID, ee.OperationOverrides, operationIDMap); err != nil {
+			return err
+		}
+	}
+	return nil
+}
+
+func importOperations(tx *gorm.DB, ownerType models.OperationOwnerType, ownerID string, operations []models.Operation, scriptIDMap, operationIDMap map[string]string) error {
+	for _, operation := range operations {
+		oldID := operation.ID
+		operation.ID = ""
+		operation.OwnerType, operation.OwnerID = string(ownerType), ownerID
+		if operation.Type == string(models.OpTypeLibraryScript) {
+			operation.Data = remapLibraryScriptID(operation.Data, scriptIDMap)
+		}
+		if err := tx.Create(&operation).Error; err != nil {
+			return err
+		}
+		operationIDMap[oldID] = operation.ID
+	}
+	return nil
+}
+
+func importOperationOverrides(tx *gorm.DB, ownerType models.OperationOwnerType, ownerID string, overrides []models.OperationOverride, operationIDMap map[string]string) error {
+	for _, override := range overrides {
+		operationID, ok := operationIDMap[override.OperationID]
+		if !ok {
+			// 兼容包含过期覆盖记录的旧项目；没有对应操作时保留它没有意义。
+			continue
+		}
+		override.ID = ""
+		override.OwnerType, override.OwnerID, override.OperationID = string(ownerType), ownerID, operationID
+		if err := tx.Create(&override).Error; err != nil {
+			return err
 		}
 	}
 	return nil
