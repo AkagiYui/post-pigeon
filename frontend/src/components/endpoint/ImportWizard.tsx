@@ -20,7 +20,7 @@ import { nativeFileDropAvailable, onFilesDropped } from "@/stores/fileDrop"
 import { toastError } from "@/stores/toast"
 
 /** 支持的导入格式。project 是本应用自己的项目导出文件（仅首页「导入项目」用） */
-export type ImportKind = "postman" | "apifox" | "openapi" | "project"
+export type ImportKind = "postman" | "apifox" | "openapi" | "har" | "insomnia" | "project"
 
 /** 文档内容的来源 */
 type ImportSource = "file" | "url" | "text"
@@ -39,11 +39,13 @@ const KIND_META: Record<ImportKind, KindMeta> = {
   openapi: { kind: "openapi", icon: "lucide:file-json", iconClass: "text-emerald-500" },
   postman: { kind: "postman", icon: "lucide:file-down", iconClass: "text-amber-600" },
   apifox: { kind: "apifox", icon: "lucide:file-down", iconClass: "text-orange-500" },
+  har: { kind: "har", icon: "lucide:network", iconClass: "text-cyan-600" },
+  insomnia: { kind: "insomnia", icon: "lucide:moon", iconClass: "text-violet-500" },
   project: { kind: "project", icon: "lucide:package", iconClass: "text-sky-500" },
 }
 
-/** 「导入接口」默认可选的三种格式 */
-const DEFAULT_KINDS: ImportKind[] = ["openapi", "postman", "apifox"]
+/** 「导入接口」默认可选格式，按交换场景的常用程度排列。 */
+const DEFAULT_KINDS: ImportKind[] = ["openapi", "postman", "apifox", "har", "insomnia"]
 
 const SOURCES: { source: ImportSource; icon: string }[] = [
   { source: "file", icon: "lucide:file-up" },
@@ -61,7 +63,7 @@ export interface ImportWizardDialogProps {
   /** 对话框标题，默认「导入接口」 */
   title?: string
   /** 读取到文档内容后的回调，由调用方打开对应格式的预览对话框 */
-  onLoaded: (kind: ImportKind, text: string) => void
+  onLoaded: (kind: ImportKind, text: string) => void | Promise<void>
 }
 
 export function ImportWizardDialog(props: ImportWizardDialogProps) {
@@ -116,7 +118,7 @@ export function ImportWizardDialog(props: ImportWizardDialogProps) {
   const pickFile = () => {
     const input = document.createElement("input")
     input.type = "file"
-    input.accept = "application/json,.json"
+    input.accept = "application/json,.json,.har"
     input.onchange = () => {
       const file = input.files?.[0]
       if (file) void acceptFile(file)
@@ -144,13 +146,13 @@ export function ImportWizardDialog(props: ImportWizardDialogProps) {
 
   const confirm = async () => {
     if (!ready()) return
-    if (source() === "file") { props.onLoaded(kind(), fileText()); return }
-    if (source() === "text") { props.onLoaded(kind(), text().trim()); return }
+    if (source() === "file") { await props.onLoaded(kind(), fileText()); return }
+    if (source() === "text") { await props.onLoaded(kind(), text().trim()); return }
     // URL 由后端拉取：WebView 里的跨域请求会被 CORS 拦下
     setLoading(true)
     try {
       const fetched = await ImportExportService.FetchImportDocument(url().trim())
-      if (fetched) props.onLoaded(kind(), fetched)
+      if (fetched) await props.onLoaded(kind(), fetched)
     } catch (e) {
       toastError(e, "error.importexport.fetch_failed")
     } finally {
@@ -165,8 +167,7 @@ export function ImportWizardDialog(props: ImportWizardDialogProps) {
         <Show when={!props.fixedKind}>
           <div class="flex flex-col gap-2">
             <span class="text-xs font-medium text-muted-foreground">{t("import.kindLabel")}</span>
-            {/* 列数跟着可选格式数走：两种格式时占满，不留一格空白 */}
-            <div class="grid gap-2" style={{ "grid-template-columns": `repeat(${kinds().length}, minmax(0, 1fr))` }}>
+            <div class="grid grid-cols-2 gap-2 sm:grid-cols-3">
               <For each={kinds().map(k => KIND_META[k])}>
                 {(meta) => (
                   <button

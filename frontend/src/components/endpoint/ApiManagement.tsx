@@ -597,17 +597,33 @@ export function ApiManagement(props: ApiManagementProps) {
   /** 从模块菜单进入时锁定为 OpenAPI；项目级入口不锁 */
   const [wizardKind, setWizardKind] = createSignal<ImportKind | undefined>()
 
-  const handleWizardLoaded = (kind: ImportKind, text: string) => {
+  const handleWizardLoaded = async (kind: ImportKind, text: string) => {
     setWizardOpen(false)
-    if (kind === "postman") {
-      setPostmanJson(text)
-      setPostmanOpen(true)
-    } else if (kind === "apifox") {
+    if (kind === "apifox") {
       setApifoxJson(text)
       setApifoxOpen(true)
-    } else {
+      return
+    }
+    if (kind === "openapi") {
       setOpenApiJson(text)
       setOpenApiOpen(true)
+      return
+    }
+    try {
+      const converted = kind === "postman"
+        ? { kind, content: text }
+        : await ImportExportService.ConvertImportDocument(kind, text)
+      if (converted?.kind === "postman") {
+        setPostmanJson(converted.content)
+        setPostmanOpen(true)
+      } else if (converted?.kind === "openapi") {
+        setOpenApiJson(converted.content)
+        setOpenApiOpen(true)
+      } else {
+        throw new Error(`Unsupported converted import kind: ${converted?.kind || "empty"}`)
+      }
+    } catch (e) {
+      toastError(e, "error.op.importFailed")
     }
   }
 
