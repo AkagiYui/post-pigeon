@@ -11,6 +11,8 @@ Release 正文后面备查。
 
 ## [未发布]
 
+## [0.0.7-beta.1] - 2026-08-30
+
 ### 新增
 
 - **form-data / x-www-form-urlencoded 编辑与 Apifox 对齐**：表单请求体改用与参数、请求头一致的
