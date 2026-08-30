@@ -63,7 +63,19 @@ const methodColors: Record<string, string> = {
 const defaultMethodColor = "text-gray-600 dark:text-gray-400 bg-gray-500/10 dark:bg-gray-400/10"
 
 /** 请求设置标签 key（用于持久化状态校验） */
-const REQUEST_TAB_KEYS = ["message", "params", "body", "headers", "cookies", "auth", "preOperations", "postOperations", "settings"]
+const REQUEST_TAB_KEYS = ["message", "params", "body", "headers", "cookies", "auth", "preOperations", "postOperations", "settings"] as const
+
+export type EndpointRequestTabKey = typeof REQUEST_TAB_KEYS[number]
+
+function isEndpointRequestTabKey(value: string): value is EndpointRequestTabKey {
+  return (REQUEST_TAB_KEYS as readonly string[]).includes(value)
+}
+
+export interface EndpointRequestTabIntent {
+  endpointId: string
+  tab: EndpointRequestTabKey
+  requestId: number
+}
 
 /** 带数字徽标的标签标题：count>0 时在标题右侧显示计数气泡 */
 function tabLabelWithCount(label: string, count: number): JSX.Element {
@@ -136,6 +148,10 @@ export interface EndpointDetailProps {
   globalQueryParams?: { name: string; value: string }[]
   /** 从模块/文件夹链继承的、已启用的前置/后置操作数量（用于操作/参数 tab 计数包含"全局"部分） */
   inheritedOpCounts?: { pre: number; post: number }
+  /** 从接口树发起的标签定位请求；requestId 用于重复定位同一接口 */
+  requestTabIntent?: EndpointRequestTabIntent
+  /** 标签定位请求已处理，供调用方清除一次性意图 */
+  onRequestTabIntentHandled?: (requestId: number) => void
 }
 
 // 按端点 ID 持久化标签页状态，避免组件重新挂载时丢失
@@ -269,7 +285,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
       if (saved) {
         // 兼容旧缓存（如已废弃的 "script" tab）：非法 key 回退到 params
         const canRestoreMessageTab = isWs() && saved.requestTab === "message"
-        setActiveRequestTab(canRestoreMessageTab || (saved.requestTab !== "message" && REQUEST_TAB_KEYS.includes(saved.requestTab))
+        setActiveRequestTab(canRestoreMessageTab || (saved.requestTab !== "message" && isEndpointRequestTabKey(saved.requestTab))
           ? saved.requestTab
           : isWs() ? "message" : "params")
         setActiveResponseTab(saved.responseTab)
@@ -277,6 +293,19 @@ export function EndpointDetail(props: EndpointDetailProps) {
         setActiveRequestTab(isWs() ? "message" : "params")
         setActiveResponseTab("body")
       }
+    },
+  ))
+
+  // 接口树的 Option/Alt + 单击可在打开接口后直接定位到设置；同时监听端点 ID，
+  // 以覆盖首次加载详情时“意图先到、端点数据后到”的异步时序。
+  createEffect(on(
+    () => [ep().id, props.requestTabIntent?.requestId] as const,
+    () => {
+      const intent = props.requestTabIntent
+      if (!intent || intent.endpointId !== ep().id) return
+      if (intent.tab === "message" && !isWs()) return
+      setActiveRequestTab(intent.tab)
+      props.onRequestTabIntentHandled?.(intent.requestId)
     },
   ))
 

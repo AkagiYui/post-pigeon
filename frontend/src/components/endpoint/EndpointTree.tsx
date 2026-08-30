@@ -28,13 +28,18 @@ export interface TreeNode {
   parentId?: string
 }
 
+export interface TreeSelectOptions {
+  /** 打开接口详情后定位到指定请求标签 */
+  requestTab?: "settings"
+}
+
 export interface EndpointTreeProps {
   /** 树数据 */
   data: TreeNode[]
   /** 当前选中的端点 ID */
   selectedId?: string
   /** 选中回调 */
-  onSelect?: (node: TreeNode) => void
+  onSelect?: (node: TreeNode, options?: TreeSelectOptions) => void
   /** 创建模块回调 */
   onCreateModule?: () => void
   /** 创建端点回调 */
@@ -450,7 +455,7 @@ function TreeNodeItem(props: {
   level: number
   selectedId?: string
   expandedIds: Set<string>
-  onSelect?: (node: TreeNode) => void
+  onSelect?: (node: TreeNode, options?: TreeSelectOptions) => void
   onToggle: (id: string) => void
   handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onExportOpenAPI" | "onRunCollection" | "onOpenSettings" | "onSetEndpointDisplay" | "onConvertToModule">
   defaultModuleId?: string
@@ -519,7 +524,17 @@ function TreeNodeItem(props: {
           isDragging() && "opacity-40",
         )}
         style={{ "padding-left": `${props.level * 16 + 8}px`, "box-shadow": dropShadow() }}
-        onClick={() => {
+        onClick={(event) => {
+          // Option/Alt + 单击是节点设置的快速入口，不触发普通的展开或打开行为。
+          if (event.altKey) {
+            event.preventDefault()
+            if (props.node.type === "endpoint") {
+              props.onSelect?.(props.node, { requestTab: "settings" })
+            } else {
+              props.handlers.onOpenSettings?.(props.node)
+            }
+            return
+          }
           // 模块和文件夹点击切换展开/收起（即使无子节点，图标也会变化）
           if (props.node.type !== "endpoint") {
             props.onToggle(props.node.id)

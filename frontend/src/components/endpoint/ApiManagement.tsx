@@ -37,8 +37,8 @@ import {
   toParamModels,
   toTimingData,
 } from "@/components/endpoint/endpoint-data"
-import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EnvironmentBaseURLOption, type HeaderRow, type OperationRow, type ParamRow, type ResponseData, type TimingData } from "@/components/endpoint/EndpointDetail"
-import { EndpointTree, type TreeNode } from "@/components/endpoint/EndpointTree"
+import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EndpointRequestTabIntent, type EnvironmentBaseURLOption, type HeaderRow, type OperationRow, type ParamRow, type ResponseData, type TimingData } from "@/components/endpoint/EndpointDetail"
+import { EndpointTree, type TreeNode, type TreeSelectOptions } from "@/components/endpoint/EndpointTree"
 import { resolveEnvironmentBaseURLs } from "@/components/endpoint/environment-base-urls"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
 import {
@@ -218,6 +218,8 @@ export function ApiManagement(props: ApiManagementProps) {
   // 模块/文件夹设置对话框
   const [scopeSettingsOpen, setScopeSettingsOpen] = createSignal(false)
   const [scopeSettingsNode, setScopeSettingsNode] = createSignal<TreeNode | null>(null)
+  const [requestTabIntent, setRequestTabIntent] = createSignal<EndpointRequestTabIntent>()
+  let requestTabIntentId = 0
 
   // ---- 加载项目树数据 ----
   const loadTree = async () => {
@@ -649,8 +651,11 @@ export function ApiManagement(props: ApiManagementProps) {
   }
 
   // ---- 选择已保存的端点 ----
-  const handleSelectNode = async (node: TreeNode) => {
+  const handleSelectNode = async (node: TreeNode, options?: TreeSelectOptions) => {
     if (node.type !== "endpoint") return
+    if (options?.requestTab) {
+      setRequestTabIntent({ endpointId: node.id, tab: options.requestTab, requestId: ++requestTabIntentId })
+    }
     const existing = requestTabs().findIndex(t => t.id === node.id)
     if (existing >= 0) {
       setActiveTabId(node.id)
@@ -1354,6 +1359,10 @@ export function ApiManagement(props: ApiManagementProps) {
                 projectId={props.projectId}
                 globalQueryParams={globalQueryParams()}
                 inheritedOpCounts={inheritedOpCounts()}
+                requestTabIntent={requestTabIntent()}
+                onRequestTabIntentHandled={(requestId) => {
+                  setRequestTabIntent(intent => intent?.requestId === requestId ? undefined : intent)
+                }}
               /> : null}
             </Tabs>
           </Show>
