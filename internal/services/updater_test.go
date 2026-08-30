@@ -153,3 +153,16 @@ func TestApplySettingsWithoutManager(t *testing.T) {
 	svc := NewUpdaterService(db, nil, testChangelog)
 	svc.ApplySettings(models.UpdateSettings{IncludePrerelease: true, SkippedVersion: "9.9.9"})
 }
+
+func TestUserFacingReleaseNotesDropsCommitAppendix(t *testing.T) {
+	const notes = "### 新增\n\n- 用户功能\n\n<!-- postpigeon:commit-details -->\n<details>提交</details>"
+	if got, want := userFacingReleaseNotes(notes), "### 新增\n\n- 用户功能"; got != want {
+		t.Errorf("兜底发布说明 = %q，期望 %q", got, want)
+	}
+	if got := userFacingReleaseNotes("  只有正文  \n"); got != "只有正文" {
+		t.Errorf("无标记正文应只去首尾空白，实际 %q", got)
+	}
+	if got := userFacingReleaseNotes("正文\n\n<details><summary>完整提交记录</summary>\n旧附录"); got != "正文" {
+		t.Errorf("旧版提交附录也应隐藏，实际 %q", got)
+	}
+}

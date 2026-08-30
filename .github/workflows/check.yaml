@@ -83,6 +83,9 @@ jobs:
       - name: 单元测试（含竞态检测与覆盖率）
         run: go test -race -coverprofile=coverage.out -covermode=atomic ./internal/... ./testserver/...
 
+      - name: 发版脚本单元测试
+        run: python3 -m unittest discover -s scripts -p 'test_*.py'
+
       - name: 覆盖率摘要
         run: |
           go tool cover -func=coverage.out | tail -1

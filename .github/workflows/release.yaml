@@ -421,17 +421,20 @@ jobs:
           sha256sum -- * > ../SHA256SUMS
           cat ../SHA256SUMS
 
-      # 发布说明以 CHANGELOG.md 为准（人工润色、面向使用者），
-      # 由提交生成的详细清单折叠在后面备查。
+      # 发布说明以 CHANGELOG.md 为准（人工润色、面向使用者）。正式版的范围固定为
+      # 「上一个正式版..本版」，中间的 beta / rc 小节也会收进正文；预发布版才以
+      # 上一个语义化版本为基线。由提交生成的详细清单折叠在后面备查，并复用同一
+      # 套区间算法，避免两个区块各说各话。
       # CHANGELOG.md 本身也作为资产上传：应用要靠它做跨版本的变更日志聚合，
       # 一次请求拿到完整历史，不必受 GitHub API 未认证限流的约束。
       - name: 生成发布说明
         run: |
           set -euo pipefail
           TAG="${{ steps.version.outputs.tag }}"
-          python3 scripts/extract_changelog.py "$TAG" > RELEASE_NOTES.md
+          python3 scripts/extract_changelog.py "$TAG" --release-notes > RELEASE_NOTES.md
           {
             echo
+            echo "<!-- postpigeon:commit-details -->"
             echo "<details><summary>完整提交记录</summary>"
             echo
             python3 scripts/generate_changelog.py "$TAG"

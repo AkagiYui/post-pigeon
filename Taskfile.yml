@@ -41,7 +41,7 @@ tasks:
       - task: check:frontend
 
   check:go:
-    summary: Go 侧校验：gofmt + vet + build + race 测试
+    summary: Go 与发版脚本校验：gofmt + vet + build + race 测试 + Python 单测
     cmds:
       - |
         unformatted=$(gofmt -l . | grep -v '^frontend/' || true)
@@ -51,6 +51,7 @@ tasks:
       - go vet ./...
       - go build ./...
       - go test -race ./internal/... ./testserver/...
+      - python3 -m unittest discover -s scripts -p 'test_*.py'
 
   check:frontend:
     summary: 前端校验：类型检查 + ESLint + 单元测试
@@ -64,6 +65,7 @@ tasks:
     summary: 跑全部单元测试（Go + 前端）
     cmds:
       - go test ./internal/... ./testserver/...
+      - python3 -m unittest discover -s scripts -p 'test_*.py'
       - task: test:frontend
 
   test:frontend:

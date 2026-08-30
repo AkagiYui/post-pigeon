@@ -119,8 +119,9 @@ go test ./internal/database/
 所以值得认真写：
 
 1. 仓库里直接阅读；
-2. 发版时 [scripts/extract_changelog.py](scripts/extract_changelog.py) 抽出对应
-   版本的小节作为 GitHub Release 正文（由 commit 生成的详细清单折叠在后面备查）；
+2. 发版时 [scripts/extract_changelog.py](scripts/extract_changelog.py) 生成 GitHub
+   Release 正文：预发布版只写本版本，正式版则汇总「上一个正式版 → 本版本」之间
+   的全部小节（包括 beta / rc）；由 commit 生成的详细清单折叠在后面备查；
 3. 应用内的更新提示——CHANGELOG.md 会作为 Release 资产上传，应用下载全文后按
    「当前版本 → 新版本」的区间截取，这样跨多个版本升级时中间版本的内容也不会丢。
 
@@ -149,6 +150,8 @@ git push origin v1.2.0
 
 [release 工作流](.github/workflows/release.yaml) 会校验发版信息、跑完整 CI、
 构建四个平台的产物、生成 `SHA256SUMS`，并连同 `CHANGELOG.md` 一起创建 Release。
+正式版发布说明与提交清单都以上一个**正式版** tag 为比较基线，不会被中间的
+beta / rc tag 截断；预发布版则与上一个语义化版本 tag 比较。
 
 ### 版本号必须三处一致
 

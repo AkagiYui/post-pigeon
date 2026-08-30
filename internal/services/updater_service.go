@@ -4,6 +4,7 @@ import (
 	"context"
 	"errors"
 	"log/slog"
+	"strings"
 	"time"
 
 	"PostPigeon/internal/apperr"
@@ -237,14 +238,31 @@ func (s *UpdaterService) GetPendingChangelog() (UpdateChangelog, error) {
 	md, err := s.mgr.FetchChangelog(ctx, rel.Version)
 	if err != nil {
 		slog.Warn("拉取远端变更日志失败，回退到 Release 说明", "version", rel.Version, "error", err)
-		return UpdateChangelog{Fallback: rel.Notes}, nil
+		return UpdateChangelog{Fallback: userFacingReleaseNotes(rel.Notes)}, nil
 	}
 
 	entries := changelog.Between(changelog.Parse(md), s.mgr.CurrentVersion(), rel.Version)
 	if len(entries) == 0 {
-		return UpdateChangelog{Fallback: rel.Notes}, nil
+		return UpdateChangelog{Fallback: userFacingReleaseNotes(rel.Notes)}, nil
 	}
 	return UpdateChangelog{Entries: entries}, nil
+}
+
+// userFacingReleaseNotes 去掉 Release 正文里只供开发者排查的提交附录。正常路径会
+// 下载结构化 CHANGELOG.md；这个兜底也应只给用户看人工整理的内容，不能因为资产
+// 暂时拉不到就突然塞进几十条 commit hash。
+func userFacingReleaseNotes(notes string) string {
+	markers := [...]string{
+		"<!-- postpigeon:commit-details -->",
+		// 兼容加入显式标记之前已经发布的版本。
+		"<details><summary>完整提交记录</summary>",
+	}
+	for _, marker := range markers {
+		if before, _, found := strings.Cut(notes, marker); found {
+			return strings.TrimSpace(before)
+		}
+	}
+	return strings.TrimSpace(notes)
 }
 
 // releaseInfo 把 updater 的 Release 转成前端用的摘要。

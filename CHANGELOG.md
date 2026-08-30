@@ -1,8 +1,8 @@
 # 变更日志
 
 本文件是面向使用者的变更日志的唯一事实源：发版时
-[scripts/extract_changelog.py](scripts/extract_changelog.py) 会抽出对应版本的小节
-作为 GitHub Release 正文，应用内的更新提示也读它（详见
+[scripts/extract_changelog.py](scripts/extract_changelog.py) 会生成 GitHub Release
+正文（正式版汇总上一个正式版之后的全部小节），应用内的更新提示也读它（详见
 [CONTRIBUTING.md](CONTRIBUTING.md#变更日志)）。由 commit 生成的详细清单折叠在
 Release 正文后面备查。
 
@@ -114,6 +114,15 @@ Release 正文后面备查。
   本地文件（可拖入）、URL、粘贴文本三种来源。可选格式为本应用自己的项目导出文件，
   以及 **Apifox——直接导入成一个新项目**，导入前可以改项目名（默认填好导出文件里的
   项目名）、也可以只勾选要导入的接口。建项目与导入在同一个事务里，导入失败不会留下空项目
+
+### 变更
+
+- **正式版更新日志统一与上一个正式版比较**：GitHub Release 的用户说明和折叠的提交清单
+  现在共用同一个语义化版本区间。正式版会汇总上一个正式版之后的全部 CHANGELOG 小节，
+  beta / rc 不会再被误当成基线而漏掉预发布阶段的内容；只有预发布版才与上一个语义化版本比较
+- **应用内更新日志更容易扫读**：跨版本升级会显示涉及的版本数和用户可见变更总数，预发布版本
+  有独立标记，所有待升级版本默认展开。远端 CHANGELOG 资产暂时取不到时，Release 正文也会按
+  Markdown 正常显示，并自动隐藏只供开发排查的 commit hash 附录
 
 ### 修复
 

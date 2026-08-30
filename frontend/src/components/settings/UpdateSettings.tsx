@@ -12,7 +12,7 @@ import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { ExternalLink } from "@/components/ui/external-link"
 import { t } from "@/hooks/useI18n"
-import { renderMarkdownInline } from "@/lib/markdown"
+import { renderMarkdown, renderMarkdownInline } from "@/lib/markdown"
 import { toastError, toastSuccess } from "@/stores/toast"
 import {
   checkForUpdate,
@@ -255,12 +255,20 @@ export function UpdateSettings() {
                     <Show
                       when={log().entries.length > 0}
                       fallback={
-                        <p class="text-xs whitespace-pre-wrap text-muted-foreground">
-                          {log().fallback || t("update.noChanges")}
-                        </p>
+                        <Show
+                          when={log().fallback}
+                          fallback={<p class="text-xs text-muted-foreground">{t("update.noChanges")}</p>}
+                        >
+                          {(fallback) => (
+                            <div
+                              class="text-xs text-foreground [&_a]:text-accent [&_a]:underline [&_blockquote]:border-l-2 [&_blockquote]:border-accent/50 [&_blockquote]:pl-2 [&_blockquote]:text-muted-foreground [&_h2]:mt-3 [&_h2]:font-medium [&_h3]:mt-2 [&_h3]:font-medium [&_li]:ml-4 [&_li]:list-disc [&_p]:my-1"
+                              innerHTML={renderMarkdown(fallback())}
+                            />
+                          )}
+                        </Show>
                       }
                     >
-                      <ChangelogList entries={log().entries} />
+                      <ChangelogList entries={log().entries} summary expandAll />
                     </Show>
                   </div>
                 )}
@@ -347,24 +355,45 @@ function StatusLine(props: { icon: string; text: string; tone?: "success" | "err
 }
 
 /**
- * 变更日志列表。第一个版本默认展开，其余折叠——跨多个版本升级时平铺全部内容
- * 会淹没重点，而最新一版通常是用户最关心的。
+ * 变更日志列表。历史记录默认只展开第一版；待安装更新传 expandAll，让这次升级
+ * 涉及的每一个版本都直接可见。
  */
-function ChangelogList(props: { entries: Entry[] }) {
+function ChangelogList(props: { entries: Entry[]; summary?: boolean; expandAll?: boolean }) {
+  const itemCount = () => props.entries.reduce(
+    (total, entry) => total + entry.sections.reduce((sum, section) => sum + section.items.length, 0),
+    0,
+  )
+
   return (
-    <div class="space-y-1">
+    <div class="space-y-1.5">
+      <Show when={props.summary}>
+        <div class="flex items-center gap-2 pb-0.5 text-xs text-muted-foreground">
+          <Icon icon="lucide:git-compare-arrows" class="h-3.5 w-3.5" />
+          <span>{t("update.changelogSummary", { versions: props.entries.length, changes: itemCount() })}</span>
+        </div>
+      </Show>
       <For each={props.entries}>
         {(entry, index) => (
-          <details open={index() === 0} class="group rounded-md border border-border/60">
+          <details open={props.expandAll || index() === 0} class="group rounded-md border border-border/60 bg-background/40">
             <summary class="flex cursor-pointer items-center gap-2 px-2.5 py-1.5 text-sm select-none">
               <Icon
                 icon="lucide:chevron-right"
                 class="h-3.5 w-3.5 shrink-0 text-muted-foreground transition-transform group-open:rotate-90"
               />
               <span class="font-mono font-medium">{entry.version}</span>
+              <Show when={entry.version.includes("-")}>
+                <span class="rounded bg-amber-500/10 px-1.5 py-0.5 text-[10px] font-medium text-amber-600 dark:text-amber-400">
+                  {t("update.prereleaseBadge")}
+                </span>
+              </Show>
               <Show when={entry.date}>
                 <span class="text-xs text-muted-foreground">{entry.date}</span>
               </Show>
+              <span class="ml-auto text-xs text-muted-foreground">
+                {t("update.changeCount", {
+                  count: entry.sections.reduce((sum, section) => sum + section.items.length, 0),
+                })}
+              </span>
             </summary>
             <div class="space-y-2 px-2.5 pt-1 pb-2.5">
               <For each={entry.sections}>
