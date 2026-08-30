@@ -144,8 +144,20 @@ export function ProjectExportPanel(props: { projectId: string; projectName: stri
         ProjectService.GetProjectTree(props.projectId),
         EnvironmentService.ListEnvironments(props.projectId),
       ])
-      setModules(tree || [])
-      setEnvironments(envs || [])
+      const loadedTree = tree || []
+      const loadedEnvironments = envs || []
+      setModules(loadedTree)
+      setEnvironments(loadedEnvironments)
+      const validFolders = new Set(loadedTree.flatMap(module => collectFolderChoices(module.folders, module.name).map(folder => folder.id)))
+      const loadedEndpoints = collectEndpointChoices(loadedTree)
+      const validEndpoints = new Set(loadedEndpoints.map(endpoint => endpoint.id))
+      const validTags = new Set(loadedEndpoints.flatMap(endpoint => endpoint.tags))
+      const validEnvironments = new Set(loadedEnvironments.map(environment => environment.id))
+      setSelectedFolderIds(values => values.filter(id => validFolders.has(id)))
+      setSelectedEndpointIds(values => values.filter(id => validEndpoints.has(id)))
+      setSelectedTags(values => values.filter(tag => validTags.has(tag)))
+      setExcludedTags(values => values.filter(tag => validTags.has(tag)))
+      setSelectedEnvironmentIds(values => values.filter(id => validEnvironments.has(id)))
     } catch (error) {
       toastError(error, "error.op.exportFailed")
     } finally {

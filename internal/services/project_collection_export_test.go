@@ -6,6 +6,7 @@ import (
 	"encoding/base64"
 	"encoding/json"
 	"io"
+	"os"
 	"strings"
 	"testing"
 
@@ -522,5 +523,31 @@ func TestExportProjectConfiguredRejectsInvalidEnvironmentAndSwaggerMultiEnvironm
 	options.EnvironmentIDs = []string{environments[0].ID, created.ID}
 	if _, err := svc.ExportProjectConfigured(project.ID, options); err == nil || !strings.Contains(err.Error(), "只能选择一个环境") {
 		t.Fatalf("Swagger multi environment error=%v", err)
+	}
+}
+
+func TestSaveExportedDocumentWritesTextAndBase64(t *testing.T) {
+	svc, _ := buildProjectExportFixture(t)
+	for _, tc := range []struct {
+		name     string
+		document ExportedDocument
+		want     string
+	}{
+		{"text", ExportedDocument{Content: "OpenAPI"}, "OpenAPI"},
+		{"base64", ExportedDocument{Content: base64.StdEncoding.EncodeToString([]byte{0, 1, 2, 255}), Encoding: "base64"}, string([]byte{0, 1, 2, 255})},
+	} {
+		t.Run(tc.name, func(t *testing.T) {
+			path := t.TempDir() + "/export.bin"
+			if err := svc.SaveExportedDocument(tc.document, path); err != nil {
+				t.Fatal(err)
+			}
+			content, err := os.ReadFile(path)
+			if err != nil {
+				t.Fatal(err)
+			}
+			if string(content) != tc.want {
+				t.Fatalf("content=%v want=%v", content, []byte(tc.want))
+			}
+		})
 	}
 }
