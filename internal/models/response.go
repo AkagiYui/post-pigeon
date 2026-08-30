@@ -12,7 +12,7 @@ type Response struct {
 	ID            string      `gorm:"primaryKey" json:"id"`
 	EndpointID    string      `gorm:"not null;uniqueIndex" json:"endpointId"`
 	RequestRunID  *string     `gorm:"index" json:"requestRunId"`
-	RequestRun    *RequestRun `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"-"`
+	RequestRun    *RequestRun `gorm:"constraint:OnUpdate:CASCADE,OnDelete:SET NULL" json:"requestRun,omitempty"`
 	StatusCode    int         `json:"statusCode"`
 	Headers       string      `gorm:"type:text" json:"headers"`       // JSON 格式
 	Body          string      `gorm:"type:text" json:"body"`          // 原始响应体

@@ -786,6 +786,11 @@ func TestHTTP_SaveResponseAndHistory(t *testing.T) {
 	if err != nil || detail.RequestRun == nil || len(detail.RequestRun.Attempts) != 1 {
 		t.Fatalf("历史详情未加载执行链: detail=%+v err=%v", detail, err)
 	}
+	endpointDetail, err := NewEndpointService(db).GetEndpoint(e.ID)
+	if err != nil || endpointDetail.Response == nil || endpointDetail.Response.RequestRun == nil ||
+		len(endpointDetail.Response.RequestRun.Attempts) != 1 {
+		t.Fatalf("端点最近响应未加载执行链: detail=%+v err=%v", endpointDetail, err)
+	}
 }
 
 // TestHTTP_TimingBreakdown 验证 httptrace 计时分解已生效：

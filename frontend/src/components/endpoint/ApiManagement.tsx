@@ -737,6 +737,7 @@ export function ApiManagement(props: ApiManagementProps) {
             cookies: safeParseJSON<CookieInfo[]>(detail.response.cookies, []),
             contentType: detail.response.contentType,
             actualRequest: safeParseJSON<ActualRequestInfo | null>(detail.response.actualRequest, null),
+            requestRun: detail.response.requestRun || null,
           }
         }
         setResponseData(restoreCachedWebSocketResponse(
@@ -867,6 +868,7 @@ export function ApiManagement(props: ApiManagementProps) {
             timing: toTimingData(resp.timing),
             size: 0, body: "", headers: resp.headers,
             cookies: [], contentType: resp.contentType, actualRequest: resp.actualRequest,
+            requestRun: resp.requestRun || null,
             streaming: true, streamId: resp.streamId, streamFormat: resp.streamFormat,
             scripts: resp.scripts || undefined,
           })
@@ -877,10 +879,13 @@ export function ApiManagement(props: ApiManagementProps) {
             size: resp.size, body: resp.body, rawBody: resp.rawBody, headers: resp.headers,
             cookies: resp.cookies || [], contentType: resp.contentType,
             actualRequest: resp.actualRequest,
+            requestRun: resp.requestRun || null,
             scripts: resp.scripts || undefined,
             truncated: resp.truncated, truncatedLimit: resp.truncatedLimit,
             rawBodyOmitted: resp.rawBodyOmitted, skipped: resp.skipped,
+            error: resp.error ? errorMessage(resp.error, "error.op.sendFailed") : undefined,
           })
+          if (resp.error) toastError(resp.error, "error.op.sendFailed")
         }
       }
     } catch (e) {
@@ -915,11 +920,13 @@ export function ApiManagement(props: ApiManagementProps) {
         cookies: resp.cookies || [],
         contentType: resp.contentType,
         actualRequest: resp.actualRequest,
+        requestRun: resp.requestRun || null,
         scripts: resp.scripts || undefined,
         truncated: resp.truncated,
         truncatedLimit: resp.truncatedLimit,
         rawBodyOmitted: resp.rawBodyOmitted,
         skipped: resp.skipped,
+        error: resp.error ? errorMessage(resp.error, "error.op.sendFailed") : undefined,
       }
       webSocketResponseCache.set(endpointId, handshakeResponse)
       // 连接期间用户可能已经切到其它接口，不能用迟到的握手结果覆盖当前响应。

@@ -772,101 +772,89 @@ export function EndpointDetail(props: EndpointDetailProps) {
                   </Show>
                 }
               >
-                {/* 请求失败：展示错误信息，而非正常的响应标签页 */}
-                <Show
-                  when={!props.response!.error}
-                  fallback={
-                    <div class="flex flex-col h-full">
-                      <div class="flex items-center gap-2 px-3 py-1.5 border-b border-border shrink-0">
-                        <Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>
-                        <div class="ml-auto"><LayoutToggle /></div>
-                      </div>
-                      <div class="flex-1 overflow-auto p-3">
-                        <pre class="text-sm font-mono whitespace-pre-wrap break-all text-red-600 dark:text-red-400">
-                          {props.response!.error}
-                        </pre>
-                      </div>
-                    </div>
-                  }
-                >
-                  <Tabs
-                    variant="line"
-                    tabs={getResponseTabs(!isWs() && !!props.response!.streaming)}
-                    value={activeResponseTab()}
-                    onChange={setActiveResponseTab}
-                    extra={
-                      <div class="flex items-center gap-3 text-xs text-muted-foreground">
-                        {/* 上下布局：响应体工具栏移到状态码左侧，避免单独占一行（左右布局时工具栏留在面板内） */}
-                        <Show when={!isWs() && responseLayout() === "bottom" && activeResponseTab() === "body"}>
-                          <ResponseBodyToolbar
-                            renderMode={renderMode()}
-                            onRenderModeChange={setRenderMode}
-                            format={format()}
-                            onFormatChange={setFormat}
-                            encoding={encoding()}
-                            onEncodingChange={setEncoding}
-                            encodingDisabled={props.response?.rawBodyOmitted}
-                            onDownload={downloadResponseBody}
-                          />
-                        </Show>
-                        {/* 状态码：hover 展示该状态码的名称与释义 */}
+                {/* 失败也保留完整标签页：错误正文和实际请求 attempt 链需要同时可检查。 */}
+                <Tabs
+                  variant="line"
+                  tabs={getResponseTabs(!isWs() && !!props.response!.streaming)}
+                  value={activeResponseTab()}
+                  onChange={setActiveResponseTab}
+                  extra={
+                    <div class="flex items-center gap-3 text-xs text-muted-foreground">
+                      {/* 上下布局：响应体工具栏移到状态码左侧，避免单独占一行（左右布局时工具栏留在面板内） */}
+                      <Show when={!isWs() && responseLayout() === "bottom" && activeResponseTab() === "body"}>
+                        <ResponseBodyToolbar
+                          renderMode={renderMode()}
+                          onRenderModeChange={setRenderMode}
+                          format={format()}
+                          onFormatChange={setFormat}
+                          encoding={encoding()}
+                          onEncodingChange={setEncoding}
+                          encodingDisabled={props.response?.rawBodyOmitted}
+                          onDownload={downloadResponseBody}
+                        />
+                      </Show>
+                      {/* 状态码：hover 展示该状态码的名称与释义 */}
+                      <Show
+                        when={!props.response!.error}
+                        fallback={<Badge class="bg-red-500/15 text-red-600 dark:text-red-400">{t("response.failed")}</Badge>}
+                      >
                         <HoverCard content={<ResponseStatusCard code={props.response!.statusCode} />}>
                           <Badge class={cn(getStatusColor(props.response!.statusCode), "cursor-help")}>
                             {props.response!.statusCode}
                           </Badge>
                         </HoverCard>
-                        {/* 耗时：hover 展示各阶段耗时 */}
-                        <HoverCard content={<ResponseTimingCard timing={props.response!.timing} />}>
-                          <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
-                            {formatTiming(props.response!.timing?.total || 0)}
-                          </span>
-                        </HoverCard>
-                        {/* 大小：hover 展示请求/响应的头与体大小 */}
-                        <HoverCard content={<ResponseSizeCard response={responseForDisplay()!} />}>
-                          <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
-                            {formatSize(responseForDisplay()!.size || 0)}
-                          </span>
-                        </HoverCard>
-                        {/* 布局切换按钮（上下 / 左右） */}
-                        <LayoutToggle />
-                      </div>
-                    }
-                  >
-                    {(key) => (
-                      <Show when={!isWs() && key === "timeline"} fallback={
-                        <Show when={isWs() && key === "body"} fallback={
-                          <ResponsePanel
-                            tab={key}
-                            response={responseForDisplay()!}
-                            renderMode={renderMode()}
-                            format={format()}
-                            encoding={encoding()}
-                            showToolbar={responseLayout() === "right"}
-                            onRenderModeChange={setRenderMode}
-                            onFormatChange={setFormat}
-                            onEncodingChange={setEncoding}
-                            onDownload={downloadResponseBody}
-                          />
-                        }>
-                          <WebSocketResponse connId={ep().id} layout={responseLayout()} />
-                        </Show>
-                      }>
-                        <StreamEventLog
-                          streamId={props.response!.streamId!}
-                          streamFormat={props.response!.streamFormat}
-                          onStop={stopStream}
-                          settings={{
-                            viewMode: ep().streamViewMode,
-                            completionFormat: ep().streamCompletionFormat,
-                            jsonPath: ep().streamJSONPath,
-                            renderMarkdown: ep().streamRenderMarkdown,
-                          }}
-                          onSettingsChange={updateStreamPresentation}
-                        />
                       </Show>
-                    )}
-                  </Tabs>
-                </Show>
+                      {/* 耗时：hover 展示各阶段耗时 */}
+                      <HoverCard content={<ResponseTimingCard timing={props.response!.timing} />}>
+                        <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
+                          {formatTiming(props.response!.timing?.total || 0)}
+                        </span>
+                      </HoverCard>
+                      {/* 大小：hover 展示请求/响应的头与体大小 */}
+                      <HoverCard content={<ResponseSizeCard response={responseForDisplay()!} />}>
+                        <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
+                          {formatSize(responseForDisplay()!.size || 0)}
+                        </span>
+                      </HoverCard>
+                      {/* 布局切换按钮（上下 / 左右） */}
+                      <LayoutToggle />
+                    </div>
+                  }
+                >
+                  {(key) => (
+                    <Show when={!isWs() && key === "timeline"} fallback={
+                      <Show when={isWs() && key === "body"} fallback={
+                        <ResponsePanel
+                          tab={key}
+                          response={responseForDisplay()!}
+                          renderMode={renderMode()}
+                          format={format()}
+                          encoding={encoding()}
+                          showToolbar={responseLayout() === "right"}
+                          onRenderModeChange={setRenderMode}
+                          onFormatChange={setFormat}
+                          onEncodingChange={setEncoding}
+                          onDownload={downloadResponseBody}
+                        />
+                      }>
+                        <WebSocketResponse connId={ep().id} layout={responseLayout()} />
+                      </Show>
+                    }>
+                      <StreamEventLog
+                        streamId={props.response!.streamId!}
+                        streamFormat={props.response!.streamFormat}
+                        onStop={stopStream}
+                        settings={{
+                          viewMode: ep().streamViewMode,
+                          completionFormat: ep().streamCompletionFormat,
+                          jsonPath: ep().streamJSONPath,
+                          renderMarkdown: ep().streamRenderMarkdown,
+                        }}
+                        onSettingsChange={updateStreamPresentation}
+                      />
+                    </Show>
+                  )}
+                </Tabs>
               </Show>
             </div>
           </Show>
@@ -960,12 +948,21 @@ function ResponseSizeCard(props: { response: ResponseData }) {
   }
   const respBodyBytes = () => r().size || 0
   const reqHeaderBytes = () => {
+    const run = r().requestRun
+    const selected = run?.attempts.find((attempt) => attempt.id === run.selectedAttemptId) || run?.attempts.at(-1)
+    if (selected) {
+      return selected.request.headers.reduce((total, header) => total + byteLength(header.name) + 2 + byteLength(header.value) + 2, 0)
+    }
     let n = 0
     const h = (r().actualRequest?.headers || {}) as Record<string, string>
     for (const k of Object.keys(h)) n += byteLength(k) + 2 + byteLength(String(h[k] ?? "")) + 2
     return n
   }
-  const reqBodyBytes = () => byteLength(String(r().actualRequest?.body ?? ""))
+  const reqBodyBytes = () => {
+    const run = r().requestRun
+    const selected = run?.attempts.find((attempt) => attempt.id === run.selectedAttemptId) || run?.attempts.at(-1)
+    return selected ? selected.request.body.size : byteLength(String(r().actualRequest?.body ?? ""))
+  }
   return (
     <div class="w-56 flex flex-col gap-2.5 text-xs">
       <SizeBlock

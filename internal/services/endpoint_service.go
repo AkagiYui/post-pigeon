@@ -105,7 +105,9 @@ func (s *EndpointService) GetEndpoint(id string) (*EndpointDetail, error) {
 	}
 	// 加载最后一次响应（无记录时保持 nil）
 	var resp models.Response
-	if err := s.db.Where("endpoint_id = ?", id).First(&resp).Error; err == nil {
+	if err := s.db.Preload("RequestRun.Attempts", func(tx *gorm.DB) *gorm.DB {
+		return tx.Order("sequence ASC")
+	}).Where("endpoint_id = ?", id).First(&resp).Error; err == nil {
 		detail.Response = &resp
 	}
 

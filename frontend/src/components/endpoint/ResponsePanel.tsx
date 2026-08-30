@@ -9,6 +9,7 @@ import { decodeRawBody, formatBody } from "@/lib/format"
 import { formatSize } from "@/lib/types"
 import { byteLength, cn } from "@/lib/utils"
 
+import { ActualRequestPanel } from "./ActualRequestPanel"
 import type { ResponseData, ScriptRunResult } from "./EndpointDetail"
 
 /** 渲染模式选项（直接展示的按钮组） */
@@ -145,6 +146,12 @@ export function ResponsePanel(props: ResponsePanelProps) {
 
   return (
     <div class="h-full flex flex-col">
+      <Show when={props.tab === "body" && props.response.error}>
+        <div class="shrink-0 border-b border-red-500/30 bg-red-500/10 px-3 py-2">
+          <div class="mb-1 text-xs font-medium text-red-600 dark:text-red-400">{t("response.failed")}</div>
+          <pre class="whitespace-pre-wrap break-all text-xs text-red-600 dark:text-red-400">{props.response.error}</pre>
+        </div>
+      </Show>
       <Show when={props.tab === "body"}>
         {/* 渲染工具栏（仅左右布局时内嵌显示；上下布局由父级移入标签栏状态码左侧） */}
         <Show when={props.showToolbar}>
@@ -301,11 +308,7 @@ export function ResponsePanel(props: ResponsePanelProps) {
       </Show>
 
       <Show when={props.tab === "actualRequest"}>
-        <div class="p-3 overflow-auto">
-          <pre class="text-sm font-mono whitespace-pre-wrap break-all text-foreground">
-            {JSON.stringify(props.response.actualRequest, null, 2)}
-          </pre>
-        </div>
+        <ActualRequestPanel run={props.response.requestRun} legacyRequest={props.response.actualRequest} />
       </Show>
     </div>
   )

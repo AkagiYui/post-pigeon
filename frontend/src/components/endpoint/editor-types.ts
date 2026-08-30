@@ -3,7 +3,7 @@
 // 这些类型此前和 EndpointDetail 组件写在一个文件里，任何只想用类型的模块
 // （包括单元测试）都会顺带把整棵组件树连同图标库一起拉进来。抽出来后，
 // 数据层可以脱离渲染层单独引用与测试。
-import type { ActualRequestInfo, CookieInfo, ResponseExample, ResponseSchema } from "@/../bindings/PostPigeon/internal/models"
+import type { ActualRequestInfo, CookieInfo, RequestRun, ResponseExample, ResponseSchema } from "@/../bindings/PostPigeon/internal/models"
 import type { AuthType, BodyType, EndpointType, HTTPMethod, OperationStage, OperationType, ParamLocation } from "@/lib/types"
 
 export type StreamViewMode = "timeline" | "completion"
@@ -274,6 +274,8 @@ export interface ResponseData {
   cookies: CookieInfo[]
   contentType: string
   actualRequest: ActualRequestInfo | null
+  /** 一次发送的完整网络执行链；实际请求面板以此为权威数据。 */
+  requestRun?: RequestRun | null
   /** 前置/后置脚本执行结果（无脚本时缺省） */
   scripts?: ScriptResultsData
   /** 请求失败时的错误信息（如协议错误、连接失败等）；有值时展示错误而非正常响应 */
