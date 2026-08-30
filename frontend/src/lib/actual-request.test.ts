@@ -2,7 +2,14 @@ import { describe, expect, it } from "vitest"
 
 import type { HTTPRequestSnapshot } from "@/../bindings/PostPigeon/internal/models"
 
-import { diffRequestSnapshots, generateRequestCode, serializeHeaders, serializeRequest, visibleURL } from "./actual-request"
+import {
+  diffRequestSnapshots,
+  generateRequestCode,
+  REQUEST_CODE_GENERATORS,
+  serializeHeaders,
+  serializeRequest,
+  visibleURL,
+} from "./actual-request"
 
 function snapshot(overrides: Partial<HTTPRequestSnapshot> = {}): HTTPRequestSnapshot {
   return {
@@ -41,6 +48,40 @@ describe("actual request operations", () => {
     expect(generateRequestCode(request, "javascript", true)).toContain("Bearer live-token")
     expect(generateRequestCode(request, "python", false)).toContain("connection.putheader")
     expect(generateRequestCode(request, "go", false)).toContain("req.Header.Add")
+  })
+
+  it("keeps the generator registry unique and every template usable", () => {
+    const request = snapshot()
+    const languages = REQUEST_CODE_GENERATORS.map((generator) => generator.value)
+    expect(new Set(languages).size).toBe(languages.length)
+    expect(languages).toHaveLength(17)
+
+    for (const language of languages) {
+      const hidden = generateRequestCode(request, language, false)
+      const revealed = generateRequestCode(request, language, true)
+      expect(hidden, language).not.toBe("")
+      expect(hidden, language).not.toContain("live-token")
+      expect(revealed, language).toContain("live-token")
+      expect(revealed, language).toContain("example.test/items?q=1")
+    }
+  })
+
+  it("decodes captured binary bodies in every generated target", () => {
+    const request = snapshot({
+      body: {
+        kind: "binary",
+        mediaType: "application/octet-stream",
+        size: 3,
+        preview: "AP8Q",
+        previewCodec: "base64",
+        captured: true,
+      },
+    })
+
+    for (const { value } of REQUEST_CODE_GENERATORS) {
+      const code = generateRequestCode(request, value, false)
+      expect(code, value).toContain("AP8Q")
+    }
   })
 
   it("reports transport additions and request mutations", () => {

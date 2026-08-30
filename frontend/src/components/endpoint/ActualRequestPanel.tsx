@@ -9,11 +9,13 @@ import type {
   RequestRun,
 } from "@/../bindings/PostPigeon/internal/models"
 import { CodeEditor, type CodeLanguage } from "@/components/ui/code-editor"
+import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"
 import { t } from "@/hooks/useI18n"
 import {
   diffRequestSnapshots,
   generateRequestCode,
+  REQUEST_CODE_GENERATORS,
   type RequestCodeLanguage,
   serializeHeaders,
   serializeRequest,
@@ -420,13 +422,6 @@ function RequestComparison(props: { rows: ReturnType<typeof diffRequestSnapshots
   )
 }
 
-const codeLanguages: Array<{ value: RequestCodeLanguage; label: string }> = [
-  { value: "curl", label: "cURL" },
-  { value: "javascript", label: "JavaScript" },
-  { value: "python", label: "Python" },
-  { value: "go", label: "Go" },
-]
-
 function CodeGeneration(props: {
   language: RequestCodeLanguage
   onLanguageChange: (language: RequestCodeLanguage) => void
@@ -439,9 +434,17 @@ function CodeGeneration(props: {
   return (
     <div class="flex h-full min-h-0 flex-col">
       <div class="flex shrink-0 flex-wrap items-center gap-1 border-b border-border px-3 py-2">
-        <For each={codeLanguages}>
-          {(language) => <ToolButton active={props.language === language.value} onClick={() => props.onLanguageChange(language.value)}>{language.label}</ToolButton>}
-        </For>
+        <Select
+          value={props.language}
+          onChange={(value) => props.onLanguageChange(value as RequestCodeLanguage)}
+          options={REQUEST_CODE_GENERATORS.map(generator => ({
+            value: generator.value,
+            label: `${generator.group} · ${generator.label}`,
+          }))}
+          size="sm"
+          class="w-52"
+          aria-label={t("actualRequest.code")}
+        />
         <span class="ml-auto"><ToolButton onClick={props.onCopy}>{t("actualRequest.copyCode")}</ToolButton></span>
       </div>
       <Show when={props.sensitiveHidden || props.truncated || props.bodyUnavailable}>
@@ -454,10 +457,15 @@ function CodeGeneration(props: {
         </div>
       </Show>
       <div class="flex-1 min-h-0">
-        <CodeEditor value={props.code} language={props.language === "javascript" ? "javascript" : "text"} readOnly class="h-full rounded-none border-0 bg-transparent" />
+        <CodeEditor value={props.code} language={codeLanguageForGenerator(props.language)} readOnly class="h-full rounded-none border-0 bg-transparent" />
       </div>
     </div>
   )
+}
+
+function codeLanguageForGenerator(language: RequestCodeLanguage): CodeLanguage {
+  if (["javascript", "javascript-axios", "node"].includes(language)) return "javascript"
+  return "text"
 }
 
 function Meta(props: { label: string; value?: string | number | null; mono?: boolean }) {
