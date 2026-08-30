@@ -212,6 +212,8 @@ type SendRequestData struct {
 	RequestID string `json:"requestId"`
 	// PreRequestScript 前置脚本，请求发送前执行
 	PreRequestScript string `json:"preRequestScript"`
+	// PreSendScript 在变量替换完成后、构建 HTTP 请求前执行。
+	PreSendScript string `json:"preSendScript"`
 	// PostResponseScript 后置脚本，响应返回后执行
 	PostResponseScript string `json:"postResponseScript"`
 }
@@ -324,6 +326,42 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 
 	// 用（可能被脚本更新过的）变量存储解析占位符
 	vars := stores.Environment.ToMap()
+
+	// 变量替换是前置操作列表中的显式分界线。先把此刻的请求快照替换完成，
+	// 再执行分界线后的操作；后续构建请求时 resolveVars 再跑一次是幂等的。
+	reqCtx.URL = resolveVars(reqCtx.URL, vars)
+	reqCtx.Body = resolveVars(reqCtx.Body, vars)
+	for i := range reqCtx.Headers {
+		reqCtx.Headers[i].Value = resolveVars(reqCtx.Headers[i].Value, vars)
+	}
+	for i := range data.Params {
+		data.Params[i].Value = resolveVars(data.Params[i].Value, vars)
+	}
+	for i := range data.BodyFields {
+		if data.BodyFields[i].FieldType != "file" {
+			data.BodyFields[i].Value = resolveVars(data.BodyFields[i].Value, vars)
+		}
+	}
+	data.BodyContent = reqCtx.Body
+	data.Headers = headersToModel(reqCtx.Headers)
+
+	if strings.TrimSpace(data.PreSendScript) != "" {
+		result := s.engine.Run(data.PreSendScript, scripting.Options{
+			Phase: scripting.PhasePreRequest, Request: reqCtx, Stores: stores,
+		})
+		scriptResults.PreRequest = mergeScriptResult(scriptResults.PreRequest, result)
+		data.Method = reqCtx.Method
+		data.BodyContent = reqCtx.Body
+		data.Headers = headersToModel(reqCtx.Headers)
+		if result.SkipRequest {
+			if data.EnvironmentID != "" {
+				up, rm := stores.Environment.Changes()
+				_ = envService.ApplyVariableChanges(data.EnvironmentID, up, rm)
+			}
+			s.persistModuleVarChanges(data.ModuleID, stores.Collection)
+			return &HTTPResponseData{StatusCode: 0, Headers: map[string][]string{}, Skipped: true, Scripts: scriptResults}, nil
+		}
+	}
 
 	// 组合 URL（前置脚本可能已改写整条 URL）
 	fullURL := resolveVars(reqCtx.URL, vars)
@@ -713,6 +751,30 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	s.enqueuePersist(persistJob{data: data, resp: responseData})
 
 	return responseData, nil
+}
+
+func mergeScriptResult(first, second *scripting.Result) *scripting.Result {
+	if first == nil {
+		return second
+	}
+	if second == nil {
+		return first
+	}
+	first.Executed = first.Executed || second.Executed
+	first.Logs = append(first.Logs, second.Logs...)
+	first.Tests = append(first.Tests, second.Tests...)
+	if second.Error != "" {
+		if first.Error != "" {
+			first.Error += "\n"
+		}
+		first.Error += second.Error
+	}
+	first.Duration += second.Duration
+	first.SkipRequest = first.SkipRequest || second.SkipRequest
+	if second.NextRequest != nil {
+		first.NextRequest = second.NextRequest
+	}
+	return first
 }
 
 // readBodyWithLimit 读取响应体，最多 limit 字节；limit<=0 表示不限制。

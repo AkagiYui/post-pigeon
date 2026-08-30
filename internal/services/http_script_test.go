@@ -88,6 +88,46 @@ func TestSendRequestWithScripts(t *testing.T) {
 	}
 }
 
+func TestPreSendScriptRunsAfterVariableReplacement(t *testing.T) {
+	db := newTestDB(t)
+	server := echoServer(t)
+	project := mustCreateProject(t, db, "pre-send phase")
+	envSvc := NewEnvironmentService(db)
+	env, err := envSvc.CreateEnvironment(project.ID, "dev")
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := envSvc.SaveEnvironmentVariables(env.ID, []models.EnvironmentVariable{{Key: "value", Value: "old", Enabled: true}}); err != nil {
+		t.Fatal(err)
+	}
+
+	resp, err := newTestHTTPService(t, db).SendRequest(SendRequestData{
+		EnvironmentID:    env.ID,
+		Method:           "POST",
+		BaseURL:          server.URL,
+		Path:             "/echo?v={{value}}",
+		BodyType:         string(models.BodyTypeJSON),
+		BodyContent:      `{"value":"{{value}}"}`,
+		PreRequestScript: `pm.environment.set('value', 'new');`,
+		PreSendScript: `
+			pm.request.headers.upsert('X-After-Variables', pm.request.url.toString());
+			pm.environment.set('preSendRan', 'yes');
+		`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resp.Body, `"v":["new"]`) || !strings.Contains(resp.Body, `\"value\":\"new\"`) {
+		t.Fatalf("request should use variables updated before the divider: %s", resp.Body)
+	}
+	if !strings.Contains(resp.Body, "X-After-Variables") || !strings.Contains(resp.Body, "v=new") {
+		t.Fatalf("post-divider script should observe the resolved URL: %s", resp.Body)
+	}
+	if resp.Scripts == nil || resp.Scripts.PreRequest == nil || !resp.Scripts.PreRequest.Executed {
+		t.Fatalf("both pre-request phases should be reported: %+v", resp.Scripts)
+	}
+}
+
 // TestSendRequestPostScriptMutatesBody 验证后置脚本可改写响应体（模拟解密场景）。
 func TestSendRequestPostScriptMutatesBody(t *testing.T) {
 	db := newTestDB(t)

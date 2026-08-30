@@ -108,6 +108,7 @@ export interface HeaderRow {
 export interface OperationRow {
   id: string
   stage: OperationStage
+  phase: "beforeVariables" | "afterVariables"
   type: OperationType
   name: string
   enabled: boolean
@@ -145,7 +146,7 @@ export interface OperationOverrideRow {
 /** 创建一个空操作行 */
 export function emptyOperation(stage: OperationStage, type: OperationType = "script"): OperationRow {
   return {
-    id: crypto.randomUUID(), stage, type, name: "", enabled: true,
+    id: crypto.randomUUID(), stage, phase: "beforeVariables", type, name: "", enabled: true,
     script: "", libraryId: "",
     assertSource: "responseJson", assertExpression: "", assertComparison: "eq", assertTarget: "",
     varName: "", varScope: "environment", varSource: "responseJson", varExpression: "",

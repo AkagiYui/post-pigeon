@@ -839,7 +839,8 @@ export function ApiManagement(props: ApiManagementProps) {
     sendData.operationOverrides = toOperationOverrideModels(ep.operationOverrides)
     sendData.inheritOperations = ep.inheritOperations
     // 已保存端点由后端根据操作组合脚本；未保存请求在此把 script 类型操作拼接为前置/后置脚本
-    sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript)
+    sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript, "beforeVariables")
+    sendData.preSendScript = deriveScriptFromOps(ep.operations, "pre", "", "afterVariables")
     sendData.postResponseScript = deriveScriptFromOps(ep.operations, "post", ep.postResponseScript)
     return sendData
   }

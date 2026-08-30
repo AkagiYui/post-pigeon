@@ -30,11 +30,26 @@ func composeStageScriptWithEndpointOps(db *gorm.DB, ep *models.Endpoint, stage m
 func composeStageScriptWithEndpointState(db *gorm.DB, ep *models.Endpoint, stage models.OperationStage,
 	override []models.Operation, operationOverrides []models.OperationOverride,
 ) string {
+	return composeStageScriptWithEndpointStatePhase(db, ep, stage, override, operationOverrides, "")
+}
+
+func composeStageScriptWithEndpointStatePhase(db *gorm.DB, ep *models.Endpoint, stage models.OperationStage,
+	override []models.Operation, operationOverrides []models.OperationOverride, phase string,
+) string {
 	levels := gatherOperationLevelsWithEndpointState(db, ep, stage, override, operationOverrides)
 
 	var fragments []string
 	for _, ops := range levels {
 		for _, op := range ops {
+			if stage == models.OperationStagePre && phase != "" {
+				opPhase := op.Phase
+				if opPhase == "" {
+					opPhase = "beforeVariables"
+				}
+				if opPhase != phase {
+					continue
+				}
+			}
 			if !op.Enabled {
 				continue
 			}
@@ -47,7 +62,10 @@ func composeStageScriptWithEndpointState(db *gorm.DB, ep *models.Endpoint, stage
 		// 没有任何操作时回退到端点自身的脚本字段。
 		// 历史数据、以及 Postman / cURL 等导入来源写入的都是这个字段，
 		// 不回退会让这些脚本静默失效（前端 deriveScriptFromOps 也是同样的回退语义）。
-		return legacyStageScript(ep, stage)
+		if phase != "afterVariables" {
+			return legacyStageScript(ep, stage)
+		}
+		return ""
 	}
 	// 注入 JSONPath 取值辅助函数，供断言/提取变量使用
 	return jsonPathHelper + "\n" + strings.Join(fragments, "\n")

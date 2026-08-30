@@ -86,8 +86,8 @@ export function generateTempId(): string {
 }
 
 /** 从操作列表拼接指定阶段的 script 类型脚本（用于未保存请求的直接发送） */
-export function deriveScriptFromOps(ops: OperationRow[], stage: OperationStage, fallback: string): string {
-  const scripts = (ops || []).filter(o => o.stage === stage && o.enabled && (o.type === "script" || o.type === "libraryScript") && o.script.trim()).map(o => o.script)
+export function deriveScriptFromOps(ops: OperationRow[], stage: OperationStage, fallback: string, phase?: OperationRow["phase"]): string {
+  const scripts = (ops || []).filter(o => o.stage === stage && (!phase || o.phase === phase) && o.enabled && (o.type === "script" || o.type === "libraryScript") && o.script.trim()).map(o => o.script)
   if (scripts.length === 0) return fallback || ""
   return scripts.join("\n")
 }
@@ -119,7 +119,7 @@ export function toOperationModels(rows: OperationRow[]): Operation[] {
       case "extractVar": data = JSON.stringify({ variable: r.varName, scope: r.varScope, source: r.varSource, expression: r.varExpression }); break
       case "wait": data = JSON.stringify({ milliseconds: r.waitMs }); break
     }
-    return new Operation({ id: r.id.startsWith("__unsaved_") ? "" : r.id, stage: r.stage, type: r.type, name: r.name, enabled: r.enabled, sortOrder: i, data })
+    return new Operation({ id: r.id.startsWith("__unsaved_") ? "" : r.id, stage: r.stage, phase: r.stage === "pre" ? r.phase : "", type: r.type, name: r.name, enabled: r.enabled, sortOrder: i, data })
   })
 }
 
@@ -143,6 +143,7 @@ export function operationToRow(o: Operation): OperationRow {
   return {
     id: o.id || generateTempId(),
     stage: (o.stage as OperationStage) || "pre",
+    phase: o.phase === "afterVariables" ? "afterVariables" : "beforeVariables",
     type: (o.type as OperationType) || "script",
     name: o.name || "", enabled: o.enabled,
     script: d.script || "", libraryId: d.libraryId || "",

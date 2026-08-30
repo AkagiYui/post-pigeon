@@ -41,8 +41,10 @@ type Operation struct {
 	OwnerType string `gorm:"not null;index:idx_op_owner" json:"ownerType"` // endpoint, folder, module
 	OwnerID   string `gorm:"not null;index:idx_op_owner" json:"ownerId"`
 	Stage     string `gorm:"not null" json:"stage"` // pre, post
-	Type      string `gorm:"not null" json:"type"`  // script, libraryScript, assert, extractVar, wait, inherit
-	Name      string `json:"name"`
+	// Phase 仅用于前置操作：空/beforeVariables 在变量替换前执行，afterVariables 在替换后执行。
+	Phase string `gorm:"not null;default:''" json:"phase"`
+	Type  string `gorm:"not null" json:"type"` // script, libraryScript, assert, extractVar, wait, inherit
+	Name  string `json:"name"`
 	// Enabled 是否启用。不使用 gorm default:true——否则 gorm 会把「禁用」(false 零值)
 	// 当作未设置而回退为 true，导致禁用状态无法持久化。所有创建路径均显式设置本字段。
 	Enabled   bool `json:"enabled"`

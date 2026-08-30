@@ -170,7 +170,7 @@ func syncOperations(tx *gorm.DB, ownerType models.OperationOwnerType, ownerID st
 		stageOrder[op.Stage]++
 		if op.ID != "" && existingIDs[op.ID] {
 			if err := tx.Model(&models.Operation{}).Where("id = ?", op.ID).Updates(map[string]any{
-				"stage": op.Stage, "type": op.Type, "name": op.Name, "enabled": op.Enabled,
+				"stage": op.Stage, "phase": op.Phase, "type": op.Type, "name": op.Name, "enabled": op.Enabled,
 				"sort_order": op.SortOrder, "data": op.Data,
 			}).Error; err != nil {
 				return err

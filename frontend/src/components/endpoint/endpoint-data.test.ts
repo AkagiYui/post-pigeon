@@ -154,13 +154,14 @@ describe("接口设置的显式继承值", () => {
 describe("操作转换", () => {
   it("script 操作往返无损", () => {
     const rows = fromOperationModels([
-      new Operation({ stage: "pre", type: "script", name: "n", enabled: true, data: JSON.stringify({ script: "console.log(1)" }) }),
+      new Operation({ stage: "pre", phase: "afterVariables", type: "script", name: "n", enabled: true, data: JSON.stringify({ script: "console.log(1)" }) }),
     ])
-    expect(rows[0]).toMatchObject({ stage: "pre", type: "script", name: "n", enabled: true, script: "console.log(1)" })
+    expect(rows[0]).toMatchObject({ stage: "pre", phase: "afterVariables", type: "script", name: "n", enabled: true, script: "console.log(1)" })
 
     const models = toOperationModels(rows)
     expect(JSON.parse(models[0].data)).toEqual({ script: "console.log(1)" })
     expect(models[0].sortOrder).toBe(0)
+    expect(models[0].phase).toBe("afterVariables")
   })
 
   it("assert 与 wait 的字段各自落位", () => {
@@ -180,7 +181,7 @@ describe("操作转换", () => {
 
 describe("deriveScriptFromOps", () => {
   const scriptOp = (stage: "pre" | "post", script: string, enabled = true) => ({
-    id: crypto.randomUUID(), stage, type: "script" as const, name: "", enabled, script,
+    id: crypto.randomUUID(), stage, phase: "beforeVariables" as const, type: "script" as const, name: "", enabled, script,
     libraryId: "", assertSource: "", assertExpression: "", assertComparison: "", assertTarget: "",
     varName: "", varScope: "", varSource: "", varExpression: "", waitMs: 0,
   })

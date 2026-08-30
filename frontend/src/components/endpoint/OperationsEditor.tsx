@@ -88,6 +88,8 @@ export function OperationsEditor(props: OperationsEditorProps) {
   const inheritedStageOps = createMemo(() =>
     (props.inheritedOperations || []).filter(item => item.operation.stage === stage()),
   )
+  const beforeVariableOps = createMemo(() => stageOps().filter(item => item.op.phase !== "afterVariables"))
+  const afterVariableOps = createMemo(() => stageOps().filter(item => item.op.phase === "afterVariables"))
 
   const updateOp = (id: string, patch: Partial<OperationRow>) => {
     props.onChange(props.operations.map(o => o.id === id ? { ...o, ...patch } : o))
@@ -163,18 +165,21 @@ export function OperationsEditor(props: OperationsEditorProps) {
             </Show>
           </div>
         </Show>
-        <For each={stageOps()} fallback={<div class="text-sm text-muted-foreground text-center py-6">{t("op.empty")}</div>}>
-          {(item) => (
-            <OperationCard
-              op={item.op}
-              libraries={libraries()}
-              onUpdate={(patch) => updateOp(item.op.id, patch)}
-              onRemove={() => removeOp(item.op.id)}
-              onMoveUp={() => moveOp(item.op.id, -1)}
-              onMoveDown={() => moveOp(item.op.id, 1)}
-            />
-          )}
-        </For>
+        <Show when={stage() === "pre"} fallback={
+          <For each={stageOps()} fallback={<div class="text-sm text-muted-foreground text-center py-6">{t("op.empty")}</div>}>
+            {(item) => <OperationCard op={item.op} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
+          </For>
+        }>
+          <For each={beforeVariableOps()}>
+            {(item) => <OperationCard op={item.op} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
+          </For>
+          <div class="flex items-center gap-2 py-1 text-[11px] text-muted-foreground select-none">
+            <div class="h-px flex-1 bg-border" /><Icon icon="lucide:braces" class="h-3.5 w-3.5" /><span>变量替换</span><div class="h-px flex-1 bg-border" />
+          </div>
+          <For each={afterVariableOps()}>
+            {(item) => <OperationCard op={item.op} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
+          </For>
+        </Show>
       </div>
 
       <Button variant="outline" size="sm" class="mt-2 shrink-0 self-start" onClick={addOp}>
@@ -248,6 +253,15 @@ function OperationCard(props: {
           placeholder={t("op.name")}
           class="flex-1"
         />
+        <Show when={op().stage === "pre"}>
+          <Select
+            options={[{ value: "beforeVariables", label: "替换前" }, { value: "afterVariables", label: "替换后" }]}
+            value={op().phase}
+            onChange={(v) => props.onUpdate({ phase: v as OperationRow["phase"] })}
+            size="sm"
+            class="w-20 shrink-0"
+          />
+        </Show>
         <Button variant="ghost" size="icon-sm" onClick={props.onMoveUp}><Icon icon="lucide:chevron-up" class="h-3 w-3" /></Button>
         <Button variant="ghost" size="icon-sm" onClick={props.onMoveDown}><Icon icon="lucide:chevron-down" class="h-3 w-3" /></Button>
         <Button variant="ghost" size="icon-sm" onClick={props.onRemove}><Icon icon="lucide:trash-2" class="h-3 w-3" /></Button>

@@ -63,12 +63,15 @@ func (s *HTTPService) prepareRequestData(data *SendRequestData) preparedRequestD
 				}
 				effectiveEndpoint.PreRequestScript = data.PreRequestScript
 				effectiveEndpoint.PostResponseScript = data.PostResponseScript
-				data.PreRequestScript = composeStageScriptWithEndpointState(
-					s.db, &effectiveEndpoint, models.OperationStagePre, data.Operations, data.OperationOverrides)
+				data.PreRequestScript = composeStageScriptWithEndpointStatePhase(
+					s.db, &effectiveEndpoint, models.OperationStagePre, data.Operations, data.OperationOverrides, "beforeVariables")
+				data.PreSendScript = composeStageScriptWithEndpointStatePhase(
+					s.db, &effectiveEndpoint, models.OperationStagePre, data.Operations, data.OperationOverrides, "afterVariables")
 				data.PostResponseScript = composeStageScriptWithEndpointState(
 					s.db, &effectiveEndpoint, models.OperationStagePost, data.Operations, data.OperationOverrides)
 			} else {
-				data.PreRequestScript = composeStageScript(s.db, &endpoint, models.OperationStagePre)
+				data.PreRequestScript = composeStageScriptWithEndpointStatePhase(s.db, &endpoint, models.OperationStagePre, nil, nil, "beforeVariables")
+				data.PreSendScript = composeStageScriptWithEndpointStatePhase(s.db, &endpoint, models.OperationStagePre, nil, nil, "afterVariables")
 				data.PostResponseScript = composeStageScript(s.db, &endpoint, models.OperationStagePost)
 			}
 		}
