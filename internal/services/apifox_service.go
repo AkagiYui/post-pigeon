@@ -146,14 +146,19 @@ type apifoxParameters struct {
 }
 
 type apifoxParam struct {
-	Name        string `json:"name"`
-	Type        string `json:"type"`
-	Required    bool   `json:"required"`
-	Description string `json:"description"`
-	Example     jstr   `json:"example"`
-	Value       jstr   `json:"value"`
-	SampleValue jstr   `json:"sampleValue"`
-	Enable      *bool  `json:"enable"`
+	Name        string          `json:"name"`
+	Type        string          `json:"type"`
+	Required    bool            `json:"required"`
+	Description string          `json:"description"`
+	ContentType string          `json:"contentType"`
+	Style       string          `json:"style"`
+	Explode     *bool           `json:"explode"`
+	Schema      json.RawMessage `json:"schema"`
+	JSONSchema  json.RawMessage `json:"jsonSchema"`
+	Example     jstr            `json:"example"`
+	Value       jstr            `json:"value"`
+	SampleValue jstr            `json:"sampleValue"`
+	Enable      *bool           `json:"enable"`
 }
 
 // val 返回参数的取值：优先 value，其次 example，再次 sampleValue。
@@ -1445,13 +1450,24 @@ func convertBody(rb apifoxRequestBody) (bodyType, bodyContent, contentType strin
 
 func convertFormFields(params []apifoxParam) []models.EndpointBodyField {
 	fields := make([]models.EndpointBodyField, 0, len(params))
-	for _, p := range params {
+	for i, p := range params {
+		dataType := defaultStr(p.Type, "string")
+		if dataType == "text" {
+			dataType = "string"
+		}
 		ft := "text"
-		if p.Type == "file" {
+		if dataType == "file" {
 			ft = "file"
+		}
+		schema := p.Schema
+		if len(schema) == 0 || string(schema) == "null" {
+			schema = p.JSONSchema
 		}
 		fields = append(fields, models.EndpointBodyField{
 			Name: p.Name, Value: p.val(), FieldType: ft, Enabled: boolOr(p.Enable, true),
+			DataType: dataType, Description: p.Description, Required: p.Required,
+			ContentType: p.ContentType, Schema: string(schema), Style: p.Style, Explode: p.Explode,
+			SortOrder: i,
 		})
 	}
 	return fields

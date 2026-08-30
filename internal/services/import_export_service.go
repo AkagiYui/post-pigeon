@@ -306,7 +306,7 @@ func (s *ImportExportService) exportEndpoints(db *gorm.DB, moduleID string, fold
 	for _, endpoint := range endpoints {
 		ee := EndpointExport{Endpoint: endpoint}
 		db.Where("endpoint_id = ?", endpoint.ID).Find(&ee.Params)
-		db.Where("endpoint_id = ?", endpoint.ID).Find(&ee.BodyFields)
+		db.Where("endpoint_id = ?", endpoint.ID).Order("sort_order ASC").Find(&ee.BodyFields)
 		db.Where("endpoint_id = ?", endpoint.ID).Find(&ee.Headers)
 		db.Where("endpoint_id = ?", endpoint.ID).First(&ee.Auth)
 		result = append(result, ee)
@@ -517,11 +517,10 @@ func (s *ImportExportService) importEndpoints(tx *gorm.DB, moduleID string, fold
 		// 导入请求体字段
 		for _, bf := range ee.BodyFields {
 			newField := models.EndpointBodyField{
-				EndpointID: newEndpoint.ID,
-				Name:       bf.Name,
-				Value:      bf.Value,
-				FieldType:  bf.FieldType,
-				Enabled:    bf.Enabled,
+				EndpointID: newEndpoint.ID, Name: bf.Name, Value: bf.Value,
+				FieldType: bf.FieldType, Enabled: bf.Enabled, DataType: bf.DataType,
+				Description: bf.Description, Required: bf.Required, ContentType: bf.ContentType,
+				Schema: bf.Schema, Style: bf.Style, Explode: bf.Explode, SortOrder: bf.SortOrder,
 			}
 			if err := tx.Create(&newField).Error; err != nil {
 				return err

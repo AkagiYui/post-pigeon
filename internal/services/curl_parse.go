@@ -84,7 +84,10 @@ func (s *CurlService) ParseCurl(command string) (*CurlRequest, error) {
 			if !ok {
 				continue
 			}
-			urlEncoded = append(urlEncoded, models.EndpointBodyField{Name: name, Value: value, FieldType: "text", Enabled: true})
+			urlEncoded = append(urlEncoded, models.EndpointBodyField{
+				Name: name, Value: value, FieldType: "text", DataType: "string",
+				Enabled: true, SortOrder: len(urlEncoded),
+			})
 
 		case token == "-F" || token == "--form":
 			name, value, ok := splitOnce(next(&i), "=")
@@ -92,12 +95,17 @@ func (s *CurlService) ParseCurl(command string) (*CurlRequest, error) {
 				continue
 			}
 			fieldType := "text"
+			dataType := "string"
 			if strings.HasPrefix(value, "@") || strings.HasPrefix(value, "<") {
 				// curl 用 @路径 引用本地文件，而我们存的也正是路径，直接照搬即可
 				fieldType = "file"
+				dataType = "file"
 				value = fileFieldJSON(strings.TrimLeft(value, "@<"))
 			}
-			formFields = append(formFields, models.EndpointBodyField{Name: name, Value: value, FieldType: fieldType, Enabled: true})
+			formFields = append(formFields, models.EndpointBodyField{
+				Name: name, Value: value, FieldType: fieldType, DataType: dataType,
+				Enabled: true, SortOrder: len(formFields),
+			})
 
 		case token == "-b" || token == "--cookie":
 			cookiePairs = append(cookiePairs, next(&i))

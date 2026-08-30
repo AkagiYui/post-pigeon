@@ -91,11 +91,13 @@ type postmanBody struct {
 }
 
 type postmanKV struct {
-	Key      string `json:"key"`
-	Value    string `json:"value"`
-	Type     string `json:"type"` // text | file
-	Src      any    `json:"src"`
-	Disabled bool   `json:"disabled"`
+	Key         string `json:"key"`
+	Value       string `json:"value"`
+	Type        string `json:"type"` // text | file
+	Src         any    `json:"src"`
+	Disabled    bool   `json:"disabled"`
+	Description string `json:"description"`
+	ContentType string `json:"contentType"`
 }
 
 // postmanURL 既可能是字符串，也可能是结构体，需自定义解码。
@@ -476,16 +478,26 @@ func postmanBodyFields(body *postmanBody) []models.EndpointBodyField {
 		return nil
 	}
 	fields := make([]models.EndpointBodyField, 0, len(source))
-	for _, item := range source {
+	for i, item := range source {
 		if strings.TrimSpace(item.Key) == "" {
 			continue
 		}
 		fieldType := "text"
+		dataType := "string"
 		if item.Type == "file" {
 			fieldType = "file"
+			dataType = "file"
+		}
+		value := item.Value
+		if fieldType == "file" {
+			if path, ok := item.Src.(string); ok && path != "" {
+				value = fileFieldJSON(path)
+			}
 		}
 		fields = append(fields, models.EndpointBodyField{
-			Name: item.Key, Value: item.Value, FieldType: fieldType, Enabled: !item.Disabled,
+			Name: item.Key, Value: value, FieldType: fieldType, DataType: dataType,
+			Description: item.Description, ContentType: item.ContentType,
+			Enabled: !item.Disabled, SortOrder: i,
 		})
 	}
 	return fields

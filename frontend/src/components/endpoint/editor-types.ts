@@ -161,12 +161,25 @@ export function emptyOperation(stage: OperationStage, type: OperationType = "scr
 }
 
 /** 请求体字段行（form-data / x-www-form-urlencoded） */
+export type BodyFieldDataType = "string" | "integer" | "number" | "boolean" | "array" | "object" | "file"
+
 export interface BodyFieldRow {
   id: string
   name: string
   value: string
   fieldType: "text" | "file"
   enabled: boolean
+  /** Apifox/OpenAPI 参数类型；fieldType 仅保留给旧数据与旧客户端兼容 */
+  dataType: BodyFieldDataType
+  description: string
+  required: boolean
+  /** multipart 单个 part 的 Content-Type */
+  contentType: string
+  /** 字段级 JSON Schema（JSON 文本） */
+  schema: string
+  style: string
+  explode: boolean | null
+  sortOrder: number
   /** 文件名（fieldType=file 时有效） */
   fileName?: string
   /** 本机文件路径（fieldType=file 时有效）。库里存的是它，发送时后端才读盘 */

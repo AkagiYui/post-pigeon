@@ -4,6 +4,7 @@ import (
 	"encoding/json"
 	"fmt"
 	"log/slog"
+	"slices"
 	"sort"
 	"strings"
 
@@ -69,18 +70,26 @@ type openAPIRequestBody struct {
 
 // openAPIMediaType v3 媒体类型
 type openAPIMediaType struct {
-	Schema  *openAPISchema `json:"schema"`
-	Example any            `json:"example"`
+	Schema   *openAPISchema             `json:"schema"`
+	Example  any                        `json:"example"`
+	Encoding map[string]openAPIEncoding `json:"encoding"`
+}
+
+type openAPIEncoding struct {
+	ContentType string `json:"contentType"`
+	Style       string `json:"style"`
+	Explode     *bool  `json:"explode"`
 }
 
 // openAPISchema 简化的 schema 结构
 type openAPISchema struct {
-	Type       string                   `json:"type"`
-	Format     string                   `json:"format"`
-	Properties map[string]openAPISchema `json:"properties"`
-	Required   []string                 `json:"required"`
-	Example    any                      `json:"example"`
-	Items      *openAPISchema           `json:"items"`
+	Type        string                   `json:"type"`
+	Format      string                   `json:"format"`
+	Description string                   `json:"description"`
+	Properties  map[string]openAPISchema `json:"properties"`
+	Required    []string                 `json:"required"`
+	Example     any                      `json:"example"`
+	Items       *openAPISchema           `json:"items"`
 }
 
 // httpMethods 支持解析的 HTTP 方法集合
@@ -368,14 +377,14 @@ func buildParsedEndpoint(path string, method string, op openAPIOperation) parsed
 			})
 		case "formData": // Swagger 2.0 表单字段
 			fieldType := "text"
+			dataType := defaultStr(p.Type, "string")
 			if p.Type == "file" {
 				fieldType = "file"
 			}
 			formFields = append(formFields, models.EndpointBodyField{
-				Name:      p.Name,
-				Value:     paramExample(p),
-				FieldType: fieldType,
-				Enabled:   true,
+				Name: p.Name, Value: paramExample(p), FieldType: fieldType, DataType: dataType,
+				Description: p.Description, Required: p.Required, Enabled: true,
+				SortOrder: len(formFields),
 			})
 		case "body": // Swagger 2.0 body 参数
 			bodySchemaParam = &p
@@ -421,12 +430,12 @@ func applyRequestBodyV3(ep *parsedEndpoint, rb *openAPIRequestBody) {
 	}
 	if mt, ok := rb.Content["application/x-www-form-urlencoded"]; ok {
 		ep.BodyType = string(models.BodyTypeURLEncoded)
-		ep.BodyFields = schemaToBodyFields(mt.Schema)
+		ep.BodyFields = schemaToBodyFields(mt.Schema, mt.Encoding)
 		return
 	}
 	if mt, ok := rb.Content["multipart/form-data"]; ok {
 		ep.BodyType = string(models.BodyTypeFormData)
-		ep.BodyFields = schemaToBodyFields(mt.Schema)
+		ep.BodyFields = schemaToBodyFields(mt.Schema, mt.Encoding)
 		return
 	}
 	// 其它类型：取第一个 content 作为文本处理
@@ -439,25 +448,29 @@ func applyRequestBodyV3(ep *parsedEndpoint, rb *openAPIRequestBody) {
 }
 
 // schemaToBodyFields 将对象 schema 的属性转为表单字段
-func schemaToBodyFields(schema *openAPISchema) []models.EndpointBodyField {
+func schemaToBodyFields(schema *openAPISchema, encoding map[string]openAPIEncoding) []models.EndpointBodyField {
 	if schema == nil || schema.Properties == nil {
 		return nil
 	}
 	var fields []models.EndpointBodyField
 	for name, prop := range schema.Properties {
 		fieldType := "text"
+		dataType := defaultStr(prop.Type, "string")
 		if prop.Type == "string" && prop.Format == "binary" {
 			fieldType = "file"
+			dataType = "file"
 		}
 		value := ""
 		if prop.Example != nil {
 			value = toStringValue(prop.Example)
 		}
+		rawSchema, _ := json.Marshal(prop)
+		enc := encoding[name]
 		fields = append(fields, models.EndpointBodyField{
-			Name:      name,
-			Value:     value,
-			FieldType: fieldType,
-			Enabled:   true,
+			Name: name, Value: value, FieldType: fieldType, DataType: dataType,
+			Description: prop.Description, Required: slices.Contains(schema.Required, name),
+			ContentType: enc.ContentType, Schema: string(rawSchema), Style: enc.Style, Explode: enc.Explode,
+			Enabled: true, SortOrder: len(fields),
 		})
 	}
 	return fields

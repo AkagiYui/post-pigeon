@@ -70,7 +70,7 @@ const samplePostmanCollection = `{
           "mode": "formdata",
           "formdata": [
             { "key": "name", "value": "a", "type": "text" },
-            { "key": "file", "type": "file", "src": "x.png" }
+            { "key": "file", "type": "file", "src": "x.png", "description": "附件", "contentType": "image/png" }
           ]
         },
         "url": { "raw": "{{baseUrl}}/upload", "path": ["upload"] }
@@ -165,6 +165,9 @@ func TestImportPostman(t *testing.T) {
 	for _, f := range fields {
 		if f.FieldType == "file" {
 			fileField++
+			if f.DataType != "file" || f.Description != "附件" || f.ContentType != "image/png" || !strings.Contains(f.Value, `"path":"x.png"`) {
+				t.Errorf("文件字段元数据或路径丢失: %+v", f)
+			}
 		}
 	}
 	if fileField != 1 {

@@ -1,6 +1,7 @@
 package services
 
 import (
+	"encoding/json"
 	"os"
 	"strings"
 	"testing"
@@ -920,5 +921,28 @@ func TestApifoxImport_AdoptsRecordsWithoutSourceID(t *testing.T) {
 	}
 	if eps[0].SourceID == "" {
 		t.Errorf("认领后应补写来源 ID，实际为空")
+	}
+}
+
+func TestConvertFormFieldsPreservesApifoxMetadata(t *testing.T) {
+	explode := false
+	fields := convertFormFields([]apifoxParam{{
+		Name: "tags", Type: "array", Required: true, Description: "标签",
+		ContentType: "application/json", Style: "form", Explode: &explode,
+		Schema: json.RawMessage(`{"type":"array","items":{"type":"string"}}`),
+		Value:  jstr(`["a","b"]`),
+	}})
+	if len(fields) != 1 {
+		t.Fatalf("字段数 = %d，期望 1", len(fields))
+	}
+	f := fields[0]
+	if f.DataType != "array" || f.FieldType != "text" || !f.Required || f.Description != "标签" {
+		t.Errorf("类型或文档元数据丢失: %+v", f)
+	}
+	if f.ContentType != "application/json" || f.Style != "form" || f.Explode == nil || *f.Explode {
+		t.Errorf("序列化元数据丢失: %+v", f)
+	}
+	if !strings.Contains(f.Schema, `"type":"array"`) || f.SortOrder != 0 {
+		t.Errorf("Schema 或顺序丢失: %+v", f)
 	}
 }

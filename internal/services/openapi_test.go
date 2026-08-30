@@ -67,9 +67,13 @@ const openapi3Doc = `{
             "application/x-www-form-urlencoded": {
               "schema": {
                 "type": "object",
+                "required": ["field1"],
                 "properties": {
-                  "field1": {"type": "string", "example": "v1"}
+                  "field1": {"type": "array", "description": "字段一", "example": ["v1", "v2"], "items": {"type": "string"}}
                 }
+              },
+              "encoding": {
+                "field1": {"contentType": "application/json", "style": "form", "explode": false}
               }
             }
           }
@@ -136,6 +140,22 @@ func TestParseOpenAPI3(t *testing.T) {
 	}
 	if create.BodyContent == "" || !contains(create.BodyContent, "张三") {
 		t.Errorf("json 请求体未包含示例值：%q", create.BodyContent)
+	}
+	var form *parsedEndpoint
+	for i := range eps {
+		if eps[i].Path == "/user/form" {
+			form = &eps[i]
+		}
+	}
+	if form == nil || len(form.BodyFields) != 1 {
+		t.Fatalf("未解析表单字段: %+v", form)
+	}
+	f := form.BodyFields[0]
+	if f.DataType != "array" || !f.Required || f.Description != "字段一" || f.ContentType != "application/json" || f.Style != "form" || f.Explode == nil || *f.Explode {
+		t.Errorf("OpenAPI 表单元数据解析错误: %+v", f)
+	}
+	if !contains(f.Schema, `"items"`) {
+		t.Errorf("字段 Schema 丢失: %q", f.Schema)
 	}
 }
 

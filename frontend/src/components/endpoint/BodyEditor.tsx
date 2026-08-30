@@ -88,6 +88,14 @@ export function BodyEditor(props: BodyEditorProps) {
       value: "",
       fieldType: "text",
       enabled: true,
+      dataType: "string",
+      description: "",
+      required: false,
+      contentType: "",
+      schema: "",
+      style: "",
+      explode: null,
+      sortOrder: props.fields.length,
     }] })
   }
 
@@ -323,7 +331,11 @@ export function BodyEditor(props: BodyEditorProps) {
                   <Select
                     options={[{ value: "text", label: t("common.text") }, { value: "file", label: t("common.file") }]}
                     value={row.fieldType}
-                    onChange={(v) => updateField(row.id, { fieldType: v as "text" | "file", value: "", fileName: "", filePath: "", fileContent: "" })}
+                    onChange={(v) => updateField(row.id, {
+                      fieldType: v as "text" | "file",
+                      dataType: v === "file" ? "file" : "string",
+                      value: "", fileName: "", filePath: "", fileContent: "",
+                    })}
                     size="sm"
                   />
                 ),

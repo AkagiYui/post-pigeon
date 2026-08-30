@@ -46,7 +46,12 @@ func TestImportExportRoundTrip(t *testing.T) {
 		TimeoutMode: "unlimited", SendNoCacheHeaders: boolPointer(false),
 		Params:  []models.EndpointParam{{Type: "query", Name: "a", Value: "1", Enabled: true}},
 		Headers: []models.EndpointHeader{{Name: "H", Value: "h", Enabled: true}},
-		Auth:    &models.EndpointAuth{Type: "bearer", Data: models.ToJSON(models.BearerAuthData{Token: "tok"})},
+		BodyFields: []models.EndpointBodyField{{
+			Name: "tags", Value: `["a","b"]`, FieldType: "text", DataType: "array", Enabled: true,
+			Description: "标签", Required: true, ContentType: "application/json",
+			Schema: `{"type":"array"}`, Style: "form", Explode: boolPointer(false),
+		}},
+		Auth: &models.EndpointAuth{Type: "bearer", Data: models.ToJSON(models.BearerAuthData{Token: "tok"})},
 	}); err != nil {
 		t.Fatalf("保存端点 err=%v", err)
 	}
@@ -129,6 +134,13 @@ func TestImportExportRoundTrip(t *testing.T) {
 	}
 	if len(detail.Headers) != 1 {
 		t.Errorf("导入后 List 请求头数 = %d，期望 1", len(detail.Headers))
+	}
+	if len(detail.BodyFields) != 1 {
+		t.Fatalf("导入后 List 请求体字段数 = %d，期望 1", len(detail.BodyFields))
+	}
+	bf := detail.BodyFields[0]
+	if bf.DataType != "array" || bf.Description != "标签" || !bf.Required || bf.ContentType != "application/json" || bf.Schema != `{"type":"array"}` || bf.Style != "form" || bf.Explode == nil || *bf.Explode {
+		t.Errorf("导入后请求体字段元数据丢失: %+v", bf)
 	}
 	if detail.Auth == nil || detail.Auth.Type != "bearer" {
 		t.Errorf("导入后 List 认证 = %+v，期望 bearer", detail.Auth)

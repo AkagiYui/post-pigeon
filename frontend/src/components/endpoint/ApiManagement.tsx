@@ -583,6 +583,8 @@ export function ApiManagement(props: ApiManagementProps) {
       bodyFields: (parsed.bodyFields || []).map(f => ({
         id: crypto.randomUUID(), name: f.name, value: f.value,
         fieldType: (f.fieldType === "file" ? "file" : "text") as "text" | "file", enabled: f.enabled,
+        dataType: (f.fieldType === "file" ? "file" : "string") as "file" | "string",
+        description: "", required: false, contentType: "", schema: "", style: "", explode: null, sortOrder: 0,
       })),
       auth: fromAuthModel(parsed.auth),
       // curl -k 对应接口级「跳过证书校验」

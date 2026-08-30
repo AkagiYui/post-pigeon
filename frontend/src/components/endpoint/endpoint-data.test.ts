@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { EndpointAuth, EndpointBodyField, Operation } from "@/../bindings/PostPigeon/internal/models"
 
-import { emptyAuth } from "./editor-types"
+import { emptyAuth, type BodyFieldRow } from "./editor-types"
 import {
   authDataToState,
   authStateToData,
@@ -205,10 +205,17 @@ describe("deriveScriptFromOps", () => {
 })
 
 describe("请求体字段转换", () => {
+  const bodyRow = (overrides: Partial<BodyFieldRow>): BodyFieldRow => ({
+    id: "1", name: "field", value: "", fieldType: "text", enabled: true,
+    dataType: "string", description: "", required: false, contentType: "", schema: "",
+    style: "", explode: null, sortOrder: 0,
+    ...overrides,
+  })
+
   it("切到 urlencoded 时把文件字段降级成可见的文件名文本", () => {
     const rows = normalizeBodyFieldsForType([
-      { id: "1", name: "f", value: "", fieldType: "file", enabled: true, fileName: "a.png", filePath: "/tmp/a.png" },
-      { id: "2", name: "note", value: "hello", fieldType: "text", enabled: true },
+      bodyRow({ name: "f", fieldType: "file", dataType: "file", fileName: "a.png", filePath: "/tmp/a.png" }),
+      bodyRow({ id: "2", name: "note", value: "hello" }),
     ], "x-www-form-urlencoded")
 
     expect(rows[0]).toMatchObject({ fieldType: "text", value: "a.png", fileName: "", filePath: "" })
@@ -216,13 +223,13 @@ describe("请求体字段转换", () => {
   })
 
   it("其它请求体类型保持字段引用不变", () => {
-    const rows = [{ id: "1", name: "f", value: "", fieldType: "file" as const, enabled: true, fileName: "a.png" }]
+    const rows = [bodyRow({ name: "f", fieldType: "file", dataType: "file", fileName: "a.png" })]
     expect(normalizeBodyFieldsForType(rows, "form-data")).toBe(rows)
   })
 
   it("文件字段存的是路径而不是内容", () => {
     const models = toBodyFieldModels([
-      { id: "1", name: "f", value: "", fieldType: "file", enabled: true, fileName: "a.png", filePath: "/tmp/a.png" },
+      bodyRow({ name: "f", fieldType: "file", dataType: "file", fileName: "a.png", filePath: "/tmp/a.png" }),
     ])
     expect(JSON.parse(models[0].value)).toEqual({ fileName: "a.png", path: "/tmp/a.png" })
 
@@ -232,14 +239,14 @@ describe("请求体字段转换", () => {
 
   it("重新选过文件后不再带上历史内容", () => {
     const models = toBodyFieldModels([
-      { id: "1", name: "f", value: "", fieldType: "file", enabled: true, fileName: "new.png", filePath: "/tmp/new.png", fileContent: "AAA" },
+      bodyRow({ name: "f", fieldType: "file", dataType: "file", fileName: "new.png", filePath: "/tmp/new.png", fileContent: "AAA" }),
     ])
     expect(JSON.parse(models[0].value)).toEqual({ fileName: "new.png", path: "/tmp/new.png" })
   })
 
   it("历史数据里内联的内容原样保留（打开老接口按下保存不该弄丢附件）", () => {
     const models = toBodyFieldModels([
-      { id: "1", name: "f", value: "", fieldType: "file", enabled: true, fileName: "a.png", fileContent: "AAA" },
+      bodyRow({ name: "f", fieldType: "file", dataType: "file", fileName: "a.png", fileContent: "AAA" }),
     ])
     expect(JSON.parse(models[0].value)).toEqual({ fileName: "a.png", content: "AAA" })
 
@@ -255,7 +262,24 @@ describe("请求体字段转换", () => {
   })
 
   it("过滤掉没有名字的字段", () => {
-    expect(toBodyFieldModels([{ id: "1", name: "  ", value: "v", fieldType: "text", enabled: true }])).toHaveLength(0)
+    expect(toBodyFieldModels([bodyRow({ name: "  ", value: "v" })])).toHaveLength(0)
+  })
+
+  it("完整往返类型、说明、Schema 与序列化元数据", () => {
+    const models = toBodyFieldModels([bodyRow({
+      name: "tags", value: '["a","b"]', dataType: "array", description: "标签",
+      required: true, contentType: "application/json", schema: '{"type":"array"}',
+      style: "form", explode: false, sortOrder: 12,
+    })])
+    expect(models[0]).toMatchObject({
+      fieldType: "text", dataType: "array", description: "标签", required: true,
+      contentType: "application/json", schema: '{"type":"array"}', style: "form", explode: false,
+      sortOrder: 0,
+    })
+    expect(fromBodyFieldModels(models)[0]).toMatchObject({
+      dataType: "array", description: "标签", required: true,
+      contentType: "application/json", schema: '{"type":"array"}', style: "form", explode: false,
+    })
   })
 })
 

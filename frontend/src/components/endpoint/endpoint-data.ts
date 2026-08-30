@@ -14,6 +14,7 @@ import {
 } from "@/../bindings/PostPigeon/internal/models"
 import {
   type AuthState,
+  type BodyFieldDataType,
   type BodyFieldRow,
   emptyAuth,
   type HeaderRow,
@@ -237,6 +238,13 @@ function fileFieldValue(row: BodyFieldRow): string {
   return JSON.stringify({ fileName: row.fileName || "" })
 }
 
+function effectiveBodyFieldDataType(field: Pick<EndpointBodyField, "dataType" | "fieldType">): BodyFieldDataType {
+  const value = field.dataType || (field.fieldType === "file" ? "file" : "string")
+  return (["string", "integer", "number", "boolean", "array", "object", "file"] as string[]).includes(value)
+    ? value as BodyFieldDataType
+    : "string"
+}
+
 /**
  * 请求体类型切换时清理目标编码不支持的字段形态。
  *
@@ -247,9 +255,10 @@ function fileFieldValue(row: BodyFieldRow): string {
  */
 export function normalizeBodyFieldsForType(rows: BodyFieldRow[], bodyType: BodyType): BodyFieldRow[] {
   if (bodyType !== "x-www-form-urlencoded") return rows
-  return rows.map(row => row.fieldType !== "file" ? row : {
+  return rows.map(row => row.fieldType !== "file" && row.dataType !== "file" ? row : {
     ...row,
     fieldType: "text",
+    dataType: "string",
     value: row.fileName || row.value,
     fileName: "",
     filePath: "",
@@ -258,10 +267,18 @@ export function normalizeBodyFieldsForType(rows: BodyFieldRow[], bodyType: BodyT
 }
 
 export function toBodyFieldModels(rows: BodyFieldRow[]): EndpointBodyField[] {
-  return rows.filter(r => r.name.trim()).map(r => new EndpointBodyField({
+  return rows.filter(r => r.name.trim()).map((r, index) => new EndpointBodyField({
     name: r.name,
-    fieldType: r.fieldType,
+    fieldType: r.dataType === "file" ? "file" : "text",
     enabled: r.enabled,
+    dataType: r.dataType,
+    description: r.description,
+    required: r.required,
+    contentType: r.contentType,
+    schema: r.schema,
+    style: r.style,
+    explode: r.explode,
+    sortOrder: index,
     // 文件字段存的是「本机文件的引用」：{fileName, path}，发送时后端才读盘。
     // 历史数据里内联的 base64 原样保留——重新选过文件才会换成路径，
     // 否则打开一个老接口按下保存就会把附件弄丢
@@ -334,8 +351,14 @@ export function fromHeaderModels(arr?: EndpointHeader[] | null): HeaderRow[] {
 
 export function fromBodyFieldModels(arr?: EndpointBodyField[] | null): BodyFieldRow[] {
   return (arr || []).map(f => {
-    const fieldType: "text" | "file" = f.fieldType === "file" ? "file" : "text"
-    const row: BodyFieldRow = { id: crypto.randomUUID(), name: f.name, value: f.value, fieldType, enabled: f.enabled }
+    const dataType = effectiveBodyFieldDataType(f)
+    const fieldType: "text" | "file" = dataType === "file" ? "file" : "text"
+    const row: BodyFieldRow = {
+      id: crypto.randomUUID(), name: f.name, value: f.value, fieldType, enabled: f.enabled,
+      dataType, description: f.description || "", required: f.required,
+      contentType: f.contentType || "", schema: f.schema || "", style: f.style || "",
+      explode: f.explode, sortOrder: f.sortOrder,
+    }
     if (fieldType === "file") {
       try {
         const parsed = JSON.parse(f.value)

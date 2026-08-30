@@ -177,12 +177,20 @@ func (e *EndpointParam) BeforeCreate(tx *gorm.DB) error {
 
 // EndpointBodyField 端点请求体字段（form-data 和 urlencoded）
 type EndpointBodyField struct {
-	ID         string `gorm:"primaryKey" json:"id"`
-	EndpointID string `gorm:"not null;index" json:"endpointId"`
-	Name       string `gorm:"not null" json:"name"`
-	Value      string `json:"value"`
-	FieldType  string `gorm:"default:text" json:"fieldType"` // text, file
-	Enabled    bool   `json:"enabled"`
+	ID          string `gorm:"primaryKey" json:"id"`
+	EndpointID  string `gorm:"not null;index" json:"endpointId"`
+	Name        string `gorm:"not null" json:"name"`
+	Value       string `gorm:"type:text" json:"value"`
+	FieldType   string `gorm:"default:text" json:"fieldType"` // 兼容旧客户端：text, file
+	Enabled     bool   `json:"enabled"`
+	DataType    string `gorm:"type:text" json:"dataType"` // string, integer, number, boolean, array, object, file
+	Description string `gorm:"type:text" json:"description"`
+	Required    bool   `json:"required"`
+	ContentType string `gorm:"type:text" json:"contentType"` // multipart 单个 part 的媒体类型
+	Schema      string `gorm:"type:text" json:"schema"`      // 字段 JSON Schema
+	Style       string `gorm:"type:text" json:"style"`
+	Explode     *bool  `json:"explode"`
+	SortOrder   int    `gorm:"default:0" json:"sortOrder"`
 }
 
 // BeforeCreate 创建前自动生成 UUID

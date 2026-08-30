@@ -95,7 +95,7 @@ func (s *EndpointService) GetEndpoint(id string) (*EndpointDetail, error) {
 	// 注意：这三张子表没有 created_at 字段，不能按其排序，否则 SQLite 报错且静默返回 0 行；
 	// 默认按 rowid（插入顺序）返回即可，与用户编辑顺序一致
 	s.db.Where("endpoint_id = ?", id).Find(&detail.Params)
-	s.db.Where("endpoint_id = ?", id).Find(&detail.BodyFields)
+	s.db.Where("endpoint_id = ?", id).Order("sort_order asc").Find(&detail.BodyFields)
 	s.db.Where("endpoint_id = ?", id).Find(&detail.Headers)
 
 	// 加载认证信息（无记录时保持 nil，避免返回空对象误导前端）
@@ -217,6 +217,7 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 			for i := range data.BodyFields {
 				data.BodyFields[i].ID = ""
 				data.BodyFields[i].EndpointID = data.ID
+				data.BodyFields[i].SortOrder = i
 				if err := tx.Create(&data.BodyFields[i]).Error; err != nil {
 					return err
 				}
@@ -539,6 +540,7 @@ func (s *EndpointService) CreateFullEndpoint(moduleID string, folderID *string, 
 			for i := range data.BodyFields {
 				data.BodyFields[i].ID = ""
 				data.BodyFields[i].EndpointID = endpoint.ID
+				data.BodyFields[i].SortOrder = i
 				if err := tx.Create(&data.BodyFields[i]).Error; err != nil {
 					return err
 				}
