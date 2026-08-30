@@ -13,6 +13,18 @@ Release 正文后面备查。
 
 ### 新增
 
+- **form-data / x-www-form-urlencoded 编辑与 Apifox 对齐**：表单请求体改用与参数、请求头一致的
+  连续录入表格，支持末行直接新增、Enter 同列下移、批量编辑、表头全选、禁用态、悬停删除和拖拽排序。
+  字段类型扩展为字符串、整数、数字、布尔值、数组、对象和文件；form-data 的一个字段可以选择多个文件，
+  还可以设置单个 part 的 Content-Type。数组与对象可通过 `style` / `explode` 控制重复键、分隔符或
+  deepObject 展开方式，字段高级设置同时保留 required 与 JSON Schema；发送、实际请求检查和 cURL 导出
+  使用同一套序列化结果
+
+- **表单字段导入与请求元信息更完整**：Apifox、OpenAPI、Postman、cURL 和项目导入导出会保留表单字段的
+  类型、描述、必填、Content-Type、Schema、style、explode 与顺序，旧项目和旧客户端仍可继续使用原有
+  text/file 字段。Body 与 Headers 标签新增 Apifox 风格的数量徽标；Headers 编辑器会提示常用名称，并将
+  根据 Body 自动生成的 Content-Type 作为不计数的系统请求头展示
+
 - **「实际请求」升级为完整的请求执行检查器**：不再只显示最终 URL 和扁平请求头，而是按一次发送的
   完整尝试链展示配置值、变量与认证处理后的预备值，以及真正进入网络层的请求。重定向、Digest 认证、
   Cookie 自动补充、SSE 重连和 WebSocket 握手都会保留为独立尝试，并显示各自的方法、URL、重复请求头、
@@ -168,6 +180,10 @@ Release 正文后面备查。
   Markdown 正常显示，并自动隐藏只供开发排查的 commit hash 附录
 
 ### 修复
+
+- **表单编码切换不再泄漏文件引用或丢失同名字段**：从 form-data 切到 x-www-form-urlencoded 时，文件行
+  会转换成界面可见的文件名文本；即使是修复前保存的旧数据，发送时也不会把本机路径引用 JSON 当作普通
+  表单值发出。x-www-form-urlencoded 现在会保留重复字段名，不再因后写入的同名字段覆盖前一项
 
 - **Binary 请求体补全多语言显示**：请求体类型现在统一使用翻译词条，中文界面会正确显示
   「无请求体」和「二进制」；Binary 与 form-data 的文件选择区也不再直接露出缺失的翻译键。
