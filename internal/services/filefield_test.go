@@ -68,6 +68,46 @@ func TestFormDataFileSendsFromPath(t *testing.T) {
 	}
 }
 
+func TestFormDataFieldSendsMultipleFiles(t *testing.T) {
+	db := newTestDB(t)
+	first := writeTempFile(t, "a.txt", "alpha")
+	second := writeTempFile(t, "b.txt", "beta")
+	var names []string
+	var contents []string
+	srv := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		if err := r.ParseMultipartForm(1 << 20); err != nil {
+			t.Errorf("解析 multipart 失败: %v", err)
+			return
+		}
+		for _, header := range r.MultipartForm.File["attachments"] {
+			file, err := header.Open()
+			if err != nil {
+				t.Errorf("打开上传 part 失败: %v", err)
+				continue
+			}
+			content, _ := io.ReadAll(file)
+			_ = file.Close()
+			names = append(names, header.Filename)
+			contents = append(contents, string(content))
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+
+	value, _ := json.Marshal([]fileFieldValue{
+		{FileName: "a.txt", Path: first},
+		{FileName: "b.txt", Path: second},
+	})
+	if _, err := newTestHTTPService(t, db).SendRequest(SendRequestData{
+		Method: "POST", BaseURL: srv.URL, Path: "/upload", BodyType: string(models.BodyTypeFormData),
+		BodyFields: []models.EndpointBodyField{{Name: "attachments", FieldType: "file", DataType: "file", Value: string(value), Enabled: true}},
+	}); err != nil {
+		t.Fatalf("发送多文件字段失败: %v", err)
+	}
+	if strings.Join(names, ",") != "a.txt,b.txt" || strings.Join(contents, ",") != "alpha,beta" {
+		t.Fatalf("多文件 part 不完整: names=%v contents=%v", names, contents)
+	}
+}
+
 // TestFormDataFileMissingReportsError 文件被移走时要给一个能看懂的错误，
 // 而不是发出去一个空文件。
 func TestFormDataFileMissingReportsError(t *testing.T) {

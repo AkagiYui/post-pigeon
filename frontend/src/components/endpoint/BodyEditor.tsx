@@ -3,15 +3,14 @@ import { Icon } from "@iconify-icon/solid"
 import { createMemo, For, Show } from "solid-js"
 
 import { FileService } from "@/../bindings/PostPigeon/internal/services"
-import type { BodyFieldRow } from "@/components/endpoint/EndpointDetail"
 import { normalizeBodyFieldsForType } from "@/components/endpoint/endpoint-data"
+import type { BodyFieldRow } from "@/components/endpoint/EndpointDetail"
+import { KeyValueTable } from "@/components/endpoint/KeyValueTable"
 import { Button } from "@/components/ui/button"
-import { Checkbox } from "@/components/ui/checkbox"
 import { CodeEditor, type CodeLanguage } from "@/components/ui/code-editor"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/input"
 import { Select } from "@/components/ui/select"
-import { Table } from "@/components/ui/table"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
 import { convertJSON5ToJSON, formatBody, formatJSONC } from "@/lib/format"
@@ -37,6 +36,9 @@ const bodyTypeOptions = [
   { value: "binary", labelKey: "endpoint.body.binary" },
   { value: "graphql", labelKey: "endpoint.body.graphql" },
 ]
+
+const formDataTypes = ["string", "integer", "number", "boolean", "array", "object", "file"] as const
+const urlEncodedTypes = formDataTypes.filter(type => type !== "file")
 
 /** GraphQL 请求体在 bodyContent 中的存储形态（与后端 models.GraphQLBody 一致） */
 interface GraphQLBody {
@@ -81,38 +83,32 @@ export function BodyEditor(props: BodyEditorProps) {
     props.onChange(bodyFields === props.fields ? { bodyType } : { bodyType, bodyFields })
   }
 
-  const addField = () => {
-    props.onChange({ bodyFields: [...props.fields, {
-      id: crypto.randomUUID(),
-      name: "",
-      value: "",
-      fieldType: "text",
-      enabled: true,
-      dataType: "string",
-      description: "",
-      required: false,
-      contentType: "",
-      schema: "",
-      style: "",
-      explode: null,
-      sortOrder: props.fields.length,
-    }] })
-  }
+  const makeField = (): BodyFieldRow => ({
+    id: crypto.randomUUID(),
+    name: "",
+    value: "",
+    fieldType: "text",
+    enabled: true,
+    dataType: "string",
+    description: "",
+    required: false,
+    contentType: "",
+    schema: "",
+    style: "",
+    explode: null,
+    sortOrder: props.fields.length,
+  })
 
-  const removeField = (id: string) => {
-    props.onChange({ bodyFields: props.fields.filter(f => f.id !== id) })
-  }
-
-  const updateField = (id: string, patch: Partial<BodyFieldRow>) => {
-    props.onChange({ bodyFields: props.fields.map(f => f.id === id ? { ...f, ...patch } : f) })
-  }
-
-  // 选文件走原生对话框：库里存的是路径，而浏览器的 <input type="file"> 只给内容不给路径
-  const pickFile = async (id: string) => {
+  // 选文件走原生对话框：库里存的是路径，而浏览器的 <input type="file"> 只给内容不给路径。
+  // form-data 与 Apifox 一样允许一个字段挂多个文件。
+  const pickFile = async (apply: (patch: Partial<BodyFieldRow>) => void) => {
     try {
-      const picked = await FileService.PickFile()
-      if (!picked?.path) return // 用户取消
-      updateField(id, { fileName: picked.name, filePath: picked.path, fileContent: "" })
+      const picked = await FileService.PickFiles()
+      if (!picked?.length) return // 用户取消
+      apply({
+        files: picked.map(file => ({ fileName: file.name, path: file.path })),
+        fileName: picked[0].name, filePath: picked[0].path, fileContent: "",
+      })
     } catch (e) {
       toastError(e, "error.op.loadFailed")
     }
@@ -287,74 +283,89 @@ export function BodyEditor(props: BodyEditorProps) {
         </Show>
 
         <Show when={props.bodyType === "form-data" || props.bodyType === "x-www-form-urlencoded"}>
-          <Table
-            columns={[
-              {
-                header: "", width: "32px", render: (row) => (
-                  <Checkbox
-                    checked={row.enabled}
-                    onChange={(e) => updateField(row.id, { enabled: e.currentTarget.checked })}
-                  />
-                ),
-              },
-              {
-                header: t("endpoint.param.name"), render: (row) => (
-                  <Input size="sm" value={row.name} onInput={(e) => updateField(row.id, { name: e.currentTarget.value })} />
-                ),
-              },
-              {
-                header: t("endpoint.param.value"), render: (row) => (
+          <KeyValueTable
+            rows={props.fields}
+            onChange={(bodyFields) => props.onChange({ bodyFields })}
+            makeRow={makeField}
+            sortable
+            nameLabel={t("endpoint.param.name")}
+            valueLabel={t("endpoint.param.value")}
+            renderValue={(row, context) => (
+              <Show
+                when={props.bodyType === "form-data" && row.dataType === "file"}
+                fallback={
                   <Show
-                    when={props.bodyType === "form-data" && row.fieldType === "file"}
+                    when={row.dataType === "boolean"}
                     fallback={
-                      <Input size="sm" value={row.value} onInput={(e) => updateField(row.id, { value: e.currentTarget.value })} />
+                      <Input
+                        size="sm"
+                        type={row.dataType === "integer" || row.dataType === "number" ? "number" : "text"}
+                        step={row.dataType === "number" ? "any" : undefined}
+                        value={row.value}
+                        placeholder={row.dataType === "array" ? '["a", "b"]' : row.dataType === "object" ? '{"key": "value"}' : undefined}
+                        class="border-transparent bg-transparent font-mono hover:border-control-border focus-visible:bg-input"
+                        onInput={(event) => context.update({ value: event.currentTarget.value })}
+                        onKeyDown={(event) => {
+                          if (event.key !== "Enter") return
+                          event.preventDefault()
+                          context.focusNext(event.currentTarget)
+                        }}
+                      />
                     }
                   >
-                    {/* 文件选择：显示文件名 + 选择按钮，鼠标悬停能看到完整路径 */}
-                    <button
-                      type="button"
-                      class="flex items-center gap-2 text-sm"
-                      title={row.filePath || undefined}
-                      onClick={() => void pickFile(row.id)}
-                    >
-                      <span class="inline-flex items-center gap-1 px-2 py-1 rounded-md border border-border bg-muted hover:text-foreground text-muted-foreground">
-                        <Icon icon="lucide:upload" class="h-3 w-3" />
-                        {t("common.chooseFile")}
-                      </span>
-                      <span class="truncate text-muted-foreground max-w-40">{row.fileName || t("common.noFileChosen")}</span>
-                    </button>
+                    <Select
+                      options={[{ value: "true", label: "true" }, { value: "false", label: "false" }]}
+                      value={row.value || "false"}
+                      onChange={(value) => context.update({ value })}
+                      size="sm"
+                    />
                   </Show>
-                ),
-              },
-              ...(props.bodyType === "form-data" ? [{
-                header: t("common.type"), width: "96px", render: (row: BodyFieldRow) => (
+                }
+              >
+                <button
+                  type="button"
+                  class="flex max-w-72 items-center gap-2 text-sm"
+                  title={(row.files?.map(file => file.path).filter(Boolean).join("\n") || row.filePath) || undefined}
+                  onClick={() => void pickFile(context.update)}
+                >
+                  <span class="inline-flex shrink-0 items-center gap-1 rounded-md border border-border bg-muted px-2 py-1 text-muted-foreground hover:text-foreground">
+                    <Icon icon="lucide:upload" class="h-3 w-3" />
+                    {t("common.chooseFile")}
+                  </span>
+                  <span class="truncate text-muted-foreground">
+                    {row.files?.map(file => file.fileName).join(", ") || row.fileName || t("common.noFileChosen")}
+                  </span>
+                </button>
+              </Show>
+            )}
+            extraColumns={(context) => [
+              {
+                header: t("common.type"), width: "112px", render: (row) => (
                   <Select
-                    options={[{ value: "text", label: t("common.text") }, { value: "file", label: t("common.file") }]}
-                    value={row.fieldType}
-                    onChange={(v) => updateField(row.id, {
-                      fieldType: v as "text" | "file",
-                      dataType: v === "file" ? "file" : "string",
-                      value: "", fileName: "", filePath: "", fileContent: "",
+                    options={(props.bodyType === "form-data" ? formDataTypes : urlEncodedTypes).map(value => ({ value, label: t(`endpoint.body.fieldType.${value}`) }))}
+                    value={row.dataType}
+                    onChange={(value) => context.update(row, {
+                      dataType: value as BodyFieldRow["dataType"],
+                      fieldType: value === "file" ? "file" : "text",
+                      value: "", fileName: "", filePath: "", fileContent: "", files: [],
                     })}
                     size="sm"
                   />
                 ),
-              }] : []),
-              {
-                header: "", width: "32px", render: (row: BodyFieldRow) => (
-                  <Button variant="ghost" size="icon-sm" onClick={() => removeField(row.id)}>
-                    <Icon icon="lucide:trash-2" class="h-3 w-3" />
-                  </Button>
-                ),
               },
+              ...(props.bodyType === "form-data" ? [{
+                header: t("endpoint.contentType"), width: "160px", render: (row: BodyFieldRow) => (
+                  <Input
+                    size="sm"
+                    value={row.contentType}
+                    placeholder={row.dataType === "file" ? "application/octet-stream" : "text/plain"}
+                    class="border-transparent bg-transparent hover:border-control-border focus-visible:bg-input"
+                    onInput={(event) => context.update(row, { contentType: event.currentTarget.value })}
+                  />
+                ),
+              }] : []),
             ]}
-            data={props.fields}
-            compact
           />
-          <Button variant="outline" size="sm" class="mt-2" onClick={addField}>
-            <Icon icon="lucide:plus" class="h-3 w-3" />
-            {t("common.add")}
-          </Button>
         </Show>
       </div>
     </div>

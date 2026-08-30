@@ -46,6 +46,23 @@ func (s *FileService) PickFile() (FileRef, error) {
 	return s.StatFile(path), nil
 }
 
+// PickFiles 打开原生文件选择框并允许多选；用户取消时返回空列表。
+func (s *FileService) PickFiles() ([]FileRef, error) {
+	paths, err := application.Get().Dialog.OpenFile().
+		CanChooseFiles(true).
+		PromptForMultipleSelection()
+	if err != nil {
+		return nil, apperr.Wrap(err, apperr.CodeInvalidInput)
+	}
+	refs := make([]FileRef, 0, len(paths))
+	for _, path := range paths {
+		if path != "" {
+			refs = append(refs, s.StatFile(path))
+		}
+	}
+	return refs, nil
+}
+
 // StatFile 查一个路径当前的状态，供界面提示「这个附件已经不在了」。
 func (s *FileService) StatFile(path string) FileRef {
 	ref := FileRef{Path: path, Name: filepath.Base(path)}

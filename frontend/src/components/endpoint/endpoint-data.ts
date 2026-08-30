@@ -229,6 +229,12 @@ export function hasEffectiveAuth(
 
 /** 把一行文件字段打包成后端约定的 value */
 function fileFieldValue(row: BodyFieldRow): string {
+  if (row.files?.length) {
+    const refs = row.files.map(file => file.path
+      ? { fileName: file.fileName, path: file.path }
+      : { fileName: file.fileName, content: file.content || undefined })
+    return refs.length === 1 ? JSON.stringify(refs[0]) : JSON.stringify(refs)
+  }
   if (row.filePath) {
     return JSON.stringify({ fileName: row.fileName || "", path: row.filePath })
   }
@@ -251,7 +257,7 @@ function effectiveBodyFieldDataType(field: Pick<EndpointBodyField, "dataType" | 
  * form-data 文件行在编辑态把真实值拆在 fileName/filePath/fileContent 中，value 为空。
  * 若只把 bodyType 改成 urlencoded，界面会显示空值，发送时却会把文件引用 JSON 当作
  * 普通表单值发出去。Apifox 在这个切换点会把 file 降级为 string/array；目前我们的
- * 文件行只支持单文件，因此降级成可见、可继续编辑的文件名字符串。
+ * 多文件行降级成逗号分隔的可见文件名字符串，避免内部文件引用 JSON 泄漏到请求体。
  */
 export function normalizeBodyFieldsForType(rows: BodyFieldRow[], bodyType: BodyType): BodyFieldRow[] {
   if (bodyType !== "x-www-form-urlencoded") return rows
@@ -259,10 +265,11 @@ export function normalizeBodyFieldsForType(rows: BodyFieldRow[], bodyType: BodyT
     ...row,
     fieldType: "text",
     dataType: "string",
-    value: row.fileName || row.value,
+    value: row.files?.map(file => file.fileName).join(", ") || row.fileName || row.value,
     fileName: "",
     filePath: "",
     fileContent: "",
+    files: [],
   })
 }
 
@@ -361,10 +368,14 @@ export function fromBodyFieldModels(arr?: EndpointBodyField[] | null): BodyField
     }
     if (fieldType === "file") {
       try {
-        const parsed = JSON.parse(f.value)
-        row.fileName = parsed.fileName || ""
-        row.filePath = parsed.path || ""
-        row.fileContent = parsed.content || ""
+        const parsed = JSON.parse(f.value) as { fileName?: string, path?: string, content?: string } | Array<{ fileName?: string, path?: string, content?: string }>
+        const refs = (Array.isArray(parsed) ? parsed : [parsed]).map(file => ({
+          fileName: file.fileName || "", path: file.path || "", content: file.content || "",
+        }))
+        row.files = refs
+        row.fileName = refs[0]?.fileName || ""
+        row.filePath = refs[0]?.path || ""
+        row.fileContent = refs[0]?.content || ""
         row.value = ""
       } catch {
         // 兼容旧数据：value 直接是文件名

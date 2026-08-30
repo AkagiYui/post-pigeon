@@ -27,7 +27,7 @@ export interface KeyValueRow {
   description: string
   enabled: boolean
   required: boolean
-  example: string
+  example?: string
 }
 
 /** 表格内的输入框：平时无边框，hover 显边、聚焦补底色（Apifox 参数表的观感） */
@@ -53,6 +53,23 @@ export interface KeyValueTableProps<T extends KeyValueRow> {
   /** 名 / 值两列的表头文案（默认用「参数名 / 参数值」） */
   nameLabel?: string
   valueLabel?: string
+  /** 自定义值单元格（Body 的 file/boolean/array/object 等类型使用） */
+  renderValue?: (row: T, context: KeyValueCellContext<T>) => JSX.Element
+  /** 插入在值与必填/描述之间的业务列 */
+  extraColumns?: (context: KeyValueTableContext<T>) => TableColumn<T>[]
+  /** 是否允许按拖拽手柄排序 */
+  sortable?: boolean
+}
+
+export interface KeyValueCellContext<T extends KeyValueRow> {
+  isDraft: boolean
+  update: (patch: Partial<T>) => void
+  focusNext: (element: HTMLElement) => void
+}
+
+export interface KeyValueTableContext<T extends KeyValueRow> {
+  isDraft: (row: T) => boolean
+  update: (row: T, patch: Partial<T>) => void
 }
 
 /** Enter：焦点移到下一行的同一列（末行则落到草稿行），支持连续录入 */
@@ -71,24 +88,45 @@ export function KeyValueTable<T extends KeyValueRow>(props: KeyValueTableProps<T
   const [draft, setDraft] = createSignal<T>(props.makeRow())
   const [bulk, setBulk] = createSignal(false)
   const [bulkText, setBulkText] = createSignal("")
+  const [draggedID, setDraggedID] = createSignal("")
 
   const isDraft = (row: T) => !props.fixedRows && row.id === draft().id
   const displayRows = () => props.fixedRows ? props.rows : [...props.rows, draft()]
 
-  const updateRow = (row: T, field: keyof T, value: string | boolean) => {
+  const patchRow = (row: T, patch: Partial<T>) => {
     if (isDraft(row)) {
       // 草稿行首次输入：连同这次输入一起转正（默认启用），并补一行新的草稿行
-      const promoted = { ...draft(), [field]: value, enabled: true }
+      const promoted = { ...draft(), ...patch, enabled: true }
       batch(() => {
         setDraft(() => props.makeRow())
         props.onChange([...props.rows, promoted])
       })
       return
     }
-    props.onChange(props.rows.map(r => r.id === row.id ? { ...r, [field]: value } : r))
+    props.onChange(props.rows.map(r => r.id === row.id ? { ...r, ...patch } : r))
   }
 
+  const updateRow = (row: T, field: keyof T, value: string | boolean) => patchRow(row, { [field]: value } as Partial<T>)
+
   const removeRow = (row: T) => props.onChange(props.rows.filter(r => r.id !== row.id))
+
+  const toggleAll = () => {
+    const enabled = !props.rows.length || !props.rows.every(row => row.enabled)
+    props.onChange(props.rows.map(row => ({ ...row, enabled })))
+  }
+
+  const dropBefore = (target: T) => {
+    const sourceID = draggedID()
+    setDraggedID("")
+    if (!sourceID || sourceID === target.id || isDraft(target)) return
+    const source = props.rows.find(row => row.id === sourceID)
+    if (!source) return
+    const without = props.rows.filter(row => row.id !== sourceID)
+    const targetIndex = without.findIndex(row => row.id === target.id)
+    if (targetIndex < 0) return
+    without.splice(targetIndex, 0, source)
+    props.onChange(without)
+  }
 
   const toggleBulk = () => {
     if (bulk()) {
@@ -127,8 +165,40 @@ export function KeyValueTable<T extends KeyValueRow>(props: KeyValueTableProps<T
 
   const columns = (): TableColumn<T>[] => {
     const cols: TableColumn<T>[] = [
+      ...(props.sortable ? [{
+        header: "", width: "24px", render: (row: T) => (
+          <span
+            draggable={!isDraft(row)}
+            aria-label={t("common.drag")}
+            class={cn("inline-flex cursor-grab text-muted-foreground", isDraft(row) && "invisible")}
+            onDragStart={(event) => {
+              setDraggedID(row.id)
+              event.dataTransfer?.setData("text/plain", row.id)
+              if (event.dataTransfer) event.dataTransfer.effectAllowed = "move"
+            }}
+            onDragOver={(event) => {
+              if (!draggedID() || isDraft(row)) return
+              event.preventDefault()
+              if (event.dataTransfer) event.dataTransfer.dropEffect = "move"
+            }}
+            onDrop={(event) => {
+              event.preventDefault()
+              dropBefore(row)
+            }}
+            onDragEnd={() => setDraggedID("")}
+          >
+            <Icon icon="lucide:grip-vertical" class="h-3.5 w-3.5" />
+          </span>
+        ),
+      }] : []),
       {
-        header: "", width: "32px", render: (row) => (
+        header: props.fixedRows ? "" : (
+          <Checkbox
+            checked={props.rows.length > 0 && props.rows.every(row => row.enabled)}
+            aria-label={t("endpoint.param.enabled")}
+            onChange={toggleAll}
+          />
+        ), width: "32px", render: (row) => (
           // 草稿行还不是真正的参数，复选框置灰占位
           <Checkbox
             checked={isDraft(row) ? false : row.enabled}
@@ -145,8 +215,18 @@ export function KeyValueTable<T extends KeyValueRow>(props: KeyValueTableProps<T
             : cellInput(row, "name", () => isDraft(row) ? (props.namePlaceholder ?? t("endpoint.param.add")) : undefined)
         ),
       },
-      { header: props.valueLabel ?? t("endpoint.param.value"), render: (row) => cellInput(row, "value") },
+      {
+        header: props.valueLabel ?? t("endpoint.param.value"), render: (row) => props.renderValue
+          ? props.renderValue(row, {
+              isDraft: isDraft(row),
+              update: patch => patchRow(row, patch),
+              focusNext: focusNextRowSameColumn,
+            })
+          : cellInput(row, "value"),
+      },
     ]
+
+    cols.push(...(props.extraColumns?.({ isDraft, update: patchRow }) ?? []))
 
     if (props.showRequired) {
       cols.push({
@@ -204,7 +284,7 @@ export function KeyValueTable<T extends KeyValueRow>(props: KeyValueTableProps<T
           <Table
             columns={columns()}
             data={displayRows()}
-            rowClass="group"
+            rowClass={(row) => cn("group", !isDraft(row) && !row.enabled && "opacity-55")}
             compact
             emptyText={t("endpoint.param.empty")}
           />

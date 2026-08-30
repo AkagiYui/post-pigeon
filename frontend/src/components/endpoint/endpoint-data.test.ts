@@ -2,7 +2,7 @@ import { describe, expect, it } from "vitest"
 
 import { EndpointAuth, EndpointBodyField, Operation } from "@/../bindings/PostPigeon/internal/models"
 
-import { emptyAuth, type BodyFieldRow } from "./editor-types"
+import { type BodyFieldRow, emptyAuth } from "./editor-types"
 import {
   authDataToState,
   authStateToData,
@@ -280,6 +280,24 @@ describe("请求体字段转换", () => {
       dataType: "array", description: "标签", required: true,
       contentType: "application/json", schema: '{"type":"array"}', style: "form", explode: false,
     })
+  })
+
+  it("同一文件字段可以往返多个本地文件引用", () => {
+    const models = toBodyFieldModels([bodyRow({
+      name: "attachments", fieldType: "file", dataType: "file",
+      files: [
+        { fileName: "a.txt", path: "/tmp/a.txt" },
+        { fileName: "b.txt", path: "/tmp/b.txt" },
+      ],
+    })])
+    expect(JSON.parse(models[0].value)).toEqual([
+      { fileName: "a.txt", path: "/tmp/a.txt" },
+      { fileName: "b.txt", path: "/tmp/b.txt" },
+    ])
+    expect(fromBodyFieldModels(models)[0].files).toEqual([
+      { fileName: "a.txt", path: "/tmp/a.txt", content: "" },
+      { fileName: "b.txt", path: "/tmp/b.txt", content: "" },
+    ])
   })
 })
 

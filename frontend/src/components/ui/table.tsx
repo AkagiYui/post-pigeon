@@ -7,7 +7,7 @@ import { cn } from "@/lib/utils"
 
 export interface TableColumn<T> {
   /** 列标题 */
-  header: string
+  header: JSX.Element
   /** 列宽 */
   width?: string
   /** 自定义渲染 */
@@ -28,7 +28,7 @@ export interface TableProps<T> {
   /** 自定义类名 */
   class?: string
   /** 每行的额外类名（如 group，用于行 hover 时显隐行内按钮） */
-  rowClass?: string
+  rowClass?: string | ((row: T, index: number) => string | undefined)
   /** 紧凑模式 */
   compact?: boolean
 }
@@ -98,7 +98,7 @@ export function Table<T extends object>(props: TableProps<T>) {
                   class={cn(
                     "border-b border-divider transition-colors hover:bg-hover-subtle",
                     local.onRowClick && "cursor-pointer focus-visible:outline-none focus-visible:bg-hover",
-                    local.rowClass,
+                    typeof local.rowClass === "function" ? local.rowClass(row, index()) : local.rowClass,
                   )}
                   // 可点击的行必须能用键盘触达并激活，否则只有鼠标用户能用
                   role={local.onRowClick ? "button" : undefined}

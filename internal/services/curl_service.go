@@ -229,14 +229,17 @@ func curlBodyArgs(data SendRequestData, vars map[string]string, limits models.Re
 			if field.FieldType == "file" {
 				// curl 用 @路径 引用本地文件。现在库里存的就是路径，导出的命令可以直接跑；
 				// 历史数据只有内联内容时退回文件名占位，让用户自己补上路径
-				ref := field.Value
-				if file, ok := parseFileField(field.Value); ok {
-					ref = file.Path
+				files, ok := parseFileFields(field.Value)
+				if !ok {
+					files = []fileFieldValue{{FileName: field.Value}}
+				}
+				for _, file := range files {
+					ref := file.Path
 					if ref == "" {
 						ref = file.displayName()
 					}
+					args = append(args, fmt.Sprintf("-F %s", shellQuote(field.Name+"=@"+ref)))
 				}
-				args = append(args, fmt.Sprintf("-F %s", shellQuote(field.Name+"=@"+ref)))
 			} else {
 				args = append(args, fmt.Sprintf("-F %s", shellQuote(field.Name+"="+resolveVars(field.Value, vars))))
 			}

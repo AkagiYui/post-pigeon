@@ -163,6 +163,12 @@ export function emptyOperation(stage: OperationStage, type: OperationType = "scr
 /** 请求体字段行（form-data / x-www-form-urlencoded） */
 export type BodyFieldDataType = "string" | "integer" | "number" | "boolean" | "array" | "object" | "file"
 
+export interface BodyFileRef {
+  fileName: string
+  path?: string
+  content?: string
+}
+
 export interface BodyFieldRow {
   id: string
   name: string
@@ -186,6 +192,8 @@ export interface BodyFieldRow {
   filePath?: string
   /** 文件内容 base64（历史数据里内联的附件，不再产生新的） */
   fileContent?: string
+  /** 同一 form-data 字段选择的多个文件；单文件旧数据仍由上面的三个字段兼容 */
+  files?: BodyFileRef[]
 }
 
 /** 认证编辑态 */

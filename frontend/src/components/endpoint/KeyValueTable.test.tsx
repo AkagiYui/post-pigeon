@@ -89,6 +89,31 @@ describe("KeyValueTable 草稿行", () => {
     fireEvent.click(buttons[0])
     expect(rows().map(r => r.name)).toEqual(["b"])
   })
+
+  it("表头复选框可以全选和全部停用", () => {
+    const { rows } = setup([
+      { ...makeRow(), name: "a", enabled: true },
+      { ...makeRow(), name: "b", enabled: false },
+    ])
+    const toggle = document.querySelector("thead input[type=checkbox]") as HTMLInputElement
+    fireEvent.click(toggle)
+    expect(rows().every(row => row.enabled)).toBe(true)
+    fireEvent.click(toggle)
+    expect(rows().every(row => !row.enabled)).toBe(true)
+  })
+
+  it("拖拽手柄可以调整行顺序", () => {
+    const [rows, setRows] = createSignal<KeyValueRow[]>([
+      { ...makeRow(), name: "a" },
+      { ...makeRow(), name: "b" },
+    ])
+    render(() => <KeyValueTable rows={rows()} onChange={setRows} makeRow={makeRow} sortable />)
+    const handles = screen.getAllByLabelText("拖拽排序")
+    fireEvent.dragStart(handles[1])
+    fireEvent.dragOver(handles[0])
+    fireEvent.drop(handles[0])
+    expect(rows().map(row => row.name)).toEqual(["b", "a"])
+  })
 })
 
 describe("KeyValueTable 批量编辑", () => {

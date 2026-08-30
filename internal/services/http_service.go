@@ -1431,22 +1431,22 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 				continue
 			}
 			if field.FieldType == "file" {
-				// 文件字段：value 约定为 {"fileName":..,"path":..}，发送时才读盘
-				fileName := field.Value
-				segment := byteSegment(nil)
-				if file, ok := parseFileField(field.Value); ok {
-					fileName = file.displayName()
-					seg, err := file.segment()
+				// 文件字段可以是单个引用对象，也可以是引用数组；每个文件生成一个同名 part。
+				files, ok := parseFileFields(field.Value)
+				if !ok {
+					files = []fileFieldValue{{FileName: field.Value}}
+				}
+				for _, file := range files {
+					segment, err := file.segment()
 					if err != nil {
 						return err
 					}
-					segment = seg
+					if _, err := writer.CreateFormFile(field.Name, file.displayName()); err != nil {
+						return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
+					}
+					flushHead()
+					segments = append(segments, segment)
 				}
-				if _, err := writer.CreateFormFile(field.Name, fileName); err != nil {
-					return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
-				}
-				flushHead()
-				segments = append(segments, segment)
 			} else {
 				if err := writer.WriteField(field.Name, resolveVars(field.Value, vars)); err != nil {
 					return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
@@ -1472,8 +1472,12 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 			// 兼容修复前已经保存的脏数据：urlencoded 不支持文件字段，不能把内部的
 			// {fileName,path} 引用 JSON 原样泄漏到请求体。与前端切换逻辑一致，降级为文件名。
 			if field.FieldType == "file" {
-				if file, ok := parseFileField(field.Value); ok {
-					value = file.displayName()
+				if files, ok := parseFileFields(field.Value); ok {
+					names := make([]string, 0, len(files))
+					for _, file := range files {
+						names = append(names, file.displayName())
+					}
+					value = strings.Join(names, ", ")
 				}
 			}
 			// Add 保留同名字段；Set 会静默丢掉前面的值，与 multipart 的逐项发送语义不一致。
@@ -1912,10 +1916,16 @@ func applyConfiguredBodyFields(snapshot *models.HTTPRequestSnapshot, data SendRe
 			}
 			part := models.HTTPBodyPart{Name: field.Name, Sensitive: requestFieldNameSensitive(field.Name)}
 			if field.FieldType == "file" {
-				part.FileName = field.Value
-				if file, ok := parseFileField(field.Value); ok {
-					part.FileName = file.displayName()
+				if files, ok := parseFileFields(field.Value); ok {
+					for _, file := range files {
+						filePart := part
+						filePart.FileName = file.displayName()
+						body.Parts = append(body.Parts, filePart)
+					}
+					body.Sensitive = body.Sensitive || part.Sensitive
+					continue
 				}
+				part.FileName = field.Value
 			} else {
 				part.Preview = field.Value
 				part.PreviewCodec = "utf8"
@@ -2220,14 +2230,35 @@ type fileFieldValue struct {
 
 // parseFileField 解析文件字段的 value。
 func parseFileField(value string) (fileFieldValue, bool) {
+	files, ok := parseFileFields(value)
+	if !ok || len(files) == 0 {
+		return fileFieldValue{}, false
+	}
+	return files[0], true
+}
+
+// parseFileFields 同时兼容旧版单文件对象与新版多文件数组。
+func parseFileFields(value string) ([]fileFieldValue, bool) {
+	if strings.HasPrefix(strings.TrimSpace(value), "[") {
+		var payload []fileFieldValue
+		if err := json.Unmarshal([]byte(value), &payload); err != nil || len(payload) == 0 {
+			return nil, false
+		}
+		for _, file := range payload {
+			if file.Path == "" && file.Content == "" && file.FileName == "" {
+				return nil, false
+			}
+		}
+		return payload, true
+	}
 	var payload fileFieldValue
 	if err := json.Unmarshal([]byte(value), &payload); err != nil {
-		return fileFieldValue{}, false
+		return nil, false
 	}
 	if payload.Path == "" && payload.Content == "" && payload.FileName == "" {
-		return fileFieldValue{}, false
+		return nil, false
 	}
-	return payload, true
+	return []fileFieldValue{payload}, true
 }
 
 // displayName 返回上传时用的文件名：优先用记下来的名字，否则退回路径的最后一段。
