@@ -38,8 +38,10 @@ type ModuleSettings struct {
 
 // FolderSettings 文件夹级设置
 type FolderSettings struct {
-	AuthType             string             `json:"authType"`
-	AuthData             string             `json:"authData"`
+	AuthType string `json:"authType"`
+	AuthData string `json:"authData"`
+	// HasInheritedAuth 表示不考虑当前文件夹覆盖时，父文件夹/模块链上是否存在有效认证。
+	HasInheritedAuth     bool               `json:"hasInheritedAuth"`
 	WSProtocolConversion string             `json:"wsProtocolConversion"`
 	ProxyConfig          string             `json:"proxyConfig"`
 	TLSConfig            string             `json:"tlsConfig"`
@@ -171,9 +173,14 @@ func (s *ScopeSettingsService) GetFolderSettings(folderID string) (*FolderSettin
 	if err := s.db.Where("id = ?", folderID).First(&f).Error; err != nil {
 		return nil, fmt.Errorf("文件夹不存在: %w", err)
 	}
+	inheritedAuth := resolveEffectiveAuth(s.db, &models.Endpoint{
+		ModuleID: f.ModuleID,
+		FolderID: f.ParentID,
+	}, nil)
 	settings := &FolderSettings{
 		AuthType:             defaultAuthType(f.AuthType, "inherit"),
 		AuthData:             f.AuthData,
+		HasInheritedAuth:     inheritedAuth != nil && isConcreteAuth(inheritedAuth.Type),
 		WSProtocolConversion: string(models.NormalizeWSProtocolConversion(f.WSProtocolConversion)),
 		ProxyConfig:          normalizedProxySelection(f.ProxyConfig),
 		TLSConfig:            normalizedTLSSelection(f.TLSConfig),

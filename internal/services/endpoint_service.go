@@ -23,15 +23,17 @@ func NewEndpointService(db *gorm.DB) *EndpointService {
 type EndpointDetail struct {
 	models.Endpoint
 	// InheritedWSProtocolConversion 是不考虑接口自身覆盖时，由父级链计算出的结果。
-	InheritedWSProtocolConversion bool                       `json:"inheritedWsProtocolConversion"`
-	Params                        []models.EndpointParam     `json:"params"`
-	BodyFields                    []models.EndpointBodyField `json:"bodyFields"`
-	Headers                       []models.EndpointHeader    `json:"headers"`
-	Auth                          *models.EndpointAuth       `json:"auth"`
-	Response                      *models.Response           `json:"response"`
-	Operations                    []models.Operation         `json:"operations"`
-	Examples                      []models.ResponseExample   `json:"examples"`
-	Schemas                       []models.ResponseSchema    `json:"schemas"`
+	InheritedWSProtocolConversion bool `json:"inheritedWsProtocolConversion"`
+	// HasInheritedAuth 表示不考虑接口自身覆盖时，文件夹/模块链上是否存在会实际生效的认证。
+	HasInheritedAuth bool                       `json:"hasInheritedAuth"`
+	Params           []models.EndpointParam     `json:"params"`
+	BodyFields       []models.EndpointBodyField `json:"bodyFields"`
+	Headers          []models.EndpointHeader    `json:"headers"`
+	Auth             *models.EndpointAuth       `json:"auth"`
+	Response         *models.Response           `json:"response"`
+	Operations       []models.Operation         `json:"operations"`
+	Examples         []models.ResponseExample   `json:"examples"`
+	Schemas          []models.ResponseSchema    `json:"schemas"`
 }
 
 // GetEndpoint 获取端点完整详情
@@ -41,9 +43,11 @@ func (s *EndpointService) GetEndpoint(id string) (*EndpointDetail, error) {
 		return nil, fmt.Errorf("获取端点失败: %w", err)
 	}
 
+	inheritedAuth := resolveEffectiveAuth(s.db, &endpoint, nil)
 	detail := &EndpointDetail{
 		Endpoint:                      endpoint,
 		InheritedWSProtocolConversion: resolveEffectiveWSProtocolConversion(s.db, endpoint, "inherit"),
+		HasInheritedAuth:              inheritedAuth != nil && isConcreteAuth(inheritedAuth.Type),
 	}
 
 	// 加载参数、请求体字段、请求头

@@ -6,7 +6,7 @@ import { Icon } from "@iconify-icon/solid"
 import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from "solid-js"
 
 import { HTTPService } from "@/../bindings/PostPigeon/internal/services"
-import { countParams } from "@/components/endpoint/endpoint-data"
+import { countParams, hasEffectiveAuth } from "@/components/endpoint/endpoint-data"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
@@ -78,7 +78,7 @@ export interface EndpointRequestTabIntent {
 }
 
 /** 带数字徽标的标签标题：count>0 时在标题右侧显示计数气泡 */
-function tabLabelWithCount(label: string, count: number): JSX.Element {
+export function tabLabelWithCount(label: string, count: number): JSX.Element {
   return (
     <span class="inline-flex items-center gap-1.5">
       {label}
@@ -332,7 +332,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
     { key: "body", label: t("endpoint.body") },
     { key: "headers", label: t("endpoint.headers") },
     { key: "cookies", label: t("endpoint.cookies") },
-    { key: "auth", label: t("endpoint.auth") },
+    { key: "auth", label: tabLabelWithCount(t("endpoint.auth"), hasEffectiveAuth(ep().auth, ep().hasInheritedAuth) ? 1 : 0) },
     { key: "preOperations", label: tabLabelWithCount(t("op.stage.pre"), preOpsCount()) },
     { key: "postOperations", label: tabLabelWithCount(t("op.stage.post"), postOpsCount()) },
     { key: "settings", label: t("endpoint.settings") },

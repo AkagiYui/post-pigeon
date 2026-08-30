@@ -6,8 +6,8 @@ import { createEffect, createSignal, Show } from "solid-js"
 import { ModuleParam, ModuleVariable, SelectableProxy } from "@/../bindings/PostPigeon/internal/models"
 import { FolderSettings, ModuleSettings, ProxyService, ScopeSettingsService } from "@/../bindings/PostPigeon/internal/services"
 import { AuthEditor } from "@/components/endpoint/AuthEditor"
-import { authDataToState, authStateToData, fromOperationModels, toOperationModels } from "@/components/endpoint/endpoint-data"
-import { type AuthState, emptyAuth, type OperationRow } from "@/components/endpoint/EndpointDetail"
+import { authDataToState, authStateToData, fromOperationModels, hasEffectiveAuth, toOperationModels } from "@/components/endpoint/endpoint-data"
+import { type AuthState, emptyAuth, type OperationRow, tabLabelWithCount } from "@/components/endpoint/EndpointDetail"
 import { proxyJSONFromKey, proxyKeyFromJSON, tlsJSONFromMode, tlsModeFromJSON } from "@/components/endpoint/EndpointSettingsEditor"
 import { OperationsEditor } from "@/components/endpoint/OperationsEditor"
 import { Button } from "@/components/ui/button"
@@ -49,6 +49,7 @@ export interface ScopeSettingsDialogProps {
 export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
   const [tab, setTab] = createSignal("auth")
   const [auth, setAuth] = createSignal<AuthState>(emptyAuth())
+  const [hasInheritedAuth, setHasInheritedAuth] = createSignal(false)
   const [wsProtocolConversion, setWSProtocolConversion] = createSignal("inherit")
   const [proxyConfig, setProxyConfig] = createSignal("")
   const [tlsConfig, setTLSConfig] = createSignal("")
@@ -74,6 +75,7 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
       if (props.scopeType === "module") {
         const s = await ScopeSettingsService.GetModuleSettings(props.scopeId)
         setAuth(authDataToState(s?.authType || "none", s?.authData || ""))
+        setHasInheritedAuth(false)
         setWSProtocolConversion(s?.wsProtocolConversion || "inherit")
         setProxyConfig(s?.proxyConfig || "")
         setTLSConfig(s?.tlsConfig || "")
@@ -88,6 +90,7 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
       } else {
         const s = await ScopeSettingsService.GetFolderSettings(props.scopeId)
         setAuth(authDataToState(s?.authType || "inherit", s?.authData || ""))
+        setHasInheritedAuth(s?.hasInheritedAuth ?? false)
         setWSProtocolConversion(s?.wsProtocolConversion || "inherit")
         setProxyConfig(s?.proxyConfig || "")
         setTLSConfig(s?.tlsConfig || "")
@@ -124,7 +127,7 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
   const tabs = () => {
     const base = [
       { key: "general", label: t("settings.general") },
-      { key: "auth", label: t("endpoint.auth") },
+      { key: "auth", label: tabLabelWithCount(t("endpoint.auth"), hasEffectiveAuth(auth(), hasInheritedAuth()) ? 1 : 0) },
       { key: "operations", label: t("endpoint.operations") },
     ]
     if (props.scopeType === "module") base.splice(2, 0, { key: "params", label: t("scope.autoParams") }, { key: "variables", label: t("scope.variables") })

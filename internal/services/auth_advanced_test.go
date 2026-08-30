@@ -9,6 +9,73 @@ import (
 	"PostPigeon/internal/models"
 )
 
+func TestAuthBadgeInheritanceStatus(t *testing.T) {
+	db := newTestDB(t)
+	project := mustCreateProject(t, db, "auth-badge")
+	module := defaultModule(t, db, project.ID)
+	if err := db.Model(&models.Module{}).Where("id = ?", module.ID).
+		Updates(map[string]any{"auth_type": "bearer", "auth_data": `{"token":"module"}`}).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	var root models.Folder
+	if err := db.Where("module_id = ? AND parent_id IS NULL", module.ID).First(&root).Error; err != nil {
+		t.Fatal(err)
+	}
+	parent := models.Folder{ModuleID: module.ID, ParentID: &root.ID, Name: "parent", AuthType: "inherit"}
+	if err := db.Create(&parent).Error; err != nil {
+		t.Fatal(err)
+	}
+	child := models.Folder{ModuleID: module.ID, ParentID: &parent.ID, Name: "child", AuthType: "inherit"}
+	if err := db.Create(&child).Error; err != nil {
+		t.Fatal(err)
+	}
+	endpoint := models.Endpoint{ModuleID: module.ID, FolderID: &child.ID, Name: "endpoint", Method: "GET", Path: "/"}
+	if err := db.Create(&endpoint).Error; err != nil {
+		t.Fatal(err)
+	}
+
+	scope := NewScopeSettingsService(db)
+	childSettings, err := scope.GetFolderSettings(child.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !childSettings.HasInheritedAuth {
+		t.Fatal("子文件夹应从模块继承到认证")
+	}
+	detail, err := NewEndpointService(db).GetEndpoint(endpoint.ID)
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !detail.HasInheritedAuth {
+		t.Fatal("接口应从文件夹/模块链继承到认证")
+	}
+
+	if err := db.Model(&models.Folder{}).Where("id = ?", parent.ID).Update("auth_type", "none").Error; err != nil {
+		t.Fatal(err)
+	}
+	childSettings, _ = scope.GetFolderSettings(child.ID)
+	if childSettings.HasInheritedAuth {
+		t.Fatal("父文件夹的 none 应停止模块认证继承")
+	}
+	detail, _ = NewEndpointService(db).GetEndpoint(endpoint.ID)
+	if detail.HasInheritedAuth {
+		t.Fatal("父文件夹的 none 应让接口继承认证状态变为 false")
+	}
+
+	if err := db.Model(&models.Folder{}).Where("id = ?", child.ID).Update("auth_type", "basic").Error; err != nil {
+		t.Fatal(err)
+	}
+	childSettings, _ = scope.GetFolderSettings(child.ID)
+	if childSettings.HasInheritedAuth {
+		t.Fatal("文件夹的上级状态不应把当前文件夹自己的认证算进去")
+	}
+	detail, _ = NewEndpointService(db).GetEndpoint(endpoint.ID)
+	if !detail.HasInheritedAuth {
+		t.Fatal("接口应把当前文件夹的具体认证算作继承认证")
+	}
+}
+
 func TestParseDigestChallenge(t *testing.T) {
 	challenge, ok := parseDigestChallenge(`Digest realm="test, realm", qop="auth", nonce="abc123", opaque="op", algorithm=SHA-256`)
 	if !ok {

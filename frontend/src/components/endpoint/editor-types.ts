@@ -62,6 +62,8 @@ export interface EndpointData {
   streamRenderMarkdown: boolean
   /** 不考虑接口自身覆盖时，由文件夹/模块/项目/全局计算出的开关 */
   inheritedWsProtocolConversion: boolean
+  /** 不考虑接口自身覆盖时，文件夹/模块链上是否存在有效认证 */
+  hasInheritedAuth: boolean
   /** 前置/后置操作列表 */
   operations: OperationRow[]
   /** 响应示例（不在此编辑，仅透传保存以免丢失） */

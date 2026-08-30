@@ -114,6 +114,7 @@ interface UnsavedRequestData {
   streamJSONPath: string
   streamRenderMarkdown: boolean
   inheritedWsProtocolConversion: boolean
+  hasInheritedAuth: boolean
   operations: OperationRow[]
   examples: ResponseExample[]
   schemas: ResponseSchema[]
@@ -717,6 +718,7 @@ export function ApiManagement(props: ApiManagementProps) {
           streamJSONPath: detail.streamJSONPath || "",
           streamRenderMarkdown: detail.streamRenderMarkdown ?? false,
           inheritedWsProtocolConversion: detail.inheritedWsProtocolConversion ?? true,
+          hasInheritedAuth: detail.hasInheritedAuth ?? false,
           operations: fromOperationModels(detail.operations),
           examples: detail.examples || [], schemas: detail.schemas || [],
         } as EndpointData)
@@ -779,6 +781,7 @@ export function ApiManagement(props: ApiManagementProps) {
         streamJSONPath: unsaved.streamJSONPath ?? "",
         streamRenderMarkdown: unsaved.streamRenderMarkdown ?? false,
         inheritedWsProtocolConversion: unsaved.inheritedWsProtocolConversion ?? true,
+        hasInheritedAuth: unsaved.hasInheritedAuth ?? false,
         operations: unsaved.operations ?? [], examples: unsaved.examples ?? [], schemas: unsaved.schemas ?? [],
       } as EndpointData)
     }

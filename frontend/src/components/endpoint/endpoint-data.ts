@@ -40,6 +40,7 @@ export const endpointDefaults = {
   streamJSONPath: "",
   streamRenderMarkdown: false,
   inheritedWsProtocolConversion: true,
+  hasInheritedAuth: false,
   examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
 }
 
@@ -180,6 +181,19 @@ export function countParams(input: ParamsCountInput): number {
   const disabled = new Set(input.disabledGlobalParams ?? [])
   const global = (input.globalQueryParams ?? []).filter(g => !disabled.has(g.name)).length
   return query + pathParams + global
+}
+
+/**
+ * Apifox 风格的认证标签状态：数字不是认证字段数量，而是“是否有一组生效认证”的布尔标记。
+ * 空或 inherit 使用上级链的解析结果；none 显式停止继承；其它具体类型均视为已配置。
+ */
+export function hasEffectiveAuth(
+  auth: Pick<AuthState, "type"> | null | undefined,
+  hasInheritedAuth = false,
+): boolean {
+  const type = auth?.type
+  if (!type || type === "inherit") return hasInheritedAuth
+  return type !== "none"
 }
 
 /** 把一行文件字段打包成后端约定的 value */

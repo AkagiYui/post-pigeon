@@ -11,6 +11,7 @@ import {
   fromAuthModel,
   fromBodyFieldModels,
   fromOperationModels,
+  hasEffectiveAuth,
   parseStringArray,
   safeParseJSON,
   toAuthModel,
@@ -69,6 +70,15 @@ describe("toTimingData", () => {
 })
 
 describe("认证转换", () => {
+  it("认证标签只表示是否存在一组生效认证", () => {
+    expect(hasEffectiveAuth({ type: "bearer" })).toBe(true)
+    expect(hasEffectiveAuth({ type: "oauth2" })).toBe(true)
+    expect(hasEffectiveAuth({ type: "none" }, true)).toBe(false)
+    expect(hasEffectiveAuth({ type: "inherit" }, true)).toBe(true)
+    expect(hasEffectiveAuth({ type: "inherit" }, false)).toBe(false)
+    expect(hasEffectiveAuth(undefined, true)).toBe(true)
+  })
+
   it("basic 往返无损", () => {
     const state = { ...emptyAuth(), type: "basic" as const, username: "u", password: "p" }
     const restored = authDataToState("basic", authStateToData(state))
