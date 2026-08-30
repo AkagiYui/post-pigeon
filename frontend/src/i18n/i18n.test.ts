@@ -5,6 +5,11 @@ import zhCN from "./zh-CN.json"
 
 const zhKeys = Object.keys(zhCN as Record<string, string>)
 const enKeys = Object.keys(en as Record<string, string>)
+const sourceFiles = import.meta.glob("../**/*.{ts,tsx}", {
+  eager: true,
+  import: "default",
+  query: "?raw",
+}) as Record<string, string>
 
 /** 取出文案里的 {placeholder} 占位符集合 */
 function placeholders(text: string): Set<string> {
@@ -32,5 +37,13 @@ describe("i18n 词条完整性", () => {
       return a.size !== b.size || [...a].some((p) => !b.has(p))
     })
     expect(mismatched).toEqual([])
+  })
+
+  it("代码中直接引用的翻译键均已定义", () => {
+    const referenced = Object.values(sourceFiles).flatMap((source) =>
+      Array.from(source.matchAll(/\bt\(\s*["']([^"']+)["']/g), (match) => match[1]),
+    )
+    const missing = [...new Set(referenced)].filter((key) => !zhKeys.includes(key)).sort()
+    expect(missing).toEqual([])
   })
 })

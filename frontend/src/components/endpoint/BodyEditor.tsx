@@ -27,14 +27,14 @@ const editorLanguage: Record<string, CodeLanguage> = {
 
 /** 请求体类型选项 */
 const bodyTypeOptions = [
-  { value: "none", label: "none" },
-  { value: "form-data", label: "form-data" },
-  { value: "x-www-form-urlencoded", label: "x-www-form-urlencoded" },
-  { value: "json", label: "JSON" },
-  { value: "xml", label: "XML" },
-  { value: "text", label: "Text" },
-  { value: "binary", label: "Binary" },
-  { value: "graphql", label: "GraphQL" },
+  { value: "none", labelKey: "endpoint.body.none" },
+  { value: "form-data", labelKey: "endpoint.body.formData" },
+  { value: "x-www-form-urlencoded", labelKey: "endpoint.body.urlencoded" },
+  { value: "json", labelKey: "endpoint.body.json" },
+  { value: "xml", labelKey: "endpoint.body.xml" },
+  { value: "text", labelKey: "endpoint.body.text" },
+  { value: "binary", labelKey: "endpoint.body.binary" },
+  { value: "graphql", labelKey: "endpoint.body.graphql" },
 ]
 
 /** GraphQL 请求体在 bodyContent 中的存储形态（与后端 models.GraphQLBody 一致） */
@@ -165,7 +165,7 @@ export function BodyEditor(props: BodyEditorProps) {
                 )}
                 onClick={() => props.onChange({ bodyType: opt.value as BodyType })}
               >
-                {opt.label}
+                {t(opt.labelKey)}
               </button>
             )}
           </For>
