@@ -13,8 +13,8 @@ export interface HoverCardProps {
   children: JSX.Element
   /** 卡片内容（富文本） */
   content: JSX.Element
-  /** 位置（不设置则按可用空间自动选择上/下） */
-  placement?: "top" | "bottom"
+  /** 首选位置；空间不足时 floating-ui 会自动翻转 */
+  placement?: "top" | "bottom" | "bottom-end"
   /** 延迟显示时间（毫秒） */
   delay?: number
   /** 卡片自定义类名 */

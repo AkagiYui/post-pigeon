@@ -32,7 +32,7 @@ import { EndpointSettingsEditor } from "./EndpointSettingsEditor"
 import { HeadersEditor } from "./HeadersEditor"
 import { OperationsEditor } from "./OperationsEditor"
 import { CookiesEditor, ParamsEditor } from "./ParamsEditor"
-import { buildTimingWaterfall, type TimingWaterfallPhase } from "./response-timing"
+import { buildTimingWaterfall, formatTimingDetail, formatTimingTrigger, type TimingWaterfallPhase } from "./response-timing"
 import { shouldShowResponsePanel } from "./response-visibility"
 import { ResponseBodyToolbar, ResponsePanel } from "./ResponsePanel"
 import { decodeStreamResponseBodyChunks, streamResponseBody } from "./stream-message-view"
@@ -812,12 +812,14 @@ export function EndpointDetail(props: EndpointDetailProps) {
                           </Badge>
                         </HoverCard>
                       </Show>
-                      {/* 耗时：hover 展示各阶段耗时 */}
-                      <HoverCard content={<ResponseTimingCard timing={props.response!.timing} />}>
-                        <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
-                          {formatTiming(props.response!.timing?.total || 0)}
-                        </span>
-                      </HoverCard>
+                      {/* 耗时：hover 展示完整请求生命周期瀑布 */}
+                      <Show when={(props.response!.timing?.total || 0) > 0}>
+                        <HoverCard content={<ResponseTimingCard timing={props.response!.timing} />} placement="bottom-end">
+                          <span class="cursor-pointer hover:text-foreground transition-colors">
+                            {formatTimingTrigger(props.response!.timing.total)}
+                          </span>
+                        </HoverCard>
+                      </Show>
                       {/* 大小：hover 展示请求/响应的头与体大小 */}
                       <HoverCard content={<ResponseSizeCard response={responseForDisplay()!} />}>
                         <span class="cursor-help border-b border-dotted border-muted-foreground/40 hover:text-foreground transition-colors">
@@ -884,10 +886,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
 function ResponseTimingCard(props: { timing: TimingData }) {
   const waterfall = createMemo(() => buildTimingWaterfall(props.timing))
   const phaseLabel = (key: TimingWaterfallPhase["key"]) => t(`timing.${key}`)
-  const phaseValue = (phase: TimingWaterfallPhase) => {
-    const isCache = props.timing.reused && phase.cacheable && phase.value <= 0
-    return isCache ? t("timing.cache") : formatTiming(phase.value)
-  }
+  const displayTiming = (value: number) => value > 0 ? formatTimingDetail(value) : t("timing.cache")
 
   const TimingBar = (barProps: {
     group: "prepare" | "network" | "process"
@@ -928,7 +927,7 @@ function ResponseTimingCard(props: { timing: TimingData }) {
     <div class={cn("grid grid-cols-[7rem_minmax(10rem,1fr)_5.5rem] items-center gap-2 text-xs", rowProps.muted && "text-muted-foreground/70")}>
       <span class="truncate">{rowProps.label}</span>
       <TimingBar group={rowProps.group} offsetPercent={rowProps.offsetPercent} widthPercent={rowProps.widthPercent} />
-      <span class="text-right tabular-nums">{rowProps.displayValue ?? formatTiming(rowProps.value)}</span>
+      <span class="text-right tabular-nums">{rowProps.displayValue ?? displayTiming(rowProps.value)}</span>
     </div>
   )
 
@@ -936,7 +935,7 @@ function ResponseTimingCard(props: { timing: TimingData }) {
     <div class="w-[30rem] max-w-[calc(100vw-2rem)] flex flex-col gap-1.5">
       <div class="flex items-center justify-between pb-1.5 border-b border-border">
         <span class="text-xs font-medium text-foreground">{t("response.time")}</span>
-        <span class="text-xs font-semibold tabular-nums text-foreground">{formatTiming(waterfall().total)}</span>
+        <span class="text-xs font-semibold tabular-nums text-foreground">{formatTimingDetail(waterfall().total)}</span>
       </div>
       <TimingRow label={t("timing.stalled")} value={waterfall().prepare} group="prepare" muted />
       <For each={waterfall().phases}>
@@ -947,7 +946,7 @@ function ResponseTimingCard(props: { timing: TimingData }) {
             group="network"
             offsetPercent={phase.offsetPercent}
             widthPercent={phase.widthPercent}
-            displayValue={phaseValue(phase)}
+            displayValue={displayTiming(phase.value)}
           />
         )}
       </For>

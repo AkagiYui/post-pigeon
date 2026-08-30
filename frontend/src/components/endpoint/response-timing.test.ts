@@ -1,7 +1,7 @@
 import { describe, expect, it } from "vitest"
 
 import type { TimingData } from "./editor-types"
-import { buildTimingWaterfall } from "./response-timing"
+import { buildTimingWaterfall, formatTimingDetail, formatTimingTrigger } from "./response-timing"
 
 function timing(patch: Partial<TimingData> = {}): TimingData {
   return {
@@ -37,5 +37,18 @@ describe("buildTimingWaterfall", () => {
     const result = buildTimingWaterfall(timing({ total: 20, prepare: 0, process: 0 }))
     expect(result.network).toBe(70)
     expect(result.phases.at(-1)?.offsetPercent).toBeCloseTo(60 / 70 * 100)
+  })
+})
+
+describe("response timing formatting", () => {
+  it("入口按阈值切换毫秒和秒", () => {
+    expect(formatTimingTrigger(9.876)).toBe("9.88ms")
+    expect(formatTimingTrigger(1000)).toBe("1000ms")
+    expect(formatTimingTrigger(1001)).toBe("1.00s")
+  })
+
+  it("弹层始终使用两位小数毫秒", () => {
+    expect(formatTimingDetail(9.8)).toBe("9.80ms")
+    expect(formatTimingDetail(1500)).toBe("1500.00ms")
   })
 })

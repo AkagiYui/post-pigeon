@@ -7,7 +7,6 @@ export interface TimingWaterfallPhase {
   value: number
   offsetPercent: number
   widthPercent: number
-  cacheable: boolean
 }
 
 export interface TimingWaterfall {
@@ -34,12 +33,12 @@ export function buildTimingWaterfall(timing: TimingData): TimingWaterfall {
   const prepare = duration(timing.prepare)
   const process = duration(timing.process)
   const rawPhases: Array<Omit<TimingWaterfallPhase, "offsetPercent" | "widthPercent">> = [
-    { key: "socket", value: duration(timing.socket), cacheable: true },
-    { key: "dns", value: duration(timing.dnsLookup), cacheable: true },
-    { key: "tcp", value: duration(timing.tcpConnect), cacheable: true },
-    ...(timing.tlsUsed ? [{ key: "tls" as const, value: duration(timing.tlsHandshake), cacheable: true }] : []),
-    { key: "wait", value: duration(timing.wait), cacheable: false },
-    { key: "download", value: duration(timing.download), cacheable: false },
+    { key: "socket", value: duration(timing.socket) },
+    { key: "dns", value: duration(timing.dnsLookup) },
+    { key: "tcp", value: duration(timing.tcpConnect) },
+    ...(timing.tlsUsed ? [{ key: "tls" as const, value: duration(timing.tlsHandshake) }] : []),
+    { key: "wait", value: duration(timing.wait) },
+    { key: "download", value: duration(timing.download) },
   ]
   const phaseTotal = rawPhases.reduce((sum, phase) => sum + phase.value, 0)
   const reportedTotal = duration(timing.total)
@@ -66,4 +65,16 @@ export function buildTimingWaterfall(timing: TimingData): TimingWaterfall {
     processPercent: percent(process, total),
     phases,
   }
+}
+
+/** 响应栏入口：毫秒保留必要精度，超过一秒改用秒。 */
+export function formatTimingTrigger(value: number): string {
+  const milliseconds = duration(value)
+  if (milliseconds > 1000) return `${(milliseconds / 1000).toFixed(2)}s`
+  return `${Number(milliseconds.toFixed(2))}ms`
+}
+
+/** 耗时弹层：与时间轴刻度一致，始终使用两位小数毫秒。 */
+export function formatTimingDetail(value: number): string {
+  return `${duration(value).toFixed(2)}ms`
 }
