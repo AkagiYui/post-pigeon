@@ -32,12 +32,13 @@ type Module struct {
 	UpdatedAt          time.Time `json:"updatedAt"`
 
 	// 关联（constraint:OnDelete:CASCADE 使删除模块时，数据库自动级联删除其下所有内容）
-	BaseURLs  []ModuleBaseURL  `gorm:"constraint:OnDelete:CASCADE" json:"baseUrls,omitempty"`
-	Params    []ModuleParam    `gorm:"constraint:OnDelete:CASCADE" json:"params,omitempty"`
-	Variables []ModuleVariable `gorm:"constraint:OnDelete:CASCADE" json:"variables,omitempty"`
-	Endpoints []Endpoint       `gorm:"constraint:OnDelete:CASCADE" json:"-"`
-	Folders   []Folder         `gorm:"constraint:OnDelete:CASCADE" json:"-"`
-	Histories []RequestHistory `gorm:"constraint:OnDelete:CASCADE" json:"-"`
+	BaseURLs    []ModuleBaseURL  `gorm:"constraint:OnDelete:CASCADE" json:"baseUrls,omitempty"`
+	Params      []ModuleParam    `gorm:"constraint:OnDelete:CASCADE" json:"params,omitempty"`
+	Variables   []ModuleVariable `gorm:"constraint:OnDelete:CASCADE" json:"variables,omitempty"`
+	Endpoints   []Endpoint       `gorm:"constraint:OnDelete:CASCADE" json:"-"`
+	Folders     []Folder         `gorm:"constraint:OnDelete:CASCADE" json:"-"`
+	Histories   []RequestHistory `gorm:"constraint:OnDelete:CASCADE" json:"-"`
+	RequestRuns []RequestRun     `gorm:"constraint:OnDelete:CASCADE" json:"-"`
 	// Operations 为多态关联（owner_type+owner_id），无法用外键级联，删除时在服务层显式清理
 	Operations []Operation `gorm:"-" json:"operations,omitempty"`
 }

@@ -126,6 +126,8 @@ type Endpoint struct {
 	Schemas    []ResponseSchema    `gorm:"constraint:OnDelete:CASCADE" json:"schemas,omitempty"`
 	// 请求历史通过 endpoint_id（可空）关联，删除端点时其历史一并级联删除
 	Histories []RequestHistory `gorm:"foreignKey:EndpointID;constraint:OnDelete:CASCADE" json:"-"`
+	// RequestRuns 是实际网络执行记录；删除接口时一并删除。
+	RequestRuns []RequestRun `gorm:"foreignKey:EndpointID;constraint:OnDelete:CASCADE" json:"-"`
 	// Operations 为多态关联（owner_type+owner_id），无法用外键级联，删除时在服务层显式清理
 	Operations []Operation `gorm:"-" json:"operations,omitempty"`
 }

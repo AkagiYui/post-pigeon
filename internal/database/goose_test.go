@@ -52,6 +52,48 @@ func TestFreshDBUsesGoose(t *testing.T) {
 	}
 }
 
+// TestRequestRunSchema 验证实际请求执行链的 run/attempt 表可用且级联关系完整。
+func TestRequestRunSchema(t *testing.T) {
+	dbPath := filepath.Join(t.TempDir(), "request-run.db")
+	db, err := Initialize(dbPath)
+	if err != nil {
+		t.Fatalf("初始化失败: %v", err)
+	}
+
+	project := &models.Project{ID: "p-run", Name: "P"}
+	module := &models.Module{ID: "m-run", ProjectID: project.ID, Name: "M"}
+	endpoint := &models.Endpoint{ID: "e-run", ModuleID: module.ID, Name: "E", Method: "GET", Path: "/"}
+	if err := db.Create(project).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(module).Error; err != nil {
+		t.Fatal(err)
+	}
+	if err := db.Create(endpoint).Error; err != nil {
+		t.Fatal(err)
+	}
+	run := &models.RequestRun{
+		ID: "run", ModuleID: module.ID, EndpointID: &endpoint.ID,
+		PreparedRequest: &models.HTTPRequestSnapshot{Method: "GET", URL: "https://example.test"},
+		Attempts: []models.RequestAttempt{{
+			ID: "attempt", Sequence: 0, Cause: models.RequestAttemptCauseInitial,
+			Request: models.HTTPRequestSnapshot{Method: "GET", URL: "https://example.test"},
+		}},
+	}
+	if err := db.Create(run).Error; err != nil {
+		t.Fatalf("保存请求执行链失败: %v", err)
+	}
+	if err := db.Delete(endpoint).Error; err != nil {
+		t.Fatal(err)
+	}
+	var runCount, attemptCount int64
+	db.Model(&models.RequestRun{}).Where("id = ?", run.ID).Count(&runCount)
+	db.Model(&models.RequestAttempt{}).Where("run_id = ?", run.ID).Count(&attemptCount)
+	if runCount != 0 || attemptCount != 0 {
+		t.Fatalf("删除接口后仍残留 run=%d attempt=%d", runCount, attemptCount)
+	}
+}
+
 // TestReinitPreservesData 幂等性：对已有数据的库重复初始化不丢数据。
 func TestReinitPreservesData(t *testing.T) {
 	dbPath := filepath.Join(t.TempDir(), "reinit.db")
