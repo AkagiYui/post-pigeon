@@ -15,7 +15,6 @@ import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 import { ImportExportService, ProjectService } from "@/../bindings/PostPigeon/internal/services"
 import { ApifoxImportDialog } from "@/components/endpoint/ImportDialogs"
 import { type ImportKind, ImportWizardDialog } from "@/components/endpoint/ImportWizard"
-import { ProjectExportDialog } from "@/components/project/ProjectExportDialog"
 import { Button } from "@/components/ui/button"
 import { ContextMenu } from "@/components/ui/context-menu"
 import { Dialog } from "@/components/ui/dialog"
@@ -119,7 +118,6 @@ function HomePage() {
   const [newDesc, setNewDesc] = createSignal("")
   // 删除确认对话框状态
   const [deleteConfirmOpen, setDeleteConfirmOpen] = createSignal(false)
-  const [exportProjectTarget, setExportProjectTarget] = createSignal<Project | null>(null)
   const [projectToDelete, setProjectToDelete] = createSignal<Project | null>(null)
   // 导入项目向导：这里只持有「框开着没、拿到的文档内容是什么」，预览与勾选由 Apifox 对话框自理
   const [importWizardOpen, setImportWizardOpen] = createSignal(false)
@@ -275,7 +273,15 @@ function HomePage() {
         key: "export",
         label: t("project.export"),
         icon: <Icon icon="lucide:download" class="h-3.5 w-3.5" />,
-        onClick: () => setExportProjectTarget(project),
+        onClick: () => {
+          openProject(project.id)
+          navigate({
+            to: "/project/$id/settings",
+            params: { id: project.id },
+            search: { tab: "export" },
+            from: "/",
+          })
+        },
       },
       { key: "sep1", label: "", separator: true },
       {
@@ -417,13 +423,6 @@ function HomePage() {
         onClose={() => setApifoxOpen(false)}
         json={apifoxJson()}
         onImported={() => loadProjects()}
-      />
-
-      <ProjectExportDialog
-        open={exportProjectTarget() !== null}
-        projectId={exportProjectTarget()?.id || ""}
-        projectName={exportProjectTarget()?.name || ""}
-        onClose={() => setExportProjectTarget(null)}
       />
 
       {/* 删除确认对话框 */}

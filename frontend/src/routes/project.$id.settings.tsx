@@ -1,11 +1,11 @@
 // 项目设置路由
 // 使用左右分栏标签页，包含基本设置和环境设置
 import { Icon } from "@iconify-icon/solid"
-import { createFileRoute, useNavigate, useParams } from "@tanstack/solid-router"
+import { createFileRoute, useNavigate, useParams, useSearch } from "@tanstack/solid-router"
 import { createSignal, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/PostPigeon/internal/services"
-import { ProjectExportDialog } from "@/components/project/ProjectExportDialog"
+import { ProjectExportPanel } from "@/components/project/ProjectExportPanel"
 import { CookieSettings } from "@/components/settings/CookieSettings"
 import { GlobalVariablesSettings } from "@/components/settings/GlobalVariablesSettings"
 import { ProjectEnvironmentSettings } from "@/components/settings/ProjectEnvironmentSettings"
@@ -61,6 +61,9 @@ function InheritedBooleanField(props: { label: string, value: boolean | null, on
 }
 
 export const Route = createFileRoute("/project/$id/settings")({
+  validateSearch: (search: Record<string, unknown>): { tab?: string } => (
+    typeof search.tab === "string" ? { tab: search.tab } : {}
+  ),
   component: ProjectSettingsPage,
 })
 
@@ -70,6 +73,7 @@ export const Route = createFileRoute("/project/$id/settings")({
  */
 function ProjectSettingsPage() {
   const params = useParams({ from: "/project/$id/settings" })
+  const search = useSearch({ from: "/project/$id/settings" })
   const navigate = useNavigate()
   const projectId = () => params().id
 
@@ -105,12 +109,15 @@ function ProjectSettingsPage() {
   // 删除前要求把项目名原样敲一遍，避免误删；空名项目（加载失败时）一律不放行
   const [deleteInput, setDeleteInput] = createSignal("")
   const [deleting, setDeleting] = createSignal(false)
-  const [exportOpen, setExportOpen] = createSignal(false)
   const deleteNameMatched = () => savedName() !== "" && deleteInput().trim() === savedName()
 
   // 初始加载：优先恢复缓存中的输入内容，但后端已保存值始终以接口返回为准（用于判断是否变动）
   onMount(async () => {
     const restoredFromCache = cache.loadAll()
+    const requestedTab = search().tab
+    if (requestedTab && projectSettingsTabs.some(tab => tab.key === requestedTab)) {
+      setActiveTab(requestedTab)
+    }
     try {
       const id = projectId()
       if (!id) return
@@ -426,17 +433,7 @@ function ProjectSettingsPage() {
               case "export":
                 return (
                   <div class="h-full p-6">
-                    <div class="max-w-2xl space-y-4 rounded-md border border-border p-4">
-                      <div class="flex items-center gap-2 text-sm font-medium">
-                        <Icon icon="lucide:download" class="h-4 w-4 text-accent" />
-                        {t("project.export")}
-                      </div>
-                      <p class="text-sm text-muted-foreground">{t("export.project.hint")}</p>
-                      <Button onClick={() => setExportOpen(true)}>
-                        <Icon icon="lucide:download" class="h-3.5 w-3.5" />
-                        {t("project.export")}
-                      </Button>
-                    </div>
+                    <ProjectExportPanel projectId={projectId()} projectName={savedName() || name()} />
                   </div>
                 )
               default:
@@ -476,13 +473,6 @@ function ProjectSettingsPage() {
           </div>
         </div>
       </Dialog>
-
-      <ProjectExportDialog
-        open={exportOpen()}
-        projectId={projectId()}
-        projectName={savedName() || name()}
-        onClose={() => setExportOpen(false)}
-      />
 
       {/* 删除项目：把项目名原样敲一遍才放行 */}
       <Dialog

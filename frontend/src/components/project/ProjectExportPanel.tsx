@@ -20,22 +20,13 @@ const projectExportFormats = [
   { value: "word", label: "Word", icon: "lucide:file-type-2", hint: "word" },
 ]
 
-export function ProjectExportDialog(props: {
-  open: boolean
+export function ProjectExportPanel(props: {
   projectId: string
   projectName: string
-  onClose: () => void
 }) {
   const [pendingFormat, setPendingFormat] = createSignal("")
   const [secretSummary, setSecretSummary] = createSignal<{ secretVariables: number; authCredentials: number } | null>(null)
   const [exporting, setExporting] = createSignal(false)
-
-  const close = () => {
-    if (exporting()) return
-    setPendingFormat("")
-    setSecretSummary(null)
-    props.onClose()
-  }
 
   const exportProject = async (format: string, includeSecrets: boolean) => {
     if (exporting()) return
@@ -46,7 +37,6 @@ export function ProjectExportDialog(props: {
       downloadExportedDocument(document)
       toastSuccess(t("importexport.exported"))
       setSecretSummary(null)
-      props.onClose()
     } catch (error) {
       toastError(error, "error.op.exportFailed")
     } finally {
@@ -75,40 +65,43 @@ export function ProjectExportDialog(props: {
 
   return (
     <>
-      <Dialog
-        open={props.open && secretSummary() === null}
-        onClose={close}
-        title={t("export.project.title", { name: props.projectName })}
-        closeOnEsc
-        closeOnOverlayClick
-        width="680px"
-      >
-        <div class="space-y-4 p-6">
+      <div class="max-w-4xl space-y-5">
+        <div class="space-y-1">
+          <h2 class="text-base font-semibold text-foreground">{t("export.project.title", { name: props.projectName })}</h2>
           <p class="text-sm text-muted-foreground">{t("export.project.hint")}</p>
-          <div class="grid grid-cols-1 gap-2 sm:grid-cols-2 lg:grid-cols-3">
-            <For each={projectExportFormats}>
-              {(format) => (
-                <button
-                  type="button"
-                  disabled={exporting()}
-                  onClick={() => void chooseFormat(format.value)}
-                  class="rounded-md border border-border p-3 text-left transition-colors hover:border-accent hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
-                >
-                  <div class="flex items-center gap-2 text-sm font-medium">
-                    <Icon icon={format.icon} class="h-4 w-4 text-accent" />
-                    {format.label}
-                  </div>
-                  <div class="mt-1 text-xs text-muted-foreground">{t(`export.project.format.${format.hint}`)}</div>
-                </button>
-              )}
-            </For>
-          </div>
+        </div>
+
+        <div class="overflow-hidden rounded-md border border-border bg-surface">
+          <For each={projectExportFormats}>
+            {(format, index) => (
+              <button
+                type="button"
+                disabled={exporting()}
+                onClick={() => void chooseFormat(format.value)}
+                class="group flex w-full items-center gap-3 px-4 py-3 text-left transition-colors hover:bg-hover disabled:cursor-not-allowed disabled:opacity-50"
+                classList={{ "border-t border-divider": index() > 0 }}
+              >
+                <span class="flex h-9 w-9 shrink-0 items-center justify-center rounded-md bg-accent-muted">
+                  <Icon icon={pendingFormat() === format.value && exporting() ? "lucide:loader-circle" : format.icon} class="h-4 w-4 text-accent" classList={{ "animate-spin": pendingFormat() === format.value && exporting() }} />
+                </span>
+                <span class="min-w-0 flex-1">
+                  <span class="block text-sm font-medium text-foreground">{format.label}</span>
+                  <span class="mt-0.5 block text-xs text-muted-foreground">{t(`export.project.format.${format.hint}`)}</span>
+                </span>
+                <Icon icon="lucide:download" class="h-4 w-4 shrink-0 text-muted-foreground transition-colors group-hover:text-accent" />
+              </button>
+            )}
+          </For>
+        </div>
+
+        <div class="flex items-start gap-2 rounded-md border border-amber-500/25 bg-amber-500/5 px-3 py-2.5">
+          <Icon icon="lucide:shield-alert" class="mt-0.5 h-4 w-4 shrink-0 text-amber-600 dark:text-amber-400" />
           <p class="text-xs text-amber-700 dark:text-amber-300">{t("export.project.secrets")}</p>
         </div>
-      </Dialog>
+      </div>
 
       <Dialog
-        open={props.open && secretSummary() !== null}
+        open={secretSummary() !== null}
         onClose={() => { if (!exporting()) setSecretSummary(null) }}
         title={t("importexport.exportSecrets.title")}
         closeOnEsc
