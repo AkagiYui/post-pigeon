@@ -648,6 +648,88 @@ func TestHTTP_URLEncodedPreservesRepeatedNamesAndSanitizesLegacyFile(t *testing.
 	}
 }
 
+func TestHTTP_URLEncodedSerializesArrayAndObjectFields(t *testing.T) {
+	db := newTestDB(t)
+	srv := echoServer(t)
+	hs := newTestHTTPService(t, db)
+
+	resp, err := hs.SendRequest(SendRequestData{
+		Method: "POST", BaseURL: srv.URL, Path: "/echo", BodyType: string(models.BodyTypeURLEncoded),
+		BodyFields: []models.EndpointBodyField{
+			{Name: "tags", Value: `["a","b"]`, DataType: "array", Enabled: true},
+			{Name: "coords", Value: `[1,2]`, DataType: "array", Style: "pipeDelimited", Explode: boolPointer(false), Enabled: true},
+			{Name: "filter", Value: `{"role":"admin","active":true}`, DataType: "object", Style: "deepObject", Enabled: true},
+			{Name: "compact", Value: `{"b":2,"a":1}`, DataType: "object", Style: "form", Explode: boolPointer(false), Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("发送结构化表单失败: %v", err)
+	}
+	echo := decodeEcho(t, resp.Body)
+	body, _ := echo["body"].(string)
+	parsed, err := url.ParseQuery(body)
+	if err != nil {
+		t.Fatalf("解析 urlencoded 请求体失败: %v", err)
+	}
+	if !reflect.DeepEqual(parsed["tags"], []string{"a", "b"}) {
+		t.Errorf("array explode = %#v", parsed["tags"])
+	}
+	if parsed.Get("coords") != "1|2" {
+		t.Errorf("pipeDelimited = %q", parsed.Get("coords"))
+	}
+	if parsed.Get("filter[active]") != "true" || parsed.Get("filter[role]") != "admin" {
+		t.Errorf("deepObject = %#v", parsed)
+	}
+	if parsed.Get("compact") != "a,1,b,2" {
+		t.Errorf("object explode=false = %q", parsed.Get("compact"))
+	}
+}
+
+func TestHTTP_FormDataUsesFieldContentTypeAndSerialization(t *testing.T) {
+	type receivedPart struct{ name, filename, contentType, value string }
+	var parts []receivedPart
+	srv := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+		reader, err := r.MultipartReader()
+		if err != nil {
+			t.Errorf("读取 multipart 失败: %v", err)
+			return
+		}
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				t.Errorf("读取 part 失败: %v", err)
+				return
+			}
+			content, _ := io.ReadAll(part)
+			parts = append(parts, receivedPart{part.FormName(), part.FileName(), part.Header.Get("Content-Type"), string(content)})
+		}
+		_, _ = w.Write([]byte("ok"))
+	}))
+	fileValue := `{"fileName":"meta.json","content":"` + base64.StdEncoding.EncodeToString([]byte(`{"ok":true}`)) + `"}`
+	_, err := newTestHTTPService(t, newTestDB(t)).SendRequest(SendRequestData{
+		Method: "POST", BaseURL: srv.URL, Path: "/upload", BodyType: string(models.BodyTypeFormData),
+		BodyFields: []models.EndpointBodyField{
+			{Name: "tags", Value: `["a","b"]`, DataType: "array", ContentType: "text/plain; charset=utf-8", Enabled: true},
+			{Name: "document", Value: fileValue, FieldType: "file", DataType: "file", ContentType: "application/json", Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("发送 multipart 失败: %v", err)
+	}
+	if len(parts) != 3 {
+		t.Fatalf("part 数 = %d，期望 3: %+v", len(parts), parts)
+	}
+	if parts[0].name != "tags" || parts[0].contentType != "text/plain; charset=utf-8" || parts[0].value != "a" || parts[1].value != "b" {
+		t.Errorf("array multipart part 错误: %+v", parts[:2])
+	}
+	if parts[2].name != "document" || parts[2].filename != "meta.json" || parts[2].contentType != "application/json" || parts[2].value != `{"ok":true}` {
+		t.Errorf("文件 part Content-Type 错误: %+v", parts[2])
+	}
+}
+
 func TestHTTP_BasicAuth(t *testing.T) {
 	db := newTestDB(t)
 	srv := echoServer(t)

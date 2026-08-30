@@ -11,10 +11,12 @@ import (
 	"fmt"
 	"io"
 	"log/slog"
+	"mime"
 	"mime/multipart"
 	"net/http"
 	"net/http/httptrace"
 	"net/http/httputil"
+	"net/textproto"
 	"net/url"
 	"strconv"
 	"strings"
@@ -356,7 +358,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		data.Params[i].Value = resolveVars(data.Params[i].Value, vars)
 	}
 	for i := range data.BodyFields {
-		if data.BodyFields[i].FieldType != "file" {
+		if bodyFieldDataType(data.BodyFields[i]) != "file" {
 			data.BodyFields[i].Value = resolveVars(data.BodyFields[i].Value, vars)
 		}
 	}
@@ -1341,6 +1343,23 @@ func cloneSSEReconnectRequest(template *http.Request, ctx context.Context, lastE
 	return next, nil
 }
 
+func createMultipartPart(writer *multipart.Writer, name, fileName, contentType string) (io.Writer, error) {
+	if contentType == "" {
+		if fileName != "" {
+			return writer.CreateFormFile(name, fileName)
+		}
+		return writer.CreateFormField(name)
+	}
+	params := map[string]string{"name": name}
+	if fileName != "" {
+		params["filename"] = fileName
+	}
+	header := textproto.MIMEHeader{}
+	header.Set("Content-Disposition", mime.FormatMediaType("form-data", params))
+	header.Set("Content-Type", contentType)
+	return writer.CreatePart(header)
+}
+
 // setRequestBody 设置请求体
 func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, vars map[string]string, limits models.RequestSettings) error {
 	switch data.BodyType {
@@ -1430,7 +1449,7 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 			if !field.Enabled {
 				continue
 			}
-			if field.FieldType == "file" {
+			if bodyFieldDataType(field) == "file" {
 				// 文件字段可以是单个引用对象，也可以是引用数组；每个文件生成一个同名 part。
 				files, ok := parseFileFields(field.Value)
 				if !ok {
@@ -1441,15 +1460,21 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 					if err != nil {
 						return err
 					}
-					if _, err := writer.CreateFormFile(field.Name, file.displayName()); err != nil {
+					if _, err := createMultipartPart(writer, field.Name, file.displayName(), resolveVars(field.ContentType, vars)); err != nil {
 						return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
 					}
 					flushHead()
 					segments = append(segments, segment)
 				}
 			} else {
-				if err := writer.WriteField(field.Name, resolveVars(field.Value, vars)); err != nil {
-					return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
+				for _, serialized := range serializeFormBodyField(field, vars) {
+					part, err := createMultipartPart(writer, serialized.Name, "", resolveVars(field.ContentType, vars))
+					if err != nil {
+						return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
+					}
+					if _, err := part.Write([]byte(serialized.Value)); err != nil {
+						return apperr.Wrap(err, apperr.CodeBuildBody, apperr.P("field", field.Name))
+					}
 				}
 			}
 		}
@@ -1468,20 +1493,10 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 			if !field.Enabled {
 				continue
 			}
-			value := field.Value
-			// 兼容修复前已经保存的脏数据：urlencoded 不支持文件字段，不能把内部的
-			// {fileName,path} 引用 JSON 原样泄漏到请求体。与前端切换逻辑一致，降级为文件名。
-			if field.FieldType == "file" {
-				if files, ok := parseFileFields(field.Value); ok {
-					names := make([]string, 0, len(files))
-					for _, file := range files {
-						names = append(names, file.displayName())
-					}
-					value = strings.Join(names, ", ")
-				}
+			// 兼容旧文件行并保留同名字段和 array explode 产生的重复值。
+			for _, serialized := range serializeURLEncodedBodyField(field, vars) {
+				values.Add(serialized.Name, serialized.Value)
 			}
-			// Add 保留同名字段；Set 会静默丢掉前面的值，与 multipart 的逐项发送语义不一致。
-			values.Add(field.Name, resolveVars(value, vars))
 		}
 		body := values.Encode()
 		req.Body = io.NopCloser(strings.NewReader(body))
@@ -1901,7 +1916,9 @@ func applyConfiguredBodyFields(snapshot *models.HTTPRequestSnapshot, data SendRe
 		values := url.Values{}
 		for _, field := range data.BodyFields {
 			if field.Enabled {
-				values.Add(field.Name, field.Value)
+				for _, serialized := range serializeURLEncodedBodyField(field, nil) {
+					values.Add(serialized.Name, serialized.Value)
+				}
 			}
 		}
 		encoded := values.Encode()
@@ -1914,8 +1931,8 @@ func applyConfiguredBodyFields(snapshot *models.HTTPRequestSnapshot, data SendRe
 			if !field.Enabled {
 				continue
 			}
-			part := models.HTTPBodyPart{Name: field.Name, Sensitive: requestFieldNameSensitive(field.Name)}
-			if field.FieldType == "file" {
+			part := models.HTTPBodyPart{Name: field.Name, ContentType: field.ContentType, Sensitive: requestFieldNameSensitive(field.Name)}
+			if bodyFieldDataType(field) == "file" {
 				if files, ok := parseFileFields(field.Value); ok {
 					for _, file := range files {
 						filePart := part
@@ -1927,10 +1944,18 @@ func applyConfiguredBodyFields(snapshot *models.HTTPRequestSnapshot, data SendRe
 				}
 				part.FileName = field.Value
 			} else {
-				part.Preview = field.Value
-				part.PreviewCodec = "utf8"
-				part.Size = int64(len(field.Value))
-				body.Size += part.Size
+				for _, serialized := range serializeFormBodyField(field, nil) {
+					valuePart := part
+					valuePart.Name = serialized.Name
+					valuePart.Sensitive = requestFieldNameSensitive(serialized.Name)
+					valuePart.Preview = serialized.Value
+					valuePart.PreviewCodec = "utf8"
+					valuePart.Size = int64(len(serialized.Value))
+					body.Size += valuePart.Size
+					body.Sensitive = body.Sensitive || valuePart.Sensitive
+					body.Parts = append(body.Parts, valuePart)
+				}
+				continue
 			}
 			body.Sensitive = body.Sensitive || part.Sensitive
 			body.Parts = append(body.Parts, part)

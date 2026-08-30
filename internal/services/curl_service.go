@@ -215,7 +215,9 @@ func curlBodyArgs(data SendRequestData, vars map[string]string, limits models.Re
 		var args []string
 		for _, field := range data.BodyFields {
 			if field.Enabled {
-				args = append(args, fmt.Sprintf("--data-urlencode %s", shellQuote(field.Name+"="+resolveVars(field.Value, vars))))
+				for _, serialized := range serializeURLEncodedBodyField(field, vars) {
+					args = append(args, fmt.Sprintf("--data-urlencode %s", shellQuote(serialized.Name+"="+serialized.Value)))
+				}
 			}
 		}
 		return args
@@ -226,7 +228,7 @@ func curlBodyArgs(data SendRequestData, vars map[string]string, limits models.Re
 			if !field.Enabled {
 				continue
 			}
-			if field.FieldType == "file" {
+			if bodyFieldDataType(field) == "file" {
 				// curl 用 @路径 引用本地文件。现在库里存的就是路径，导出的命令可以直接跑；
 				// 历史数据只有内联内容时退回文件名占位，让用户自己补上路径
 				files, ok := parseFileFields(field.Value)
@@ -238,10 +240,20 @@ func curlBodyArgs(data SendRequestData, vars map[string]string, limits models.Re
 					if ref == "" {
 						ref = file.displayName()
 					}
-					args = append(args, fmt.Sprintf("-F %s", shellQuote(field.Name+"=@"+ref)))
+					value := field.Name + "=@" + ref
+					if field.ContentType != "" {
+						value += ";type=" + resolveVars(field.ContentType, vars)
+					}
+					args = append(args, fmt.Sprintf("-F %s", shellQuote(value)))
 				}
 			} else {
-				args = append(args, fmt.Sprintf("-F %s", shellQuote(field.Name+"="+resolveVars(field.Value, vars))))
+				for _, serialized := range serializeFormBodyField(field, vars) {
+					value := serialized.Name + "=" + serialized.Value
+					if field.ContentType != "" {
+						value += ";type=" + resolveVars(field.ContentType, vars)
+					}
+					args = append(args, fmt.Sprintf("-F %s", shellQuote(value)))
+				}
 			}
 		}
 		return args

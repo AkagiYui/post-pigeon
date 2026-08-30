@@ -1,12 +1,13 @@
 // 请求体编辑器（受控组件）
 import { Icon } from "@iconify-icon/solid"
-import { createMemo, For, Show } from "solid-js"
+import { createMemo, createSignal, For, Show } from "solid-js"
 
 import { FileService } from "@/../bindings/PostPigeon/internal/services"
 import { normalizeBodyFieldsForType } from "@/components/endpoint/endpoint-data"
 import type { BodyFieldRow } from "@/components/endpoint/EndpointDetail"
 import { KeyValueTable } from "@/components/endpoint/KeyValueTable"
 import { Button } from "@/components/ui/button"
+import { Checkbox } from "@/components/ui/checkbox"
 import { CodeEditor, type CodeLanguage } from "@/components/ui/code-editor"
 import { Input } from "@/components/ui/input"
 import { Textarea } from "@/components/ui/input"
@@ -78,6 +79,9 @@ export interface BodyEditorProps {
 }
 
 export function BodyEditor(props: BodyEditorProps) {
+  const [advancedFieldID, setAdvancedFieldID] = createSignal("")
+  const advancedField = () => props.fields.find(field => field.id === advancedFieldID())
+
   const changeBodyType = (bodyType: BodyType) => {
     const bodyFields = normalizeBodyFieldsForType(props.fields, bodyType)
     props.onChange(bodyFields === props.fields ? { bodyType } : { bodyType, bodyFields })
@@ -98,6 +102,10 @@ export function BodyEditor(props: BodyEditorProps) {
     explode: null,
     sortOrder: props.fields.length,
   })
+
+  const patchField = (id: string, patch: Partial<BodyFieldRow>) => {
+    props.onChange({ bodyFields: props.fields.map(field => field.id === id ? { ...field, ...patch } : field) })
+  }
 
   // 选文件走原生对话框：库里存的是路径，而浏览器的 <input type="file"> 只给内容不给路径。
   // form-data 与 Apifox 一样允许一个字段挂多个文件。
@@ -364,8 +372,84 @@ export function BodyEditor(props: BodyEditorProps) {
                   />
                 ),
               }] : []),
+              {
+                header: "", width: "32px", render: (row) => (
+                  <Show when={!context.isDraft(row)}>
+                    <Button
+                      variant="ghost"
+                      size="icon-sm"
+                      aria-label={t("endpoint.body.advanced")}
+                      class={advancedFieldID() === row.id ? "text-accent" : "text-muted-foreground"}
+                      onClick={() => setAdvancedFieldID(current => current === row.id ? "" : row.id)}
+                    >
+                      <Icon icon="lucide:settings-2" class="h-3.5 w-3.5" />
+                    </Button>
+                  </Show>
+                ),
+              },
             ]}
           />
+          <Show when={advancedField()}>
+            {(selected) => (
+              <section class="mt-3 rounded-md border border-border bg-surface-alt p-3">
+                <div class="mb-3 flex items-center justify-between">
+                  <h3 class="text-sm font-medium text-foreground">
+                    {t("endpoint.body.advanced")}: <span class="font-mono">{selected().name || t("endpoint.param.name")}</span>
+                  </h3>
+                  <Button variant="ghost" size="icon-sm" aria-label={t("common.close")} onClick={() => setAdvancedFieldID("")}>
+                    <Icon icon="lucide:x" class="h-3.5 w-3.5" />
+                  </Button>
+                </div>
+                <div class="grid grid-cols-1 gap-3 md:grid-cols-3">
+                  <label class="flex items-center gap-2 self-end pb-1 text-xs text-foreground">
+                    <Checkbox
+                      checked={selected().required}
+                      onChange={event => patchField(selected().id, { required: event.currentTarget.checked })}
+                    />
+                    {t("endpoint.param.required")}
+                  </label>
+                  <label class="space-y-1 text-xs text-muted-foreground">
+                    <span>{t("endpoint.body.style")}</span>
+                    <Select
+                      options={[
+                        { value: "", label: t("common.default") },
+                        { value: "form", label: "form" },
+                        { value: "spaceDelimited", label: "spaceDelimited" },
+                        { value: "pipeDelimited", label: "pipeDelimited" },
+                        { value: "deepObject", label: "deepObject" },
+                      ]}
+                      value={selected().style}
+                      onChange={style => patchField(selected().id, { style })}
+                      size="sm"
+                    />
+                  </label>
+                  <label class="space-y-1 text-xs text-muted-foreground">
+                    <span>{t("endpoint.body.explode")}</span>
+                    <Select
+                      options={[
+                        { value: "", label: t("common.default") },
+                        { value: "true", label: "true" },
+                        { value: "false", label: "false" },
+                      ]}
+                      value={selected().explode == null ? "" : String(selected().explode)}
+                      onChange={explode => patchField(selected().id, { explode: explode === "" ? null : explode === "true" })}
+                      size="sm"
+                    />
+                  </label>
+                </div>
+                <label class="mt-3 block space-y-1 text-xs text-muted-foreground">
+                  <span>{t("endpoint.body.schema")}</span>
+                  <Textarea
+                    value={selected().schema}
+                    spellcheck={false}
+                    placeholder={'{"type":"array","items":{"type":"string"}}'}
+                    class="min-h-24 font-mono text-xs"
+                    onInput={event => patchField(selected().id, { schema: event.currentTarget.value })}
+                  />
+                </label>
+              </section>
+            )}
+          </Show>
         </Show>
       </div>
     </div>

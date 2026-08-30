@@ -209,6 +209,21 @@ func TestToCurlRoundTrip(t *testing.T) {
 	}
 }
 
+func TestToCurlSerializesStructuredFormFields(t *testing.T) {
+	command, err := NewCurlService(nil).ToCurl(SendRequestData{
+		Method: "POST", BaseURL: "https://example.com", Path: "/form", BodyType: string(models.BodyTypeFormData),
+		BodyFields: []models.EndpointBodyField{
+			{Name: "tags", Value: `["a","b"]`, DataType: "array", ContentType: "text/plain", Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("ToCurl err=%v", err)
+	}
+	if strings.Count(command, "-F 'tags=") != 2 || !strings.Contains(command, "tags=a;type=text/plain") || !strings.Contains(command, "tags=b;type=text/plain") {
+		t.Fatalf("结构化表单 cURL 不完整: %s", command)
+	}
+}
+
 func TestShellQuoteEscapesSingleQuote(t *testing.T) {
 	quoted := shellQuote(`it's`)
 	if quoted != `'it'\''s'` {
