@@ -20,7 +20,7 @@ import { nativeFileDropAvailable, onFilesDropped } from "@/stores/fileDrop"
 import { toastError } from "@/stores/toast"
 
 /** 支持的导入格式。project 是本应用自己的项目导出文件（仅首页「导入项目」用） */
-export type ImportKind = "postman" | "apifox" | "openapi" | "har" | "insomnia" | "project"
+export type ImportKind = "postman" | "apifox" | "openapi" | "har" | "insomnia" | "jmeter" | "yapi" | "apipost" | "hoppscotch" | "project"
 
 /** 文档内容的来源 */
 type ImportSource = "file" | "url" | "text"
@@ -41,11 +41,15 @@ const KIND_META: Record<ImportKind, KindMeta> = {
   apifox: { kind: "apifox", icon: "lucide:file-down", iconClass: "text-orange-500" },
   har: { kind: "har", icon: "lucide:network", iconClass: "text-cyan-600" },
   insomnia: { kind: "insomnia", icon: "lucide:moon", iconClass: "text-violet-500" },
+  jmeter: { kind: "jmeter", icon: "lucide:gauge", iconClass: "text-red-500" },
+  yapi: { kind: "yapi", icon: "lucide:braces", iconClass: "text-blue-500" },
+  apipost: { kind: "apipost", icon: "lucide:send", iconClass: "text-fuchsia-500" },
+  hoppscotch: { kind: "hoppscotch", icon: "lucide:rabbit", iconClass: "text-emerald-600" },
   project: { kind: "project", icon: "lucide:package", iconClass: "text-sky-500" },
 }
 
 /** 「导入接口」默认可选格式，按交换场景的常用程度排列。 */
-const DEFAULT_KINDS: ImportKind[] = ["openapi", "postman", "apifox", "har", "insomnia"]
+const DEFAULT_KINDS: ImportKind[] = ["openapi", "postman", "apifox", "har", "insomnia", "jmeter", "yapi", "apipost", "hoppscotch"]
 
 const SOURCES: { source: ImportSource; icon: string }[] = [
   { source: "file", icon: "lucide:file-up" },
@@ -118,7 +122,7 @@ export function ImportWizardDialog(props: ImportWizardDialogProps) {
   const pickFile = () => {
     const input = document.createElement("input")
     input.type = "file"
-    input.accept = "application/json,.json,.har"
+    input.accept = "application/json,application/xml,text/xml,.json,.har,.jmx,.xml"
     input.onchange = () => {
       const file = input.files?.[0]
       if (file) void acceptFile(file)

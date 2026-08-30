@@ -2,6 +2,7 @@ package services
 
 import (
 	"encoding/json"
+	"encoding/xml"
 	"fmt"
 	"net/url"
 	"sort"
@@ -27,6 +28,14 @@ func (s *ImportExportService) ConvertImportDocument(kind, content string) (*Conv
 		converted, err = convertHARToPostman(content)
 	case "insomnia":
 		converted, err = convertInsomniaToPostman(content)
+	case "jmeter":
+		converted, err = convertJMeterToPostman(content)
+	case "yapi":
+		converted, err = convertYApiToPostman(content)
+	case "hoppscotch":
+		converted, err = convertHoppscotchToPostman(content)
+	case "apipost":
+		converted, err = convertApiPostToPostman(content)
 	default:
 		return nil, fmt.Errorf("暂不支持转换导入格式 %q", kind)
 	}
@@ -148,12 +157,452 @@ func harPostmanRequest(method, rawURL string, headers []struct {
 	request := map[string]any{
 		"method": strings.ToUpper(firstNonEmpty(strings.TrimSpace(method), "GET")),
 		"header": convertedHeaders,
-		"url":    map[string]any{"raw": rawURL},
+		"url":    postmanURLDocument(rawURL, nil),
 	}
 	if body := harPostmanBody(postData); body != nil {
 		request["body"] = body
 	}
 	return request
+}
+
+// jmxNode 保留 JMeter JMX 的属性、文本与层级。JMX 的 HTTP sampler 与配置项
+// 通过相邻 hashTree 关联，使用通用节点比为每一种 property 标签建结构更可靠。
+type jmxNode struct {
+	XMLName  xml.Name
+	Attrs    []xml.Attr `xml:",any,attr"`
+	Text     string     `xml:",chardata"`
+	Children []jmxNode  `xml:",any"`
+}
+
+func convertJMeterToPostman(content string) (map[string]any, error) {
+	var root jmxNode
+	if err := xml.Unmarshal([]byte(content), &root); err != nil {
+		return nil, fmt.Errorf("解析 JMeter JMX 失败: %w", err)
+	}
+	items := collectJMeterItems(root)
+	if len(items) == 0 {
+		return nil, fmt.Errorf("JMeter JMX 中没有 HTTP Request sampler")
+	}
+	return postmanCollectionDocument("JMeter Import", items, nil), nil
+}
+
+func collectJMeterItems(node jmxNode) []any {
+	var items []any
+	for index := 0; index < len(node.Children); index++ {
+		child := node.Children[index]
+		if child.XMLName.Local == "HTTPSamplerProxy" {
+			var config jmxNode
+			if index+1 < len(node.Children) && node.Children[index+1].XMLName.Local == "hashTree" {
+				config = node.Children[index+1]
+			}
+			items = append(items, jmeterPostmanItem(child, config))
+			continue
+		}
+		items = append(items, collectJMeterItems(child)...)
+	}
+	return items
+}
+
+func jmeterPostmanItem(sampler, config jmxNode) map[string]any {
+	properties := jmxProperties(sampler)
+	method := strings.ToUpper(firstNonEmpty(properties["HTTPSampler.method"], "GET"))
+	protocol := firstNonEmpty(properties["HTTPSampler.protocol"], "http")
+	domain := properties["HTTPSampler.domain"]
+	port := properties["HTTPSampler.port"]
+	path := firstNonEmpty(properties["HTTPSampler.path"], "/")
+	rawURL := path
+	if domain != "" {
+		host := domain
+		if port != "" {
+			host += ":" + port
+		}
+		rawURL = protocol + "://" + host + ensureLeadingSlash(path)
+	}
+
+	queryValues, bodyValues := jmeterArguments(sampler, method, properties["HTTPSampler.postBodyRaw"] == "true")
+	request := map[string]any{
+		"method": method,
+		"header": jmeterHeaders(config),
+		"url":    postmanURLDocument(rawURL, queryValues),
+	}
+	if len(bodyValues) > 0 {
+		if properties["HTTPSampler.postBodyRaw"] == "true" {
+			request["body"] = map[string]any{
+				"mode": "raw", "raw": stringValue(bodyValues[0].(map[string]any)["value"]),
+				"options": map[string]any{"raw": map[string]any{"language": "text"}},
+			}
+		} else {
+			request["body"] = map[string]any{"mode": "urlencoded", "urlencoded": bodyValues}
+		}
+	}
+	name := firstNonEmpty(jmxAttr(sampler, "testname"), method+" "+path)
+	return map[string]any{"name": name, "request": request}
+}
+
+func jmxProperties(node jmxNode) map[string]string {
+	result := map[string]string{}
+	var walk func(jmxNode)
+	walk = func(current jmxNode) {
+		if current.XMLName.Local == "stringProp" || current.XMLName.Local == "boolProp" {
+			if name := jmxAttr(current, "name"); name != "" {
+				result[name] = strings.TrimSpace(current.Text)
+			}
+		}
+		for _, child := range current.Children {
+			walk(child)
+		}
+	}
+	walk(node)
+	return result
+}
+
+func jmeterArguments(sampler jmxNode, method string, raw bool) ([]any, []any) {
+	var all []any
+	var walk func(jmxNode)
+	walk = func(node jmxNode) {
+		if node.XMLName.Local == "elementProp" && jmxAttr(node, "elementType") == "HTTPArgument" {
+			props := jmxProperties(node)
+			all = append(all, map[string]any{
+				"key":   props["Argument.name"],
+				"value": props["Argument.value"],
+				"type":  "text",
+			})
+			return
+		}
+		for _, child := range node.Children {
+			walk(child)
+		}
+	}
+	walk(sampler)
+	if raw || (method != "GET" && method != "HEAD" && method != "DELETE") {
+		return nil, all
+	}
+	return all, nil
+}
+
+func jmeterHeaders(config jmxNode) []any {
+	var result []any
+	var walk func(jmxNode)
+	walk = func(node jmxNode) {
+		if node.XMLName.Local == "elementProp" && jmxAttr(node, "elementType") == "Header" {
+			props := jmxProperties(node)
+			if props["Header.name"] != "" {
+				result = append(result, map[string]any{"key": props["Header.name"], "value": props["Header.value"]})
+			}
+			return
+		}
+		for _, child := range node.Children {
+			walk(child)
+		}
+	}
+	walk(config)
+	return result
+}
+
+func jmxAttr(node jmxNode, name string) string {
+	for _, attr := range node.Attrs {
+		if attr.Name.Local == name {
+			return attr.Value
+		}
+	}
+	return ""
+}
+
+type yapiCategory struct {
+	Name string         `json:"name"`
+	List []yapiEndpoint `json:"list"`
+}
+
+type yapiEndpoint struct {
+	ID           any             `json:"_id"`
+	Title        string          `json:"title"`
+	Path         string          `json:"path"`
+	Method       string          `json:"method"`
+	Description  string          `json:"desc"`
+	Headers      []yapiKV        `json:"req_headers"`
+	Query        []yapiKV        `json:"req_query"`
+	BodyType     string          `json:"req_body_type"`
+	BodyForm     []yapiKV        `json:"req_body_form"`
+	BodyOther    any             `json:"req_body_other"`
+	RawBodyJSON  bool            `json:"req_body_is_json_schema"`
+	PathParams   []yapiKV        `json:"req_params"`
+	ResponseBody json.RawMessage `json:"res_body"`
+}
+
+type yapiKV struct {
+	Name     string `json:"name"`
+	Value    string `json:"value"`
+	Example  string `json:"example"`
+	Desc     string `json:"desc"`
+	Required any    `json:"required"`
+	Type     string `json:"type"`
+}
+
+func convertYApiToPostman(content string) (map[string]any, error) {
+	var categories []yapiCategory
+	normalized := []byte(normalizeJSONC(content))
+	if err := json.Unmarshal(normalized, &categories); err != nil {
+		var wrapper struct {
+			Name string         `json:"name"`
+			Cats []yapiCategory `json:"cats"`
+			Data []yapiCategory `json:"data"`
+		}
+		if wrapperErr := json.Unmarshal(normalized, &wrapper); wrapperErr != nil {
+			return nil, fmt.Errorf("解析 YApi 导出文件失败: %w", err)
+		}
+		categories = wrapper.Cats
+		if len(categories) == 0 {
+			categories = wrapper.Data
+		}
+	}
+	var items []any
+	for _, category := range categories {
+		var requests []any
+		for _, endpoint := range category.List {
+			requests = append(requests, yapiPostmanItem(endpoint))
+		}
+		if len(requests) == 0 {
+			continue
+		}
+		items = append(items, map[string]any{"name": firstNonEmpty(category.Name, "Default"), "item": requests})
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("YApi 导出文件中没有可导入的接口")
+	}
+	return postmanCollectionDocument("YApi Import", items, nil), nil
+}
+
+func yapiPostmanItem(endpoint yapiEndpoint) map[string]any {
+	query := make([]any, 0, len(endpoint.Query))
+	for _, param := range endpoint.Query {
+		query = append(query, map[string]any{"key": param.Name, "value": firstNonEmpty(param.Value, param.Example), "description": param.Desc})
+	}
+	headers := make([]any, 0, len(endpoint.Headers))
+	for _, header := range endpoint.Headers {
+		headers = append(headers, map[string]any{"key": header.Name, "value": firstNonEmpty(header.Value, header.Example), "description": header.Desc})
+	}
+	request := map[string]any{
+		"method":      strings.ToUpper(firstNonEmpty(endpoint.Method, "GET")),
+		"header":      headers,
+		"url":         postmanURLDocument(endpoint.Path, query),
+		"description": endpoint.Description,
+	}
+	switch strings.ToLower(endpoint.BodyType) {
+	case "form", "formdata":
+		mode := "urlencoded"
+		for _, field := range endpoint.BodyForm {
+			if field.Type == "file" {
+				mode = "formdata"
+				break
+			}
+		}
+		fields := make([]any, 0, len(endpoint.BodyForm))
+		for _, field := range endpoint.BodyForm {
+			fieldType := "text"
+			if field.Type == "file" {
+				fieldType = "file"
+			}
+			fields = append(fields, map[string]any{"key": field.Name, "value": firstNonEmpty(field.Value, field.Example), "type": fieldType, "description": field.Desc})
+		}
+		request["body"] = map[string]any{"mode": mode, mode: fields}
+	case "json", "raw":
+		body := stringValue(endpoint.BodyOther)
+		request["body"] = map[string]any{"mode": "raw", "raw": body, "options": map[string]any{"raw": map[string]any{"language": "json"}}}
+	}
+	return map[string]any{
+		"name":    endpoint.Title,
+		"request": request,
+	}
+}
+
+type hoppscotchCollection struct {
+	Name     string                 `json:"name"`
+	Folders  []hoppscotchCollection `json:"folders"`
+	Requests []hoppscotchRequest    `json:"requests"`
+}
+
+type hoppscotchRequest struct {
+	Name     string         `json:"name"`
+	Method   string         `json:"method"`
+	Endpoint string         `json:"endpoint"`
+	Params   []hoppscotchKV `json:"params"`
+	Headers  []hoppscotchKV `json:"headers"`
+	Body     any            `json:"body"`
+	Auth     any            `json:"auth"`
+}
+
+type hoppscotchKV struct {
+	Key    string `json:"key"`
+	Value  string `json:"value"`
+	Active *bool  `json:"active"`
+}
+
+func convertHoppscotchToPostman(content string) (map[string]any, error) {
+	var collection hoppscotchCollection
+	if err := json.Unmarshal([]byte(normalizeJSONC(content)), &collection); err != nil {
+		return nil, fmt.Errorf("解析 Hoppscotch 集合失败: %w", err)
+	}
+	items := hoppscotchItems(collection)
+	if len(items) == 0 {
+		return nil, fmt.Errorf("Hoppscotch 集合中没有可导入的请求")
+	}
+	return postmanCollectionDocument(firstNonEmpty(collection.Name, "Hoppscotch Import"), items, nil), nil
+}
+
+func hoppscotchItems(collection hoppscotchCollection) []any {
+	items := make([]any, 0, len(collection.Folders)+len(collection.Requests))
+	for _, request := range collection.Requests {
+		query := make([]any, 0, len(request.Params))
+		for _, param := range request.Params {
+			query = append(query, map[string]any{"key": param.Key, "value": param.Value, "disabled": param.Active != nil && !*param.Active})
+		}
+		headers := make([]any, 0, len(request.Headers))
+		for _, header := range request.Headers {
+			headers = append(headers, map[string]any{"key": header.Key, "value": header.Value, "disabled": header.Active != nil && !*header.Active})
+		}
+		req := map[string]any{
+			"method": strings.ToUpper(firstNonEmpty(request.Method, "GET")),
+			"header": headers,
+			"url":    postmanURLDocument(request.Endpoint, query),
+		}
+		if body := hoppscotchPostmanBody(request.Body); body != nil {
+			req["body"] = body
+		}
+		items = append(items, map[string]any{"name": firstNonEmpty(request.Name, request.Method+" "+request.Endpoint), "request": req})
+	}
+	for _, folder := range collection.Folders {
+		children := hoppscotchItems(folder)
+		if len(children) > 0 {
+			items = append(items, map[string]any{"name": firstNonEmpty(folder.Name, "Folder"), "item": children})
+		}
+	}
+	return items
+}
+
+func hoppscotchPostmanBody(raw any) map[string]any {
+	body, ok := raw.(map[string]any)
+	if !ok || body == nil {
+		return nil
+	}
+	contentType := strings.ToLower(firstNonEmpty(stringValue(body["contentType"]), stringValue(body["mimeType"])))
+	content := firstNonEmpty(stringValue(body["body"]), stringValue(body["content"]), stringValue(body["text"]))
+	if content == "" {
+		return nil
+	}
+	return map[string]any{
+		"mode": "raw", "raw": content,
+		"options": map[string]any{"raw": map[string]any{"language": postmanRawLanguage(contentType)}},
+	}
+}
+
+func convertApiPostToPostman(content string) (map[string]any, error) {
+	var direct map[string]any
+	if err := json.Unmarshal([]byte(normalizeJSONC(content)), &direct); err != nil {
+		return nil, fmt.Errorf("解析 ApiPost 导出文件失败: %w", err)
+	}
+	// ApiPost 支持直接导出 Postman Collection；此时只校验并原样复用。
+	if _, ok := direct["item"]; ok {
+		if _, err := parsePostman(content); err == nil {
+			return direct, nil
+		}
+	}
+	// 常见 ApiPost 导出把请求数组放在 apis/data.apis/data.apiList 下。
+	requests := firstMapSlice(direct["apis"])
+	if data, ok := direct["data"].(map[string]any); ok && len(requests) == 0 {
+		requests = firstMapSlice(data["apis"])
+		if len(requests) == 0 {
+			requests = firstMapSlice(data["apiList"])
+		}
+	}
+	items := make([]any, 0, len(requests))
+	for _, request := range requests {
+		rawURL := firstNonEmpty(stringValue(request["url"]), stringValue(request["requestUrl"]), stringValue(request["path"]))
+		if rawURL == "" {
+			continue
+		}
+		method := strings.ToUpper(firstNonEmpty(stringValue(request["method"]), "GET"))
+		headers := genericKeyValueList(request["headers"])
+		query := genericKeyValueList(firstNonNil(request["query"], request["queryParams"], request["params"]))
+		req := map[string]any{"method": method, "header": headers, "url": postmanURLDocument(rawURL, query)}
+		body := firstNonEmpty(stringValue(request["body"]), stringValue(request["rawBody"]), stringValue(request["requestBody"]))
+		if body != "" {
+			req["body"] = map[string]any{"mode": "raw", "raw": body, "options": map[string]any{"raw": map[string]any{"language": "json"}}}
+		}
+		items = append(items, map[string]any{"name": firstNonEmpty(stringValue(request["name"]), stringValue(request["title"]), method+" "+rawURL), "request": req})
+	}
+	if len(items) == 0 {
+		return nil, fmt.Errorf("无法识别 ApiPost 导出结构，或文件中没有请求")
+	}
+	return postmanCollectionDocument(firstNonEmpty(stringValue(direct["name"]), "ApiPost Import"), items, nil), nil
+}
+
+func postmanURLDocument(rawURL string, explicitQuery []any) map[string]any {
+	query := explicitQuery
+	if len(query) == 0 {
+		if parsed, err := url.Parse(rawURL); err == nil {
+			for _, key := range sortedStringKeys(parsed.Query()) {
+				for _, value := range parsed.Query()[key] {
+					query = append(query, map[string]any{"key": key, "value": value})
+				}
+			}
+		}
+	}
+	return map[string]any{"raw": rawURL, "query": query}
+}
+
+func genericKeyValueList(raw any) []any {
+	var result []any
+	switch values := raw.(type) {
+	case []any:
+		for _, value := range values {
+			if item, ok := value.(map[string]any); ok {
+				key := firstNonEmpty(stringValue(item["key"]), stringValue(item["name"]))
+				if key != "" {
+					result = append(result, map[string]any{"key": key, "value": stringValue(item["value"])})
+				}
+			}
+		}
+	case map[string]any:
+		keys := make([]string, 0, len(values))
+		for key := range values {
+			keys = append(keys, key)
+		}
+		sort.Strings(keys)
+		for _, key := range keys {
+			result = append(result, map[string]any{"key": key, "value": stringValue(values[key])})
+		}
+	}
+	return result
+}
+
+func firstMapSlice(raw any) []map[string]any {
+	values, ok := raw.([]any)
+	if !ok {
+		return nil
+	}
+	result := make([]map[string]any, 0, len(values))
+	for _, value := range values {
+		if item, ok := value.(map[string]any); ok {
+			result = append(result, item)
+		}
+	}
+	return result
+}
+
+func firstNonNil(values ...any) any {
+	for _, value := range values {
+		if value != nil {
+			return value
+		}
+	}
+	return nil
+}
+
+func ensureLeadingSlash(path string) string {
+	if strings.HasPrefix(path, "/") {
+		return path
+	}
+	return "/" + path
 }
 
 func harPostmanBody(postData *struct {

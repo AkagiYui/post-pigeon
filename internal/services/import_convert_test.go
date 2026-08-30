@@ -40,6 +40,76 @@ func TestConvertHARToPostman(t *testing.T) {
 	if len(request.Header) != 1 || request.Header[0].Key != "Content-Type" {
 		t.Fatalf("应过滤 Content-Length 并保留其余请求头: %+v", request.Header)
 	}
+	if len(request.URL.Query) != 1 || request.URL.Query[0].Key != "q" {
+		t.Fatalf("HAR URL 查询参数丢失: %+v", request.URL.Query)
+	}
+}
+
+func TestConvertJMeterToPostman(t *testing.T) {
+	fixture := `<?xml version="1.0"?><jmeterTestPlan><hashTree><TestPlan testname="Plan"/><hashTree><ThreadGroup testname="Users"/><hashTree><HTTPSamplerProxy testname="Create item"><stringProp name="HTTPSampler.domain">api.example.com</stringProp><stringProp name="HTTPSampler.protocol">https</stringProp><stringProp name="HTTPSampler.path">/items</stringProp><stringProp name="HTTPSampler.method">POST</stringProp><boolProp name="HTTPSampler.postBodyRaw">false</boolProp><elementProp name="HTTPsampler.Arguments" elementType="Arguments"><collectionProp name="Arguments.arguments"><elementProp name="name" elementType="HTTPArgument"><stringProp name="Argument.name">title</stringProp><stringProp name="Argument.value">hello</stringProp></elementProp></collectionProp></elementProp></HTTPSamplerProxy><hashTree><HeaderManager><collectionProp><elementProp name="" elementType="Header"><stringProp name="Header.name">X-Trace</stringProp><stringProp name="Header.value">one</stringProp></elementProp></collectionProp></HeaderManager></hashTree></hashTree></hashTree></hashTree></jmeterTestPlan>`
+	converted, err := NewImportExportService(nil).ConvertImportDocument("jmeter", fixture)
+	if err != nil {
+		t.Fatalf("ConvertImportDocument: %v", err)
+	}
+	collection, err := parsePostman(converted.Content)
+	if err != nil || len(collection.Item) != 1 {
+		t.Fatalf("JMeter 转换结果错误: err=%v collection=%+v", err, collection)
+	}
+	request := collection.Item[0].Request
+	if request == nil || request.URL.Raw != "https://api.example.com/items" || request.Body == nil || len(request.Body.URLEncoded) != 1 {
+		t.Fatalf("JMeter 请求内容丢失: %+v", request)
+	}
+	if len(request.Header) != 1 || request.Header[0].Key != "X-Trace" {
+		t.Fatalf("JMeter HeaderManager 丢失: %+v", request.Header)
+	}
+}
+
+func TestConvertYApiToPostman(t *testing.T) {
+	fixture := `[{"name":"Users","list":[{"_id":1,"title":"Create user","path":"/users","method":"POST","req_headers":[{"name":"X-Trace","value":"one"}],"req_query":[{"name":"dry","example":"true"}],"req_body_type":"json","req_body_other":"{\"name\":\"A\"}"}]}]`
+	converted, err := NewImportExportService(nil).ConvertImportDocument("yapi", fixture)
+	if err != nil {
+		t.Fatalf("ConvertImportDocument: %v", err)
+	}
+	collection, err := parsePostman(converted.Content)
+	if err != nil || len(collection.Item) != 1 || len(collection.Item[0].Item) != 1 {
+		t.Fatalf("YApi 目录转换错误: err=%v collection=%+v", err, collection)
+	}
+	request := collection.Item[0].Item[0].Request
+	if request == nil || request.Body == nil || request.Body.Raw != `{"name":"A"}` || len(request.URL.Query) != 1 {
+		t.Fatalf("YApi 请求内容丢失: %+v", request)
+	}
+}
+
+func TestConvertHoppscotchToPostman(t *testing.T) {
+	fixture := `{"name":"Demo","folders":[{"name":"Admin","folders":[],"requests":[{"name":"List","method":"GET","endpoint":"https://api.example.com/users","params":[{"key":"page","value":"1","active":true}],"headers":[{"key":"Authorization","value":"Bearer token","active":false}]}]}],"requests":[]}`
+	converted, err := NewImportExportService(nil).ConvertImportDocument("hoppscotch", fixture)
+	if err != nil {
+		t.Fatalf("ConvertImportDocument: %v", err)
+	}
+	collection, err := parsePostman(converted.Content)
+	if err != nil || collection.Info.Name != "Demo" || len(collection.Item) != 1 {
+		t.Fatalf("Hoppscotch 转换错误: err=%v collection=%+v", err, collection)
+	}
+	request := collection.Item[0].Item[0].Request
+	if request == nil || len(request.URL.Query) != 1 || len(request.Header) != 1 || !request.Header[0].Disabled {
+		t.Fatalf("Hoppscotch 参数或开关丢失: %+v", request)
+	}
+}
+
+func TestConvertApiPostToPostman(t *testing.T) {
+	fixture := `{"name":"ApiPost Demo","apis":[{"name":"Ping","method":"GET","url":"https://api.example.com/ping","headers":{"X-Trace":"one"},"query":[{"key":"q","value":"ok"}]}]}`
+	converted, err := NewImportExportService(nil).ConvertImportDocument("apipost", fixture)
+	if err != nil {
+		t.Fatalf("ConvertImportDocument: %v", err)
+	}
+	collection, err := parsePostman(converted.Content)
+	if err != nil || collection.Info.Name != "ApiPost Demo" || len(collection.Item) != 1 {
+		t.Fatalf("ApiPost 转换错误: err=%v collection=%+v", err, collection)
+	}
+	request := collection.Item[0].Request
+	if request == nil || len(request.Header) != 1 || len(request.URL.Query) != 1 {
+		t.Fatalf("ApiPost 请求内容丢失: %+v", request)
+	}
 }
 
 func TestConvertInsomniaToPostman(t *testing.T) {
