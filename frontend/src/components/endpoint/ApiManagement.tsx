@@ -1,7 +1,7 @@
 // 接口管理主界面组件
 // 左侧树形面板 + 右侧多 Tab 端点详情编辑器
 // 支持未保存的请求标签页和已保存的端点标签页
-import { createEffect, createSignal, on, onMount, Show } from "solid-js"
+import { createEffect, createSignal, For, on, onMount, Show } from "solid-js"
 
 import type { ActualRequestInfo, CookieInfo, Endpoint, ResponseExample, ResponseSchema } from "@/../bindings/PostPigeon/internal/models"
 import type { CurlRequest } from "@/../bindings/PostPigeon/internal/services"
@@ -660,14 +660,34 @@ export function ApiManagement(props: ApiManagementProps) {
     setRunnerOpen(true)
   }
 
-  // ---- 导出模块为 OpenAPI ----
-  const handleExportOpenAPI = async (node: TreeNode) => {
+  // ---- 模块多格式导出 ----
+  const [exportNode, setExportNode] = createSignal<TreeNode | null>(null)
+  const [exporting, setExporting] = createSignal(false)
+  const exportFormats = [
+    { value: "openapi31", label: "OpenAPI 3.1", hint: "openapi31" },
+    { value: "openapi30", label: "OpenAPI 3.0", hint: "openapi30" },
+    { value: "swagger2", label: "Swagger 2.0", hint: "swagger2" },
+    { value: "postman", label: "Postman Collection", hint: "postman" },
+    { value: "har", label: "HAR 1.2", hint: "har" },
+    { value: "markdown", label: "Markdown", hint: "markdown" },
+  ]
+
+  const handleExportOpenAPI = (node: TreeNode) => setExportNode(node)
+
+  const exportModule = async (format: string) => {
+    const node = exportNode()
+    if (!node || exporting()) return
+    setExporting(true)
     try {
-      const json = await ImportExportService.ExportOpenAPI(node.id)
-      downloadTextFile(`${node.name || "module"}.openapi.json`, json, "application/json")
+      const document = await ImportExportService.ExportModuleAs(node.id, format)
+      if (!document) throw new Error("Export returned no document")
+      downloadTextFile(document.fileName, document.content, document.mediaType)
       toastSuccess(t("importexport.exported"))
+      setExportNode(null)
     } catch (e) {
       toastError(e, "error.op.exportFailed")
+    } finally {
+      setExporting(false)
     }
   }
 
@@ -1575,6 +1595,35 @@ export function ApiManagement(props: ApiManagementProps) {
         projectId={props.projectId} json={postmanJson()}
         onImported={refreshAfterImport}
       />
+
+      <Dialog
+        open={!!exportNode()}
+        onClose={() => !exporting() && setExportNode(null)}
+        title={t("export.module.title", { name: exportNode()?.name || "" })}
+        closeOnEsc
+        closeOnOverlayClick
+        width="560px"
+      >
+        <div class="space-y-4 p-6">
+          <p class="text-sm text-muted-foreground">{t("export.module.hint")}</p>
+          <div class="grid grid-cols-2 gap-2">
+            <For each={exportFormats}>
+              {(format) => (
+                <button
+                  type="button"
+                  disabled={exporting()}
+                  onClick={() => void exportModule(format.value)}
+                  class="rounded-md border border-border p-3 text-left transition-colors hover:border-accent hover:bg-muted disabled:cursor-not-allowed disabled:opacity-50"
+                >
+                  <div class="text-sm font-medium">{format.label}</div>
+                  <div class="mt-1 text-xs text-muted-foreground">{t(`export.module.format.${format.hint}`)}</div>
+                </button>
+              )}
+            </For>
+          </div>
+          <p class="text-xs text-amber-700 dark:text-amber-300">{t("export.module.secrets")}</p>
+        </div>
+      </Dialog>
 
       <CollectionRunner
         open={runnerOpen()}

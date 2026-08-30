@@ -567,6 +567,34 @@ func (s *EndpointService) CreateFullEndpoint(moduleID string, folderID *string, 
 			}
 		}
 
+		if data.Operations != nil {
+			if err := syncOperations(tx, models.OperationOwnerEndpoint, endpoint.ID, data.Operations); err != nil {
+				return err
+			}
+		}
+		if data.OperationOverrides != nil {
+			if err := saveOperationOverrides(tx, models.OperationOwnerEndpoint, endpoint.ID,
+				data.OperationOverrides, inheritedOperationsForEndpoint(tx, endpoint)); err != nil {
+				return err
+			}
+		}
+		for i := range data.Examples {
+			data.Examples[i].ID = ""
+			data.Examples[i].EndpointID = endpoint.ID
+			data.Examples[i].SortOrder = i
+			if err := tx.Create(&data.Examples[i]).Error; err != nil {
+				return err
+			}
+		}
+		for i := range data.Schemas {
+			data.Schemas[i].ID = ""
+			data.Schemas[i].EndpointID = endpoint.ID
+			data.Schemas[i].SortOrder = i
+			if err := tx.Create(&data.Schemas[i]).Error; err != nil {
+				return err
+			}
+		}
+
 		return nil
 	})
 
