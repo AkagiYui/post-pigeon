@@ -1,9 +1,11 @@
 package transportcapture
 
 import (
+	"bytes"
 	"context"
 	"crypto/sha256"
 	"encoding/hex"
+	"mime/multipart"
 	"net/http"
 	"net/http/cookiejar"
 	"net/http/httptest"
@@ -81,6 +83,63 @@ func TestCaptureBodyKeepsBoundedPreviewAndFullDigest(t *testing.T) {
 	}
 	if got.SHA256 != hex.EncodeToString(wantHash[:]) {
 		t.Fatalf("sha256 = %q", got.SHA256)
+	}
+}
+
+func TestCaptureBodyMarksStructuredSecretFields(t *testing.T) {
+	jsonBody := CaptureBody(strings.NewReader(`{"username":"alice","password":"p"}`), "application/json", "", 1024)
+	if !jsonBody.Sensitive {
+		t.Fatal("JSON password 字段应标记请求体敏感")
+	}
+	formBody := CaptureBody(strings.NewReader("name=alice&access_token=t"), "application/x-www-form-urlencoded", "", 1024)
+	if !formBody.Sensitive {
+		t.Fatal("表单 access_token 字段应标记请求体敏感")
+	}
+	publicBody := CaptureBody(strings.NewReader(`{"message":"public"}`), "application/json", "", 1024)
+	if publicBody.Sensitive {
+		t.Fatal("普通 JSON 不应误标敏感")
+	}
+}
+
+func TestSnapshotRequestMarksSensitiveQueryFields(t *testing.T) {
+	req, err := http.NewRequest(http.MethodGet, "https://example.test/items?access_token=live&q=public", nil)
+	if err != nil {
+		t.Fatal(err)
+	}
+	snapshot := SnapshotRequest(req, 1024)
+	if !snapshot.URLSensitive {
+		t.Fatal("敏感 query 参数名应标记 URL")
+	}
+}
+
+func TestSnapshotRequestStructuresFormAndMultipartBodies(t *testing.T) {
+	formReq, err := http.NewRequest(http.MethodPost, "https://example.test/form", strings.NewReader("name=alice&password=p"))
+	if err != nil {
+		t.Fatal(err)
+	}
+	formReq.Header.Set("Content-Type", "application/x-www-form-urlencoded")
+	form := SnapshotRequest(formReq, 1024).Body
+	if len(form.Parts) != 2 || !form.Sensitive {
+		t.Fatalf("URL encoded body 未结构化: %+v", form)
+	}
+
+	var payload bytes.Buffer
+	writer := multipart.NewWriter(&payload)
+	_ = writer.WriteField("token", "live")
+	file, err := writer.CreateFormFile("avatar", "avatar.txt")
+	if err != nil {
+		t.Fatal(err)
+	}
+	_, _ = file.Write([]byte("file-content"))
+	_ = writer.Close()
+	multipartReq, err := http.NewRequest(http.MethodPost, "https://example.test/upload", bytes.NewReader(payload.Bytes()))
+	if err != nil {
+		t.Fatal(err)
+	}
+	multipartReq.Header.Set("Content-Type", writer.FormDataContentType())
+	multipartBody := SnapshotRequest(multipartReq, 4096).Body
+	if len(multipartBody.Parts) != 2 || !multipartBody.Sensitive {
+		t.Fatalf("multipart body 未结构化: %+v", multipartBody)
 	}
 }
 

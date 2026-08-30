@@ -103,6 +103,49 @@ func TestSanitizeRequestRunAlwaysBoundsBodyAndMasksSensitiveHeaders(t *testing.T
 	}
 }
 
+func TestMarkRequestRunSensitiveFindsSecretValuesOutsideKnownHeaders(t *testing.T) {
+	run := &models.RequestRun{
+		PreparedRequest: &models.HTTPRequestSnapshot{
+			Headers: []models.HTTPHeaderSnapshot{{Name: "X-Custom", Value: "prefix-live-secret"}},
+			Body:    models.HTTPBodySnapshot{Preview: `{"password":"live-secret"}`, PreviewCodec: "utf8"},
+		},
+	}
+	markRequestRunSensitive(run, []string{"live-secret"})
+	if !run.PreparedRequest.Headers[0].Sensitive || !run.PreparedRequest.Body.Sensitive {
+		t.Fatalf("秘密变量进入自定义头或请求体后应标记为敏感: %+v", run.PreparedRequest)
+	}
+}
+
+func TestSanitizeRequestRunRedactsStructuredSensitiveBody(t *testing.T) {
+	run := &models.RequestRun{Attempts: []models.RequestAttempt{{
+		Request: models.HTTPRequestSnapshot{Body: models.HTTPBodySnapshot{
+			MediaType: "application/json", PreviewCodec: "utf8", Preview: `{"username":"alice","password":"plain-text"}`,
+			Captured: true, Sensitive: true,
+		}},
+	}}}
+	stored := sanitizeRequestRun(run, 1024, true, nil)
+	preview := stored.Attempts[0].Request.Body.Preview
+	if strings.Contains(preview, "plain-text") || !strings.Contains(preview, "••••••") {
+		t.Fatalf("结构化敏感请求体未安全入库: %s", preview)
+	}
+}
+
+func TestSanitizeRequestRunRedactsSensitiveURL(t *testing.T) {
+	run := &models.RequestRun{Attempts: []models.RequestAttempt{{
+		Request: models.HTTPRequestSnapshot{
+			URL:           "https://example.test/items?access_token=plain-text&q=public",
+			RequestTarget: "/items?access_token=plain-text&q=public",
+			URLSensitive:  true,
+		},
+	}}}
+	stored := sanitizeRequestRun(run, 1024, true, nil)
+	request := stored.Attempts[0].Request
+	if strings.Contains(request.URL, "plain-text") || strings.Contains(request.URL, "public") ||
+		strings.Contains(request.RequestTarget, "plain-text") {
+		t.Fatalf("敏感 URL 未安全入库: %+v", request)
+	}
+}
+
 // TestCancelRequest 验证进行中的请求可以被主动取消，并返回可识别的错误码。
 func TestCancelRequest(t *testing.T) {
 	db := newTestDB(t)

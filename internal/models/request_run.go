@@ -45,6 +45,7 @@ type HTTPBodyPart struct {
 	Preview      string `json:"preview,omitempty"`
 	PreviewCodec string `json:"previewCodec,omitempty"`
 	Truncated    bool   `json:"truncated,omitempty"`
+	Sensitive    bool   `json:"sensitive,omitempty"`
 }
 
 // HTTPBodySnapshot 同时保存可展示的有界预览与完整数据的长度/哈希。
@@ -59,6 +60,7 @@ type HTTPBodySnapshot struct {
 	PreviewCodec string         `json:"previewCodec,omitempty"`
 	Truncated    bool           `json:"truncated,omitempty"`
 	Captured     bool           `json:"captured"`
+	Sensitive    bool           `json:"sensitive,omitempty"`
 	Parts        []HTTPBodyPart `json:"parts,omitempty"`
 }
 
@@ -67,6 +69,7 @@ type HTTPBodySnapshot struct {
 type HTTPRequestSnapshot struct {
 	Method           string               `json:"method"`
 	URL              string               `json:"url"`
+	URLSensitive     bool                 `json:"urlSensitive,omitempty"`
 	RequestTarget    string               `json:"requestTarget"`
 	Authority        string               `json:"authority"`
 	Protocol         string               `json:"protocol"`
@@ -132,6 +135,7 @@ type RequestRun struct {
 	ModuleID          string               `gorm:"not null;index" json:"moduleId"`
 	EndpointID        *string              `gorm:"index" json:"endpointId"`
 	Outcome           string               `gorm:"not null;index" json:"outcome"`
+	ConfiguredRequest *HTTPRequestSnapshot `gorm:"serializer:json;type:text" json:"configuredRequest"`
 	PreparedRequest   *HTTPRequestSnapshot `gorm:"serializer:json;type:text" json:"preparedRequest"`
 	SelectedAttemptID *string              `gorm:"index" json:"selectedAttemptId"`
 	ErrorInfo         *RequestAttemptError `gorm:"serializer:json;type:text" json:"error"`

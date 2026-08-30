@@ -297,6 +297,7 @@ func (s *HTTPService) ListScriptLibraries() ([]scripting.LibraryInfo, error) {
 
 // SendRequest 发送 HTTP 请求
 func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, error) {
+	configuredSnapshot := configuredRequestSnapshot(data)
 	prepared := s.prepareRequestData(&data)
 	envService := prepared.environmentService
 	stores := prepared.stores
@@ -335,7 +336,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			}
 			s.persistModuleVarChanges(data.ModuleID, stores.Collection)
 			// 文案交给前端 i18n 渲染，后端只给出「被跳过」这一事实
-			out := skippedRequestResponse(data, reqCtx, scriptResults)
+			out := skippedRequestResponse(data, reqCtx, scriptResults, &configuredSnapshot)
 			s.enqueuePersist(persistJob{data: data, resp: out})
 			return out, nil
 		}
@@ -377,7 +378,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 				_ = envService.ApplyVariableChanges(data.EnvironmentID, up, rm)
 			}
 			s.persistModuleVarChanges(data.ModuleID, stores.Collection)
-			out := skippedRequestResponse(data, reqCtx, scriptResults)
+			out := skippedRequestResponse(data, reqCtx, scriptResults, &configuredSnapshot)
 			s.enqueuePersist(persistJob{data: data, resp: out})
 			return out, nil
 		}
@@ -543,6 +544,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	preparedSnapshot := transportcapture.SnapshotRequest(req, transportcapture.DefaultBodyPreviewBytes)
 	preparedSnapshot.CaptureLevel = "prepared"
 	recorder := transportcapture.NewRecorder("", data.ModuleID, nilOrNilString(data.EndpointID), &preparedSnapshot)
+	recorder.SetConfiguredRequest(&configuredSnapshot)
 	recorder.SetBodyPreviewBytes(requestCaptureLimit(limits.MaxStoredBodyBytes))
 	client.Transport = recorder.Transport(transport)
 
@@ -591,7 +593,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			outcome = models.RequestRunOutcomeCancelled
 		}
 		recorder.SetOutcome(outcome, requestAttemptError("send", classified))
-		run := recorder.Run()
+		run := s.capturedRequestRun(recorder, data)
 		out := &HTTPResponseData{
 			Headers: map[string][]string{}, ActualRequest: actualRequestFromRun(&run),
 			RequestRun: &run, Error: classified.Error(),
@@ -607,7 +609,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		if retryErr != nil {
 			resp.Body.Close()
 			recorder.SetOutcome(models.RequestRunOutcomeFailed, requestAttemptError("digest", retryErr))
-			run := recorder.Run()
+			run := s.capturedRequestRun(recorder, data)
 			out := &HTTPResponseData{
 				StatusCode: resp.StatusCode, Headers: resp.Header,
 				ActualRequest: actualRequestFromRun(&run), RequestRun: &run, Error: retryErr.Error(),
@@ -627,7 +629,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	format := streamFormat(resp.Header.Get("Content-Type"))
 	if format != "" {
 		recorder.SetOutcome(models.RequestRunOutcomeStreaming, nil)
-		run := recorder.Run()
+		run := s.capturedRequestRun(recorder, data)
 		streaming = true // 通知外层 defer：ctx 交由后台 goroutine 持有，勿在此处取消
 		if timeoutTimer != nil {
 			timeoutTimer.Stop()
@@ -680,7 +682,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			outcome = models.RequestRunOutcomeCancelled
 		}
 		recorder.SetOutcome(outcome, requestAttemptError("read_response", classified))
-		run := recorder.Run()
+		run := s.capturedRequestRun(recorder, data)
 		out := &HTTPResponseData{
 			StatusCode: resp.StatusCode, Headers: resp.Header, ContentType: resp.Header.Get("Content-Type"),
 			ActualRequest: actualRequestFromRun(&run), RequestRun: &run, Error: classified.Error(),
@@ -743,7 +745,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 
 	// 构建响应数据
 	recorder.SetOutcome(models.RequestRunOutcomeCompleted, nil)
-	run := recorder.Run()
+	run := s.capturedRequestRun(recorder, data)
 	responseData := &HTTPResponseData{
 		StatusCode:    resp.StatusCode,
 		Headers:       resp.Header,
@@ -1218,7 +1220,7 @@ func (s *HTTPService) streamResponse(
 			runError = requestAttemptError("stream", ctx.Err())
 		}
 		recorder.SetOutcome(runOutcome, runError)
-		run := recorder.Run()
+		run := s.capturedRequestRun(recorder, data)
 		// 流在真正结束后再落库，保证重连 attempt 和最终 outcome 都进入同一执行链。
 		last := actualRequestFromRun(&run)
 		s.saveResponseAndHistory(data, &HTTPResponseData{
@@ -1676,6 +1678,7 @@ func (s *HTTPService) saveResponseAndHistory(data SendRequestData, resp *HTTPRes
 		storedRespHeaders = maskMultiHeaders(resp.Headers)
 		storedActualRequest.Headers = maskHeaders(resp.ActualRequest.Headers)
 		storedActualRequest.Body = maskSecretValues(storedActualRequest.Body, secrets)
+		storedActualRequest.URL = redactSensitiveRequestURL(storedActualRequest.URL, secrets, false)
 	}
 
 	// run、最近响应和历史必须原子写入，避免历史指向不存在或只写了一半的 attempt 链。
@@ -1750,7 +1753,59 @@ func requestCaptureLimit(storedLimit int64) int64 {
 	return transportcapture.DefaultBodyPreviewBytes
 }
 
-func skippedRequestResponse(data SendRequestData, request *scripting.RequestData, scripts *ScriptResults) *HTTPResponseData {
+func (s *HTTPService) capturedRequestRun(recorder *transportcapture.Recorder, data SendRequestData) models.RequestRun {
+	run := recorder.Run()
+	markRequestRunSensitive(&run, collectSecretValues(s.db, data.EnvironmentID, data.ModuleID))
+	return run
+}
+
+func markRequestRunSensitive(run *models.RequestRun, secrets []string) {
+	if run == nil || len(secrets) == 0 {
+		return
+	}
+	markSnapshot := func(snapshot *models.HTTPRequestSnapshot) {
+		if snapshot == nil {
+			return
+		}
+		for i := range snapshot.Headers {
+			if containsSecretValue(snapshot.Headers[i].Value, secrets) {
+				snapshot.Headers[i].Sensitive = true
+			}
+		}
+		if snapshot.Body.PreviewCodec == "utf8" && containsSecretValue(snapshot.Body.Preview, secrets) {
+			snapshot.Body.Sensitive = true
+		}
+		if containsSecretValue(snapshot.URL, secrets) {
+			snapshot.URLSensitive = true
+		}
+	}
+	markSnapshot(run.ConfiguredRequest)
+	markSnapshot(run.PreparedRequest)
+	for i := range run.Attempts {
+		markSnapshot(&run.Attempts[i].Request)
+		if run.Attempts[i].Response != nil {
+			for j := range run.Attempts[i].Response.Headers {
+				if containsSecretValue(run.Attempts[i].Response.Headers[j].Value, secrets) {
+					run.Attempts[i].Response.Headers[j].Sensitive = true
+				}
+			}
+		}
+	}
+}
+
+func containsSecretValue(value string, secrets []string) bool {
+	for _, secret := range secrets {
+		if secret != "" && strings.Contains(value, secret) {
+			return true
+		}
+	}
+	return false
+}
+
+func skippedRequestResponse(
+	data SendRequestData, request *scripting.RequestData, scripts *ScriptResults,
+	configured *models.HTTPRequestSnapshot,
+) *HTTPResponseData {
 	method, requestURL, body := data.Method, combineURL(data.BaseURL, data.Path), data.BodyContent
 	headers := enabledHeaders(data.Headers)
 	if request != nil {
@@ -1776,10 +1831,93 @@ func skippedRequestResponse(data SendRequestData, request *scripting.RequestData
 		prepared.CaptureLevel = "prepared_not_sent"
 	}
 	recorder := transportcapture.NewRecorder("", data.ModuleID, nilOrNilString(data.EndpointID), &prepared)
+	recorder.SetConfiguredRequest(configured)
 	recorder.SetOutcome(models.RequestRunOutcomeSkipped, nil)
 	run := recorder.Run()
 	return &HTTPResponseData{
 		Headers: map[string][]string{}, RequestRun: &run, Skipped: true, Scripts: scripts,
+	}
+}
+
+func configuredRequestSnapshot(data SendRequestData) models.HTTPRequestSnapshot {
+	method := strings.ToUpper(strings.TrimSpace(data.Method))
+	if method == "" {
+		method = http.MethodGet
+	}
+	requestURL := combineURL(data.BaseURL, data.Path)
+	headers := enabledHeaders(data.Headers)
+	contentType := data.ContentType
+	if contentType == "" {
+		contentType = defaultContentType(data)
+	}
+	var bodyReader io.Reader
+	if data.BodyContent != "" {
+		bodyReader = strings.NewReader(data.BodyContent)
+	}
+	if req, err := http.NewRequest(method, requestURL, bodyReader); err == nil {
+		for _, header := range headers {
+			req.Header.Add(header.Key, header.Value)
+		}
+		if data.BodyContent != "" && req.Header.Get("Content-Type") == "" {
+			req.Header.Set("Content-Type", contentType)
+		}
+		snapshot := transportcapture.SnapshotRequest(req, transportcapture.DefaultBodyPreviewBytes)
+		snapshot.CaptureLevel = "configured"
+		applyConfiguredBodyFields(&snapshot, data)
+		return snapshot
+	}
+	snapshot := models.HTTPRequestSnapshot{
+		Method: method, URL: requestURL, Protocol: "not_prepared", CaptureLevel: "configured",
+	}
+	httpHeaders := make(http.Header, len(headers))
+	for _, header := range headers {
+		httpHeaders.Add(header.Key, header.Value)
+	}
+	snapshot.Headers = transportcapture.SnapshotHeaders(httpHeaders, "configured")
+	if data.BodyContent != "" {
+		snapshot.Body = transportcapture.CaptureBody(strings.NewReader(data.BodyContent), contentType, "", transportcapture.DefaultBodyPreviewBytes)
+		snapshot.ContentLength = int64(len(data.BodyContent))
+	}
+	applyConfiguredBodyFields(&snapshot, data)
+	return snapshot
+}
+
+func applyConfiguredBodyFields(snapshot *models.HTTPRequestSnapshot, data SendRequestData) {
+	switch data.BodyType {
+	case string(models.BodyTypeURLEncoded):
+		values := url.Values{}
+		for _, field := range data.BodyFields {
+			if field.Enabled {
+				values.Add(field.Name, field.Value)
+			}
+		}
+		encoded := values.Encode()
+		snapshot.Body = transportcapture.CaptureBody(
+			strings.NewReader(encoded), "application/x-www-form-urlencoded", "", transportcapture.DefaultBodyPreviewBytes)
+		snapshot.ContentLength = int64(len(encoded))
+	case string(models.BodyTypeFormData):
+		body := models.HTTPBodySnapshot{Kind: "multipart", MediaType: "multipart/form-data", Captured: true}
+		for _, field := range data.BodyFields {
+			if !field.Enabled {
+				continue
+			}
+			part := models.HTTPBodyPart{Name: field.Name, Sensitive: requestFieldNameSensitive(field.Name)}
+			if field.FieldType == "file" {
+				part.FileName = field.Value
+				if file, ok := parseFileField(field.Value); ok {
+					part.FileName = file.displayName()
+				}
+			} else {
+				part.Preview = field.Value
+				part.PreviewCodec = "utf8"
+				part.Size = int64(len(field.Value))
+				body.Size += part.Size
+			}
+			body.Sensitive = body.Sensitive || part.Sensitive
+			body.Parts = append(body.Parts, part)
+		}
+		snapshot.Body = body
+		snapshot.ContentLength = -1
 	}
 }
 
@@ -1839,6 +1977,9 @@ func sanitizeRequestRun(run *models.RequestRun, bodyLimit int64, maskSensitive b
 	if out.PreparedRequest != nil {
 		sanitizeRequestSnapshot(out.PreparedRequest, bodyLimit, maskSensitive, secrets)
 	}
+	if out.ConfiguredRequest != nil {
+		sanitizeRequestSnapshot(out.ConfiguredRequest, bodyLimit, maskSensitive, secrets)
+	}
 	for i := range out.Attempts {
 		sanitizeRequestSnapshot(&out.Attempts[i].Request, bodyLimit, maskSensitive, secrets)
 		if out.Attempts[i].Response != nil {
@@ -1851,10 +1992,117 @@ func sanitizeRequestRun(run *models.RequestRun, bodyLimit int64, maskSensitive b
 
 func sanitizeRequestSnapshot(snapshot *models.HTTPRequestSnapshot, bodyLimit int64, maskSensitive bool, secrets []string) {
 	snapshot.Headers = sanitizeHeaderSnapshots(snapshot.Headers, maskSensitive, secrets)
-	snapshot.Body = truncateBodySnapshot(snapshot.Body, bodyLimit)
-	if maskSensitive && snapshot.Body.PreviewCodec == "utf8" {
-		snapshot.Body.Preview = maskSecretValues(snapshot.Body.Preview, secrets)
+	if maskSensitive {
+		snapshot.URL = redactSensitiveRequestURL(snapshot.URL, secrets, snapshot.URLSensitive)
+		snapshot.RequestTarget = redactSensitiveRequestURL(snapshot.RequestTarget, secrets, snapshot.URLSensitive)
 	}
+	snapshot.Body = truncateBodySnapshot(snapshot.Body, bodyLimit)
+	for i := range snapshot.Body.Parts {
+		partBody := models.HTTPBodySnapshot{
+			Preview: snapshot.Body.Parts[i].Preview, PreviewCodec: snapshot.Body.Parts[i].PreviewCodec,
+			Truncated: snapshot.Body.Parts[i].Truncated,
+		}
+		partBody = truncateBodySnapshot(partBody, bodyLimit)
+		snapshot.Body.Parts[i].Preview = partBody.Preview
+		snapshot.Body.Parts[i].Truncated = partBody.Truncated
+		if maskSensitive {
+			if snapshot.Body.Parts[i].Sensitive {
+				snapshot.Body.Parts[i].Preview = "••••••"
+				snapshot.Body.Parts[i].PreviewCodec = "utf8"
+			} else if snapshot.Body.Parts[i].PreviewCodec == "utf8" {
+				snapshot.Body.Parts[i].Preview = maskSecretValues(snapshot.Body.Parts[i].Preview, secrets)
+			}
+		}
+	}
+	if maskSensitive && snapshot.Body.PreviewCodec == "utf8" {
+		masked := maskSecretValues(snapshot.Body.Preview, secrets)
+		if snapshot.Body.Sensitive && masked == snapshot.Body.Preview {
+			masked = redactStructuredRequestBody(snapshot.Body.MediaType, snapshot.Body.Preview)
+		}
+		if masked != snapshot.Body.Preview {
+			snapshot.Body.Sensitive = true
+		}
+		snapshot.Body.Preview = masked
+	}
+}
+
+func redactSensitiveRequestURL(raw string, secrets []string, redactAllQueryValues bool) string {
+	masked := maskSecretValues(raw, secrets)
+	parsed, err := url.Parse(masked)
+	if err != nil || parsed.RawQuery == "" {
+		return masked
+	}
+	query := parsed.Query()
+	if parsed.User != nil {
+		if _, hasPassword := parsed.User.Password(); hasPassword {
+			parsed.User = url.UserPassword(parsed.User.Username(), "••••••")
+		}
+	}
+	for key, values := range query {
+		redact := redactAllQueryValues || requestFieldNameSensitive(key)
+		if !redact {
+			for _, value := range values {
+				if containsSecretValue(value, secrets) {
+					redact = true
+					break
+				}
+			}
+		}
+		if redact {
+			query[key] = []string{"••••••"}
+		}
+	}
+	parsed.RawQuery = query.Encode()
+	return parsed.String()
+}
+
+func redactStructuredRequestBody(mediaType, preview string) string {
+	lowerMediaType := strings.ToLower(mediaType)
+	if strings.Contains(lowerMediaType, "json") || strings.Contains(lowerMediaType, "graphql") {
+		var value any
+		if json.Unmarshal([]byte(preview), &value) == nil {
+			redactJSONSensitiveFields(value)
+			if encoded, err := json.MarshalIndent(value, "", "  "); err == nil {
+				return string(encoded)
+			}
+		}
+	}
+	if lowerMediaType == "application/x-www-form-urlencoded" {
+		if values, err := url.ParseQuery(preview); err == nil {
+			for key := range values {
+				if requestFieldNameSensitive(key) {
+					values[key] = []string{"••••••"}
+				}
+			}
+			return values.Encode()
+		}
+	}
+	// 无法可靠定位字段边界时宁可遮蔽整个敏感预览，避免凭据写入历史库。
+	return "••••••"
+}
+
+func redactJSONSensitiveFields(value any) {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if requestFieldNameSensitive(key) {
+				typed[key] = "••••••"
+			} else {
+				redactJSONSensitiveFields(child)
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			redactJSONSensitiveFields(child)
+		}
+	}
+}
+
+func requestFieldNameSensitive(name string) bool {
+	normalized := strings.NewReplacer("-", "", "_", "", ".", "").Replace(strings.ToLower(name))
+	return normalized == "password" || normalized == "passwd" || normalized == "secret" ||
+		normalized == "token" || normalized == "accesstoken" || normalized == "refreshtoken" ||
+		normalized == "apikey" || normalized == "accesskey" || normalized == "clientsecret"
 }
 
 func sanitizeHeaderSnapshots(headers []models.HTTPHeaderSnapshot, maskSensitive bool, secrets []string) []models.HTTPHeaderSnapshot {
@@ -1868,7 +2116,12 @@ func sanitizeHeaderSnapshots(headers []models.HTTPHeaderSnapshot, maskSensitive 
 			out[i].Redacted = true
 			continue
 		}
-		out[i].Value = maskSecretValues(out[i].Value, secrets)
+		masked := maskSecretValues(out[i].Value, secrets)
+		if masked != out[i].Value {
+			out[i].Sensitive = true
+			out[i].Redacted = true
+		}
+		out[i].Value = masked
 	}
 	return out
 }

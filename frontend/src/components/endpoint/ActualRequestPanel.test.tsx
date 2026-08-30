@@ -52,6 +52,8 @@ describe("ActualRequestPanel", () => {
     render(() => <ActualRequestPanel run={requestRun()} />)
 
     expect(screen.getByText("https://example.test/final")).toBeInTheDocument()
+    expect(screen.queryByText("a=1")).not.toBeInTheDocument()
+    await fireEvent.click(screen.getByRole("button", { name: /显示敏感值|Reveal sensitive values|actualRequest.revealSensitive/ }))
     expect(await screen.findByText("a=1")).toBeInTheDocument()
     expect(screen.getByText("b=2")).toBeInTheDocument()
     expect(screen.getByText("127.0.0.1:443")).toBeInTheDocument()

@@ -113,6 +113,7 @@ func (s *WebSocketService) ServiceShutdown() error {
 // 请求体不属于 WebSocket 握手；消息收发仍由 Send/SendBinary 与事件流处理。
 // 返回值沿用普通 HTTP 响应模型，供前端展示握手状态、响应头/Cookie、实际请求与脚本输出。
 func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConvertWSProtocol bool) (out *HTTPResponseData, retErr error) {
+	configuredSnapshot := configuredRequestSnapshot(data)
 	s.close(connID, false) // 若已存在同 ID 连接，先关闭；新一轮连接自行发送后续状态
 	defer func() {
 		if retErr != nil {
@@ -144,7 +145,7 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 			emitStream(WSEventName, StreamEvent{
 				ConnID: connID, Kind: "close", Data: "request skipped by pre-request script", Timestamp: nowMillis(),
 			})
-			out := skippedRequestResponse(data, reqCtx, scriptResults)
+			out := skippedRequestResponse(data, reqCtx, scriptResults, &configuredSnapshot)
 			s.http.enqueuePersist(persistJob{data: data, resp: out})
 			return out, nil
 		}
@@ -238,6 +239,7 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 	preparedSnapshot := transportcapture.SnapshotRequest(req, transportcapture.DefaultBodyPreviewBytes)
 	preparedSnapshot.CaptureLevel = "prepared"
 	recorder := transportcapture.NewRecorder("", data.ModuleID, nilOrNilString(data.EndpointID), &preparedSnapshot)
+	recorder.SetConfiguredRequest(&configuredSnapshot)
 	recorder.SetBodyPreviewBytes(requestCaptureLimit(limits.MaxStoredBodyBytes))
 	client.Transport = recorder.Transport(transport)
 	if resolveFollowRedirects(prepared.path, data.FollowRedirects, limits.FollowRedirects) {
@@ -340,7 +342,7 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 	} else {
 		recorder.SetOutcome(models.RequestRunOutcomeCompleted, nil)
 	}
-	run := recorder.Run()
+	run := s.http.capturedRequestRun(recorder, data)
 	responseData := &HTTPResponseData{
 		Headers:       map[string][]string{},
 		Timing:        timing,

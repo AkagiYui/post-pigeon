@@ -301,6 +301,10 @@ func TestHTTP_GET(t *testing.T) {
 	if resp.RequestRun == nil || resp.RequestRun.Outcome != models.RequestRunOutcomeCompleted || len(resp.RequestRun.Attempts) != 1 {
 		t.Fatalf("请求执行链不完整: %+v", resp.RequestRun)
 	}
+	if resp.RequestRun.ConfiguredRequest == nil || resp.RequestRun.PreparedRequest == nil ||
+		resp.RequestRun.ConfiguredRequest.CaptureLevel != "configured" || resp.RequestRun.PreparedRequest.CaptureLevel != "prepared" {
+		t.Fatalf("请求三阶段快照不完整: %+v", resp.RequestRun)
+	}
 	if attempt := resp.RequestRun.Attempts[0]; attempt.Cause != models.RequestAttemptCauseInitial ||
 		attempt.Response == nil || attempt.Response.StatusCode != http.StatusOK {
 		t.Errorf("初始 attempt 不完整: %+v", attempt)

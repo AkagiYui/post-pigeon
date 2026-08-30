@@ -10,11 +10,14 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/hex"
+	"encoding/json"
 	"io"
 	"mime"
+	"mime/multipart"
 	"net/http"
 	"net/http/httptrace"
 	"net/textproto"
+	"net/url"
 	"sort"
 	"strings"
 	"sync"
@@ -106,6 +109,12 @@ func (r *Recorder) SetPreparedRequest(prepared *models.HTTPRequestSnapshot) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
 	r.run.PreparedRequest = prepared
+}
+
+func (r *Recorder) SetConfiguredRequest(configured *models.HTTPRequestSnapshot) {
+	r.mu.Lock()
+	defer r.mu.Unlock()
+	r.run.ConfiguredRequest = configured
 }
 
 // Run returns a detached snapshot suitable for IPC or persistence.
@@ -263,6 +272,7 @@ func SnapshotRequest(req *http.Request, previewLimit int64) models.HTTPRequestSn
 	return models.HTTPRequestSnapshot{
 		Method:           req.Method,
 		URL:              requestURL,
+		URLSensitive:     req.URL != nil && urlContainsSensitiveFields(req.URL),
 		RequestTarget:    requestTarget,
 		Authority:        authority,
 		Protocol:         protocol,
@@ -272,6 +282,23 @@ func SnapshotRequest(req *http.Request, previewLimit int64) models.HTTPRequestSn
 		TransferEncoding: append([]string(nil), req.TransferEncoding...),
 		CaptureLevel:     "transport_boundary",
 	}
+}
+
+func urlContainsSensitiveFields(value *url.URL) bool {
+	if value == nil {
+		return false
+	}
+	if value.User != nil {
+		if _, hasPassword := value.User.Password(); hasPassword {
+			return true
+		}
+	}
+	for key := range value.Query() {
+		if isSensitiveFieldName(key) {
+			return true
+		}
+	}
+	return false
 }
 
 func SnapshotHeaders(headers http.Header, source string) []models.HTTPHeaderSnapshot {
@@ -314,11 +341,15 @@ func snapshotRequestBody(req *http.Request, previewLimit int64) models.HTTPBodyS
 		return body
 	}
 	defer reader.Close()
-	return CaptureBody(reader, mediaType, params["charset"], previewLimit)
+	return captureBodyWithParams(reader, mediaType, params, previewLimit)
 }
 
 // CaptureBody streams the full body through a hash while retaining only a bounded preview.
 func CaptureBody(reader io.Reader, mediaType, charset string, previewLimit int64) models.HTTPBodySnapshot {
+	return captureBodyWithParams(reader, mediaType, map[string]string{"charset": charset}, previewLimit)
+}
+
+func captureBodyWithParams(reader io.Reader, mediaType string, params map[string]string, previewLimit int64) models.HTTPBodySnapshot {
 	if previewLimit < 0 {
 		previewLimit = 0
 	}
@@ -327,17 +358,133 @@ func CaptureBody(reader io.Reader, mediaType, charset string, previewLimit int64
 	written, _ := io.Copy(io.MultiWriter(hash, &limitedWriter{writer: &preview, remaining: previewLimit}), reader)
 	previewBytes := preview.Bytes()
 	codec, encoded := encodePreview(previewBytes)
-	return models.HTTPBodySnapshot{
+	body := models.HTTPBodySnapshot{
 		Kind:         bodyKind(mediaType),
 		MediaType:    mediaType,
-		Charset:      charset,
+		Charset:      params["charset"],
 		Size:         written,
 		SHA256:       hex.EncodeToString(hash.Sum(nil)),
 		Preview:      encoded,
 		PreviewCodec: codec,
 		Truncated:    written > int64(len(previewBytes)),
 		Captured:     true,
+		Sensitive:    bodyContainsSensitiveFields(mediaType, previewBytes),
 	}
+	if !body.Truncated {
+		body.Parts = structuredBodyParts(mediaType, params, previewBytes)
+		for _, part := range body.Parts {
+			body.Sensitive = body.Sensitive || part.Sensitive
+		}
+	}
+	return body
+}
+
+func structuredBodyParts(mediaType string, params map[string]string, content []byte) []models.HTTPBodyPart {
+	switch {
+	case mediaType == "application/x-www-form-urlencoded":
+		values, err := url.ParseQuery(string(content))
+		if err != nil {
+			return nil
+		}
+		var parts []models.HTTPBodyPart
+		for name, entries := range values {
+			for _, value := range entries {
+				hash := sha256.Sum256([]byte(value))
+				parts = append(parts, models.HTTPBodyPart{
+					Name: name, Size: int64(len(value)), SHA256: hex.EncodeToString(hash[:]),
+					Preview: value, PreviewCodec: "utf8", Sensitive: isSensitiveFieldName(name),
+				})
+			}
+		}
+		sort.SliceStable(parts, func(i, j int) bool { return parts[i].Name < parts[j].Name })
+		return parts
+	case strings.HasPrefix(mediaType, "multipart/") && params["boundary"] != "":
+		reader := multipart.NewReader(bytes.NewReader(content), params["boundary"])
+		var parts []models.HTTPBodyPart
+		for {
+			part, err := reader.NextPart()
+			if err == io.EOF {
+				break
+			}
+			if err != nil {
+				return nil
+			}
+			value, err := io.ReadAll(part)
+			_ = part.Close()
+			if err != nil {
+				return nil
+			}
+			hash := sha256.Sum256(value)
+			codec, preview := encodePreview(value)
+			parts = append(parts, models.HTTPBodyPart{
+				Name: part.FormName(), FileName: part.FileName(), ContentType: part.Header.Get("Content-Type"),
+				Size: int64(len(value)), SHA256: hex.EncodeToString(hash[:]), Preview: preview,
+				PreviewCodec: codec, Sensitive: isSensitiveFieldName(part.FormName()),
+			})
+		}
+		return parts
+	default:
+		return nil
+	}
+}
+
+func bodyContainsSensitiveFields(mediaType string, preview []byte) bool {
+	mediaType = strings.ToLower(mediaType)
+	if strings.Contains(mediaType, "json") || strings.Contains(mediaType, "graphql") {
+		var value any
+		if json.Unmarshal(preview, &value) == nil && jsonValueContainsSensitiveField(value) {
+			return true
+		}
+		lower := strings.ToLower(string(preview))
+		for _, key := range []string{"password", "passwd", "secret", "token", "api_key", "apikey", "access_key"} {
+			if strings.Contains(lower, `"`+key+`"`) {
+				return true
+			}
+		}
+	}
+	if mediaType == "application/x-www-form-urlencoded" {
+		if values, err := url.ParseQuery(string(preview)); err == nil {
+			for key := range values {
+				if isSensitiveFieldName(key) {
+					return true
+				}
+			}
+		}
+	}
+	if strings.HasPrefix(mediaType, "multipart/") {
+		lower := strings.ToLower(string(preview))
+		for _, key := range []string{"password", "passwd", "secret", "token", "api_key", "apikey", "access_key"} {
+			if strings.Contains(lower, `name="`+key+`"`) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func jsonValueContainsSensitiveField(value any) bool {
+	switch typed := value.(type) {
+	case map[string]any:
+		for key, child := range typed {
+			if isSensitiveFieldName(key) || jsonValueContainsSensitiveField(child) {
+				return true
+			}
+		}
+	case []any:
+		for _, child := range typed {
+			if jsonValueContainsSensitiveField(child) {
+				return true
+			}
+		}
+	}
+	return false
+}
+
+func isSensitiveFieldName(name string) bool {
+	normalized := strings.NewReplacer("-", "", "_", "", ".", "").Replace(strings.ToLower(name))
+	return normalized == "password" || normalized == "passwd" || normalized == "secret" ||
+		normalized == "token" || normalized == "accesstoken" || normalized == "refreshtoken" ||
+		normalized == "apikey" || normalized == "accesskey" || normalized == "clientsecret"
 }
 
 type limitedWriter struct {

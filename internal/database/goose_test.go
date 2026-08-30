@@ -63,6 +63,9 @@ func TestRequestRunSchema(t *testing.T) {
 		!db.Migrator().HasColumn(&models.RequestHistory{}, "request_run_id") {
 		t.Fatal("响应和历史缺少 request_run_id 迁移列")
 	}
+	if !db.Migrator().HasColumn(&models.RequestRun{}, "configured_request") {
+		t.Fatal("请求执行链缺少 configured_request 迁移列")
+	}
 
 	project := &models.Project{ID: "p-run", Name: "P"}
 	module := &models.Module{ID: "m-run", ProjectID: project.ID, Name: "M"}
