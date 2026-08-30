@@ -33,9 +33,11 @@ type ExportData struct {
 // ModuleExport 模块导出数据
 type ModuleExport struct {
 	models.Module
-	BaseURLs  []models.ModuleBaseURL `json:"baseUrls"`
-	Folders   []FolderExport         `json:"folders"`
-	Endpoints []EndpointExport       `json:"endpoints"`
+	BaseURLs  []models.ModuleBaseURL  `json:"baseUrls"`
+	Params    []models.ModuleParam    `json:"params,omitempty"`
+	Variables []models.ModuleVariable `json:"variables,omitempty"`
+	Folders   []FolderExport          `json:"folders"`
+	Endpoints []EndpointExport        `json:"endpoints"`
 }
 
 // FolderExport 文件夹导出数据
@@ -58,7 +60,7 @@ type EndpointExport struct {
 type ExportSecretSummary struct {
 	// SecretVariables 标记为「秘密」且有值的环境变量个数
 	SecretVariables int `json:"secretVariables"`
-	// AuthCredentials 填了凭据（密码 / token / client secret / API Key 值）的接口个数
+	// AuthCredentials 填了凭据（密码 / token / client secret / API Key 值）的认证配置个数
 	AuthCredentials int `json:"authCredentials"`
 }
 
@@ -82,6 +84,36 @@ func (s *ImportExportService) InspectExportSecrets(projectID string) (ExportSecr
 			if v.IsSecret && v.Value != "" {
 				summary.SecretVariables++
 			}
+		}
+	}
+	var moduleVariables []models.ModuleVariable
+	if err := s.db.Table("module_variables AS v").Select("v.*").
+		Joins("JOIN modules AS m ON m.id = v.module_id").
+		Where("m.project_id = ? AND v.is_secret = ? AND v.value <> ''", projectID, true).
+		Find(&moduleVariables).Error; err != nil {
+		return summary, apperr.Wrap(err, apperr.CodeDatabase)
+	}
+	summary.SecretVariables += len(moduleVariables)
+
+	// 模块、文件夹和接口都可以显式保存认证凭据，项目导出会覆盖全部层级。
+	var modules []models.Module
+	if err := s.db.Where("project_id = ?", projectID).Find(&modules).Error; err != nil {
+		return summary, apperr.Wrap(err, apperr.CodeDatabase)
+	}
+	for _, module := range modules {
+		if hasAuthCredential(models.EndpointAuth{Type: module.AuthType, Data: module.AuthData}) {
+			summary.AuthCredentials++
+		}
+	}
+	var folders []models.Folder
+	if err := s.db.Table("folders AS f").Select("f.*").
+		Joins("JOIN modules AS m ON m.id = f.module_id").Where("m.project_id = ?", projectID).
+		Find(&folders).Error; err != nil {
+		return summary, apperr.Wrap(err, apperr.CodeDatabase)
+	}
+	for _, folder := range folders {
+		if hasAuthCredential(models.EndpointAuth{Type: folder.AuthType, Data: folder.AuthData}) {
+			summary.AuthCredentials++
 		}
 	}
 
@@ -186,14 +218,27 @@ func stripSecrets(data *ExportData) {
 		}
 	}
 	for i := range data.Modules {
+		stripScopeAuthCredentials(data.Modules[i].AuthType, &data.Modules[i].AuthData)
+		for j := range data.Modules[i].Variables {
+			if data.Modules[i].Variables[j].IsSecret {
+				data.Modules[i].Variables[j].Value = ""
+			}
+		}
 		stripEndpointSecrets(data.Modules[i].Endpoints)
 		stripFolderSecrets(data.Modules[i].Folders)
 	}
 }
 
+func stripScopeAuthCredentials(authType string, data *string) {
+	auth := models.EndpointAuth{Type: authType, Data: *data}
+	stripAuthCredentials(&auth)
+	*data = auth.Data
+}
+
 // stripFolderSecrets 递归处理文件夹树里的接口。
 func stripFolderSecrets(folders []FolderExport) {
 	for i := range folders {
+		stripScopeAuthCredentials(folders[i].AuthType, &folders[i].AuthData)
 		stripEndpointSecrets(folders[i].Endpoints)
 		stripFolderSecrets(folders[i].Children)
 	}
@@ -237,6 +282,8 @@ func (s *ImportExportService) ExportProject(projectID string, includeSecrets boo
 
 		// 获取前置 URL
 		s.db.Where("module_id = ?", module.ID).Find(&me.BaseURLs)
+		s.db.Where("module_id = ?", module.ID).Order("sort_order ASC").Find(&me.Params)
+		s.db.Where("module_id = ?", module.ID).Order("sort_order ASC").Find(&me.Variables)
 
 		// 获取顶级文件夹
 		me.Folders = s.exportFolders(s.db, module.ID, nil)
@@ -397,6 +444,19 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 			}
 			if err := tx.Create(&newModule).Error; err != nil {
 				return err
+			}
+
+			for _, p := range me.Params {
+				p.ID, p.ModuleID = "", newModule.ID
+				if err := tx.Create(&p).Error; err != nil {
+					return err
+				}
+			}
+			for _, v := range me.Variables {
+				v.ID, v.ModuleID = "", newModule.ID
+				if err := tx.Create(&v).Error; err != nil {
+					return err
+				}
 			}
 
 			// 恢复模块在各环境下的前置 URL（按映射转换环境 ID）

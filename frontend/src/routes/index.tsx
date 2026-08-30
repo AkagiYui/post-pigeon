@@ -15,6 +15,7 @@ import { createMemo, createSignal, For, onMount, Show } from "solid-js"
 import { ImportExportService, ProjectService } from "@/../bindings/PostPigeon/internal/services"
 import { ApifoxImportDialog } from "@/components/endpoint/ImportDialogs"
 import { type ImportKind, ImportWizardDialog } from "@/components/endpoint/ImportWizard"
+import { ProjectExportDialog } from "@/components/project/ProjectExportDialog"
 import { Button } from "@/components/ui/button"
 import { ContextMenu } from "@/components/ui/context-menu"
 import { Dialog } from "@/components/ui/dialog"
@@ -118,12 +119,7 @@ function HomePage() {
   const [newDesc, setNewDesc] = createSignal("")
   // 删除确认对话框状态
   const [deleteConfirmOpen, setDeleteConfirmOpen] = createSignal(false)
-  // 待确认的导出：null 表示没有正在等待用户选择的导出
-  const [exportTarget, setExportTarget] = createSignal<{
-    project: Project
-    secretVariables: number
-    authCredentials: number
-  } | null>(null)
+  const [exportProjectTarget, setExportProjectTarget] = createSignal<Project | null>(null)
   const [projectToDelete, setProjectToDelete] = createSignal<Project | null>(null)
   // 导入项目向导：这里只持有「框开着没、拿到的文档内容是什么」，预览与勾选由 Apifox 对话框自理
   const [importWizardOpen, setImportWizardOpen] = createSignal(false)
@@ -219,47 +215,6 @@ function HomePage() {
     }
   }
 
-  // 导出项目：生成 JSON 并触发浏览器下载。includeSecrets 决定带不带凭据
-  const downloadExport = async (project: Project, includeSecrets: boolean) => {
-    try {
-      const json = await ImportExportService.ExportProject(project.id, includeSecrets)
-      const blob = new Blob([json], { type: "application/json" })
-      const url = URL.createObjectURL(blob)
-      const a = document.createElement("a")
-      a.href = url
-      a.download = `${project.name || "project"}.json`
-      a.click()
-      URL.revokeObjectURL(url)
-      toastSuccess(t("importexport.exported"))
-    } catch (e) {
-      toastError(e, "error.op.exportFailed")
-    }
-  }
-
-  // 导出前先问一句：导出文件是明文的，而「把接口集合发给同事」是日常操作。
-  // 项目里确实没有凭据时不打扰用户，直接导出。
-  const handleExport = async (project: Project) => {
-    try {
-      const summary = await ImportExportService.InspectExportSecrets(project.id)
-      const total = (summary?.secretVariables ?? 0) + (summary?.authCredentials ?? 0)
-      if (total === 0) {
-        await downloadExport(project, false)
-        return
-      }
-      setExportTarget({ project, secretVariables: summary.secretVariables, authCredentials: summary.authCredentials })
-    } catch (e) {
-      toastError(e, "error.op.exportFailed")
-    }
-  }
-
-  // 选定带不带凭据后真正导出
-  const confirmExport = async (includeSecrets: boolean) => {
-    const target = exportTarget()
-    if (!target) return
-    setExportTarget(null)
-    await downloadExport(target.project, includeSecrets)
-  }
-
   // 拖拽排序结束回调
   const handleDragEnd = async (event: DragEvent) => {
     const { draggable, droppable } = event
@@ -320,7 +275,7 @@ function HomePage() {
         key: "export",
         label: t("project.export"),
         icon: <Icon icon="lucide:download" class="h-3.5 w-3.5" />,
-        onClick: () => handleExport(project),
+        onClick: () => setExportProjectTarget(project),
       },
       { key: "sep1", label: "", separator: true },
       {
@@ -464,44 +419,14 @@ function HomePage() {
         onImported={() => loadProjects()}
       />
 
-      {/* 删除确认对话框 */}
-      {/* 导出确认：项目里有凭据时才出现 */}
-      <Dialog
-        open={exportTarget() !== null}
-        onClose={() => setExportTarget(null)}
-        title={t("importexport.exportSecrets.title")}
-        closeOnEsc
-        closeOnOverlayClick
-      >
-        <div class="p-6 space-y-4">
-          <div class="flex items-start gap-3">
-            <div class="flex h-10 w-10 shrink-0 items-center justify-center rounded-full bg-amber-500/10">
-              <Icon icon="lucide:key-round" class="h-5 w-5 text-amber-500" />
-            </div>
-            <div class="flex-1 space-y-2">
-              <p class="text-foreground">
-                {t("importexport.exportSecrets.body", {
-                  variables: exportTarget()?.secretVariables ?? 0,
-                  credentials: exportTarget()?.authCredentials ?? 0,
-                })}
-              </p>
-              <p class="text-sm text-muted-foreground">{t("importexport.exportSecrets.hint")}</p>
-            </div>
-          </div>
-          <div class="flex flex-wrap justify-end gap-2 pt-2">
-            <Button variant="outline" onClick={() => setExportTarget(null)}>
-              {t("common.cancel")}
-            </Button>
-            <Button variant="outline" onClick={() => confirmExport(true)}>
-              {t("importexport.exportSecrets.include")}
-            </Button>
-            <Button onClick={() => confirmExport(false)}>
-              {t("importexport.exportSecrets.exclude")}
-            </Button>
-          </div>
-        </div>
-      </Dialog>
+      <ProjectExportDialog
+        open={exportProjectTarget() !== null}
+        projectId={exportProjectTarget()?.id || ""}
+        projectName={exportProjectTarget()?.name || ""}
+        onClose={() => setExportProjectTarget(null)}
+      />
 
+      {/* 删除确认对话框 */}
       <Dialog
         open={deleteConfirmOpen()}
         onClose={() => {

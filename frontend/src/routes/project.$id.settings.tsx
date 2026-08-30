@@ -5,6 +5,7 @@ import { createFileRoute, useNavigate, useParams } from "@tanstack/solid-router"
 import { createSignal, onMount, Show } from "solid-js"
 
 import { ProjectService } from "@/../bindings/PostPigeon/internal/services"
+import { ProjectExportDialog } from "@/components/project/ProjectExportDialog"
 import { CookieSettings } from "@/components/settings/CookieSettings"
 import { GlobalVariablesSettings } from "@/components/settings/GlobalVariablesSettings"
 import { ProjectEnvironmentSettings } from "@/components/settings/ProjectEnvironmentSettings"
@@ -38,6 +39,7 @@ const projectSettingsTabs = [
   { key: "tls", icon: "lucide:shield-check" },
   { key: "urlEncoding", icon: "lucide:link" },
   { key: "cookies", icon: "lucide:cookie" },
+  { key: "export", icon: "lucide:download" },
 ]
 
 function InheritedBooleanField(props: { label: string, value: boolean | null, onChange: (value: boolean | null) => void }) {
@@ -103,6 +105,7 @@ function ProjectSettingsPage() {
   // 删除前要求把项目名原样敲一遍，避免误删；空名项目（加载失败时）一律不放行
   const [deleteInput, setDeleteInput] = createSignal("")
   const [deleting, setDeleting] = createSignal(false)
+  const [exportOpen, setExportOpen] = createSignal(false)
   const deleteNameMatched = () => savedName() !== "" && deleteInput().trim() === savedName()
 
   // 初始加载：优先恢复缓存中的输入内容，但后端已保存值始终以接口返回为准（用于判断是否变动）
@@ -254,6 +257,7 @@ function ProjectSettingsPage() {
     tls: t("settings.tls"),
     urlEncoding: t("urlEncoding.title"),
     cookies: t("settings.cookies"),
+    export: t("project.export"),
   }
   const tabs = () => projectSettingsTabs.map(tab => ({
     key: tab.key,
@@ -419,6 +423,22 @@ function ProjectSettingsPage() {
                     <CookieSettings projectId={projectId()} />
                   </div>
                 )
+              case "export":
+                return (
+                  <div class="h-full p-6">
+                    <div class="max-w-2xl space-y-4 rounded-md border border-border p-4">
+                      <div class="flex items-center gap-2 text-sm font-medium">
+                        <Icon icon="lucide:download" class="h-4 w-4 text-accent" />
+                        {t("project.export")}
+                      </div>
+                      <p class="text-sm text-muted-foreground">{t("export.project.hint")}</p>
+                      <Button onClick={() => setExportOpen(true)}>
+                        <Icon icon="lucide:download" class="h-3.5 w-3.5" />
+                        {t("project.export")}
+                      </Button>
+                    </div>
+                  </div>
+                )
               default:
                 return null
             }
@@ -456,6 +476,13 @@ function ProjectSettingsPage() {
           </div>
         </div>
       </Dialog>
+
+      <ProjectExportDialog
+        open={exportOpen()}
+        projectId={projectId()}
+        projectName={savedName() || name()}
+        onClose={() => setExportOpen(false)}
+      />
 
       {/* 删除项目：把项目名原样敲一遍才放行 */}
       <Dialog

@@ -58,6 +58,28 @@ export function downloadTextFile(fileName: string, content: string, mimeType = "
   URL.revokeObjectURL(url)
 }
 
+/** 下载后端返回的导出文档；二进制文件使用 base64 跨越 Wails 字符串绑定。 */
+export function downloadExportedDocument(exported: {
+  fileName: string
+  mediaType: string
+  content: string
+  encoding?: string
+}) {
+  if (exported.encoding !== "base64") {
+    downloadTextFile(exported.fileName, exported.content, exported.mediaType)
+    return
+  }
+  const binary = atob(exported.content)
+  const bytes = new Uint8Array(binary.length)
+  for (let i = 0; i < binary.length; i++) bytes[i] = binary.charCodeAt(i)
+  const url = URL.createObjectURL(new Blob([bytes], { type: exported.mediaType }))
+  const anchor = document.createElement("a")
+  anchor.href = url
+  anchor.download = exported.fileName
+  anchor.click()
+  URL.revokeObjectURL(url)
+}
+
 /** Content-Type 到常见文件扩展名的映射，用于「保存响应体」时给出合理的文件名 */
 const CONTENT_TYPE_EXTENSIONS: Record<string, string> = {
   "application/json": ".json",

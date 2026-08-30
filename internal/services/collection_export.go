@@ -15,6 +15,8 @@ type ExportedDocument struct {
 	FileName  string `json:"fileName"`
 	MediaType string `json:"mediaType"`
 	Content   string `json:"content"`
+	// Encoding 为空表示 UTF-8 文本；base64 用于 ZIP、DOCX 等二进制文件。
+	Encoding string `json:"encoding,omitempty"`
 }
 
 // ExportModuleAs 统一提供 Apifox 常用的本地交换格式。
