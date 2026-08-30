@@ -63,3 +63,44 @@ describe("EndpointTree modifier clicks", () => {
     expect(onSelect).toHaveBeenCalledWith(tree[0].children?.[1], { requestTab: "settings" })
   })
 })
+
+describe("EndpointTree folder counts", () => {
+  it("显示文件夹无限深度下的接口和文档数量，但不计子文件夹", () => {
+    const nestedTree: TreeNode[] = [
+      {
+        id: "module-1",
+        type: "module",
+        name: "Users",
+        children: [
+          {
+            id: "folder-1",
+            type: "folder",
+            name: "Admin",
+            children: [
+              { id: "endpoint-1", type: "endpoint", name: "List users", method: "GET", endpointType: "http" },
+              {
+                id: "folder-2",
+                type: "folder",
+                name: "Nested",
+                children: [
+                  { id: "doc-1", type: "endpoint", name: "Guide", endpointType: "doc" },
+                  { id: "ws-1", type: "endpoint", name: "Events", endpointType: "websocket" },
+                ],
+              },
+            ],
+          },
+        ],
+      },
+    ]
+
+    render(() => <EndpointTree data={nestedTree} expandedIds={["module-1"]} />)
+
+    expect(screen.getByText("(3)")).toBeInTheDocument()
+  })
+
+  it("空文件夹显示零", () => {
+    render(() => <EndpointTree data={tree} expandedIds={["module-1"]} />)
+
+    expect(screen.getByText("(0)")).toBeInTheDocument()
+  })
+})

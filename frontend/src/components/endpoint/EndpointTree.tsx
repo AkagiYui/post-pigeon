@@ -1,7 +1,7 @@
 // 接口树形面板组件
 // 展示 Module > Folder > Endpoint 的树形结构
 import { Icon } from "@iconify-icon/solid"
-import { createEffect, createSignal, For, Show } from "solid-js"
+import { createEffect, createMemo, createSignal, For, Show } from "solid-js"
 
 import { Button } from "@/components/ui/button"
 import { ContextMenu, type MenuItem } from "@/components/ui/context-menu"
@@ -116,6 +116,19 @@ function findSiblingArray(nodes: TreeNode[], id: string): TreeNode[] | null {
   return null
 }
 
+/** 统计每个容器无限深度下的内容节点数；文件夹自身不计入。 */
+function collectDescendantContentCounts(nodes: TreeNode[]): Map<string, number> {
+  const counts = new Map<string, number>()
+  const walk = (node: TreeNode): number => {
+    if (node.type === "endpoint") return 1
+    const count = (node.children || []).reduce((total, child) => total + walk(child), 0)
+    counts.set(node.id, count)
+    return count
+  }
+  nodes.forEach(walk)
+  return counts
+}
+
 export function EndpointTree(props: EndpointTreeProps) {
   const [searchQuery, setSearchQuery] = createSignal("")
   // 使用 string[] 而非 Set<string>，便于与外部缓存系统（序列化为 JSON）交互
@@ -200,6 +213,9 @@ export function EndpointTree(props: EndpointTreeProps) {
     if (!query) return props.data
     return filterTree(props.data, query)
   }
+
+  // 与 Apifox 一致：计数基于完整子树，不因当前展开状态或搜索结果而改变。
+  const descendantContentCounts = createMemo(() => collectDescendantContentCounts(props.data))
 
   // 搜索模式下自动展开所有父节点以显示匹配结果；非搜索模式使用手动展开状态
   const effectiveExpandedIds = (): Set<string> => {
@@ -303,6 +319,7 @@ export function EndpointTree(props: EndpointTreeProps) {
               onToggle={toggleExpand}
               handlers={props}
               defaultModuleId={props.defaultModuleId}
+              descendantContentCounts={descendantContentCounts()}
               dnd={dnd}
             />
           )}
@@ -459,6 +476,7 @@ function TreeNodeItem(props: {
   onToggle: (id: string) => void
   handlers: Pick<EndpointTreeProps, "onCreateEndpoint" | "onCreateTyped" | "onCreateFolder" | "onCreateDocument" | "onRename" | "onCopy" | "onDelete" | "onMove" | "onImportOpenAPI" | "onExportOpenAPI" | "onRunCollection" | "onOpenSettings" | "onSetEndpointDisplay" | "onConvertToModule">
   defaultModuleId?: string
+  descendantContentCounts: Map<string, number>
   /** 由祖先模块向下继承的接口显示方式 */
   displayMode?: "name" | "url"
   /** 端点拖拽排序 */
@@ -585,8 +603,15 @@ function TreeNodeItem(props: {
             </Show>
           </Show>
 
-          {/* 名称（URL 模式下端点显示路径） */}
-          <span class="truncate flex-1">{labelText()}</span>
+          {/* 名称（URL 模式下端点显示路径）及文件夹内无限深度的内容节点数 */}
+          <span class="flex min-w-0 flex-1 items-center">
+            <span class="truncate">{labelText()}</span>
+            <Show when={props.node.type === "folder"}>
+              <span class="ml-1 shrink-0 text-xs text-muted-foreground">
+                ({props.descendantContentCounts.get(props.node.id) || 0})
+              </span>
+            </Show>
+          </span>
         </ContextMenu>
 
         {/* 更多操作按钮（悬停显示）：阻止点击冒泡到行，避免呼出菜单的同时切换/展开节点。
@@ -613,6 +638,7 @@ function TreeNodeItem(props: {
               onToggle={props.onToggle}
               handlers={props.handlers}
               defaultModuleId={props.defaultModuleId}
+              descendantContentCounts={props.descendantContentCounts}
               displayMode={childDisplayMode()}
               dnd={props.dnd}
             />
