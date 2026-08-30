@@ -59,6 +59,10 @@ func TestRequestRunSchema(t *testing.T) {
 	if err != nil {
 		t.Fatalf("初始化失败: %v", err)
 	}
+	if !db.Migrator().HasColumn(&models.Response{}, "request_run_id") ||
+		!db.Migrator().HasColumn(&models.RequestHistory{}, "request_run_id") {
+		t.Fatal("响应和历史缺少 request_run_id 迁移列")
+	}
 
 	project := &models.Project{ID: "p-run", Name: "P"}
 	module := &models.Module{ID: "m-run", ProjectID: project.ID, Name: "M"}

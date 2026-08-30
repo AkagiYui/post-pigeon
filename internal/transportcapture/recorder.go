@@ -92,9 +92,13 @@ func (r *Recorder) LastAttemptID() *string {
 func (r *Recorder) SetOutcome(outcome string, errInfo *models.RequestAttemptError) {
 	r.mu.Lock()
 	defer r.mu.Unlock()
-	now := time.Now()
 	r.run.Outcome = outcome
 	r.run.ErrorInfo = errInfo
+	if outcome == models.RequestRunOutcomeRunning || outcome == models.RequestRunOutcomeStreaming {
+		r.run.CompletedAt = nil
+		return
+	}
+	now := time.Now()
 	r.run.CompletedAt = &now
 }
 
@@ -164,6 +168,12 @@ func (t *observingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 		Request:         SnapshotRequest(req, previewLimit),
 		StartedAt:       started,
 	}
+	// 先预留序号再进入网络层，保证并发 attempt 的 sequence 唯一且按开始顺序稳定。
+	t.recorder.mu.Lock()
+	attempt.Sequence = len(t.recorder.run.Attempts)
+	t.recorder.run.Attempts = append(t.recorder.run.Attempts, attempt)
+	t.recorder.run.SelectedAttemptID = &attempt.ID
+	t.recorder.mu.Unlock()
 
 	var connection connectionObservation
 	trace := &httptrace.ClientTrace{
@@ -216,8 +226,12 @@ func (t *observingRoundTripper) RoundTrip(req *http.Request) (*http.Response, er
 	}
 
 	t.recorder.mu.Lock()
-	t.recorder.run.Attempts = append(t.recorder.run.Attempts, attempt)
-	t.recorder.run.SelectedAttemptID = &attempt.ID
+	for i := range t.recorder.run.Attempts {
+		if t.recorder.run.Attempts[i].ID == attempt.ID {
+			t.recorder.run.Attempts[i] = attempt
+			break
+		}
+	}
 	t.recorder.mu.Unlock()
 	return resp, err
 }

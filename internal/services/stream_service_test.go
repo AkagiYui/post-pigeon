@@ -158,6 +158,11 @@ func TestWebSocketConnectUsesHTTPRequestEditingSemantics(t *testing.T) {
 	if response.ActualRequest.Headers["X-Api-Key"] != "resolved-secret" {
 		t.Errorf("实际请求未展示解析后的认证头: %+v", response.ActualRequest.Headers)
 	}
+	if response.RequestRun == nil || len(response.RequestRun.Attempts) != 1 ||
+		response.RequestRun.Attempts[0].Cause != models.RequestAttemptCauseWebSocketHandshake ||
+		response.RequestRun.Attempts[0].Response == nil || response.RequestRun.Attempts[0].Response.StatusCode != http.StatusSwitchingProtocols {
+		t.Fatalf("WebSocket 握手执行链不完整: %+v", response.RequestRun)
+	}
 	if response.Scripts == nil || response.Scripts.PreRequest == nil || response.Scripts.PostResponse == nil {
 		t.Fatalf("握手响应应包含前后置脚本输出: %+v", response.Scripts)
 	}

@@ -70,18 +70,25 @@ func (s *RequestHistoryService) GetHistory(id string) (*models.RequestHistory, e
 
 // DeleteHistory 删除单条请求历史
 func (s *RequestHistoryService) DeleteHistory(id string) error {
-	return s.db.Where("id = ?", id).Delete(&models.RequestHistory{}).Error
+	if err := s.db.Where("id = ?", id).Delete(&models.RequestHistory{}).Error; err != nil {
+		return err
+	}
+	return s.pruneOrphanRequestRuns()
 }
 
 // ClearModuleHistory 清除模块的所有请求历史
 func (s *RequestHistoryService) ClearModuleHistory(moduleID string) error {
-	return s.db.Where("module_id = ?", moduleID).Delete(&models.RequestHistory{}).Error
+	if err := s.db.Where("module_id = ?", moduleID).Delete(&models.RequestHistory{}).Error; err != nil {
+		return err
+	}
+	return s.pruneOrphanRequestRuns()
 }
 
 // HistoryDetail 请求历史详情
 type HistoryDetail struct {
 	models.RequestHistory
 	TimingInfo *models.TimingInfo `json:"timingInfo,omitempty"`
+	RequestRun *models.RequestRun `json:"requestRun,omitempty"`
 }
 
 // GetHistoryDetail 获取请求历史详情（包含解析后的计时信息）
@@ -100,6 +107,14 @@ func (s *RequestHistoryService) GetHistoryDetail(id string) (*HistoryDetail, err
 			detail.TimingInfo = &timing
 		}
 	}
+	if history.RequestRunID != nil {
+		var run models.RequestRun
+		if err := s.db.Preload("Attempts", func(tx *gorm.DB) *gorm.DB {
+			return tx.Order("sequence ASC")
+		}).First(&run, "id = ?", *history.RequestRunID).Error; err == nil {
+			detail.RequestRun = &run
+		}
+	}
 
 	return detail, nil
 }
@@ -116,6 +131,7 @@ func (s *RequestHistoryService) PruneOldHistory(moduleID string, days int) error
 	}
 	if result.RowsAffected > 0 {
 		slog.Info("已清理过期请求历史", "moduleId", moduleID, "deletedCount", result.RowsAffected)
+		return s.pruneOrphanRequestRuns()
 	}
 	return nil
 }
@@ -133,6 +149,9 @@ func (s *RequestHistoryService) ApplyRetentionPolicy() error {
 		}
 		if result.RowsAffected > 0 {
 			slog.Info("已按保留天数清理请求历史", "days", policy.RetentionDays, "deletedCount", result.RowsAffected)
+			if err := s.pruneOrphanRequestRuns(); err != nil {
+				return err
+			}
 		}
 	}
 
@@ -186,6 +205,7 @@ func (s *RequestHistoryService) trimModule(moduleID string, maxRows int) error {
 	}
 	if result.RowsAffected > 0 {
 		slog.Debug("已裁剪超量请求历史", "moduleId", moduleID, "maxRows", maxRows, "deletedCount", result.RowsAffected)
+		return s.pruneOrphanRequestRuns()
 	}
 	return nil
 }
@@ -193,7 +213,20 @@ func (s *RequestHistoryService) trimModule(moduleID string, maxRows int) error {
 // ClearAllHistory 清空全部请求历史（设置面板的「立即清空」入口）。
 func (s *RequestHistoryService) ClearAllHistory() error {
 	// GORM 的批量删除要求带条件，用恒真条件表达「全部」
-	return s.db.Where("1 = 1").Delete(&models.RequestHistory{}).Error
+	if err := s.db.Where("1 = 1").Delete(&models.RequestHistory{}).Error; err != nil {
+		return err
+	}
+	return s.pruneOrphanRequestRuns()
+}
+
+// pruneOrphanRequestRuns 清除已不被历史或端点最近响应引用的执行链，避免 retention 只删
+// history 却让体积更大的 attempt 快照无限增长。
+func (s *RequestHistoryService) pruneOrphanRequestRuns() error {
+	return s.db.Where(`NOT EXISTS (
+		SELECT 1 FROM request_histories h WHERE h.request_run_id = request_runs.id
+	) AND NOT EXISTS (
+		SELECT 1 FROM responses r WHERE r.request_run_id = request_runs.id
+	)`).Delete(&models.RequestRun{}).Error
 }
 
 // PruneNow 按当前保留策略立即清理一次（设置面板的「立即清理」入口）。

@@ -13,6 +13,7 @@ import (
 	"PostPigeon/internal/apperr"
 	"PostPigeon/internal/models"
 	"PostPigeon/internal/scripting"
+	"PostPigeon/internal/transportcapture"
 
 	"github.com/coder/websocket"
 	"github.com/wailsapp/wails/v3/pkg/application"
@@ -80,31 +81,6 @@ type wsConn struct {
 	cancel context.CancelFunc
 }
 
-// requestCaptureTransport 记录真正交给 Transport 的握手请求。这样自动附加的
-// Upgrade/Sec-WebSocket-* 请求头以及 Cookie jar 中的 Cookie 也能出现在“实际请求”页签。
-type requestCaptureTransport struct {
-	base http.RoundTripper
-	mu   sync.Mutex
-	req  models.ActualRequestInfo
-}
-
-func (t *requestCaptureTransport) RoundTrip(req *http.Request) (*http.Response, error) {
-	t.mu.Lock()
-	t.req = models.ActualRequestInfo{
-		Method:  req.Method,
-		URL:     urlWithHost(req.URL),
-		Headers: flattenHeaders(req.Header),
-	}
-	t.mu.Unlock()
-	return t.base.RoundTrip(req)
-}
-
-func (t *requestCaptureTransport) Request() models.ActualRequestInfo {
-	t.mu.Lock()
-	defer t.mu.Unlock()
-	return t.req
-}
-
 // NewWebSocketService 创建 WebSocket 服务实例。
 // HTTPService 用来共享请求编辑态解析、脚本引擎与持久 Cookie jar。
 func NewWebSocketService(db *gorm.DB, httpService *HTTPService) *WebSocketService {
@@ -168,12 +144,9 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 			emitStream(WSEventName, StreamEvent{
 				ConnID: connID, Kind: "close", Data: "request skipped by pre-request script", Timestamp: nowMillis(),
 			})
-			return &HTTPResponseData{
-				StatusCode: 0,
-				Headers:    map[string][]string{},
-				Skipped:    true,
-				Scripts:    scriptResults,
-			}, nil
+			out := skippedRequestResponse(data, reqCtx, scriptResults)
+			s.http.enqueuePersist(persistJob{data: data, resp: out})
+			return out, nil
 		}
 	}
 
@@ -239,13 +212,8 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 	if err != nil {
 		return nil, err
 	}
-	captureTransport := &requestCaptureTransport{base: transport}
 	client := &http.Client{
-		Jar:       s.http.cookies.jarForRequest(data.ModuleID, data.EnvironmentID),
-		Transport: captureTransport,
-	}
-	if !resolveFollowRedirects(prepared.path, data.FollowRedirects, limits.FollowRedirects) {
-		client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
+		Jar: s.http.cookies.jarForRequest(data.ModuleID, data.EnvironmentID),
 	}
 	connectionCtx, cancel := context.WithCancel(context.Background())
 	dialCtx := connectionCtx
@@ -266,6 +234,23 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 			cancel()
 			return nil, err
 		}
+	}
+	preparedSnapshot := transportcapture.SnapshotRequest(req, transportcapture.DefaultBodyPreviewBytes)
+	preparedSnapshot.CaptureLevel = "prepared"
+	recorder := transportcapture.NewRecorder("", data.ModuleID, nilOrNilString(data.EndpointID), &preparedSnapshot)
+	recorder.SetBodyPreviewBytes(requestCaptureLimit(limits.MaxStoredBodyBytes))
+	client.Transport = recorder.Transport(transport)
+	if resolveFollowRedirects(prepared.path, data.FollowRedirects, limits.FollowRedirects) {
+		client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			*next = *next.WithContext(transportcapture.WithAttempt(
+				next.Context(), models.RequestAttemptCauseRedirect, recorder.LastAttemptID()))
+			return nil
+		}
+	} else {
+		client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
 	}
 
 	opts := &websocket.DialOptions{HTTPClient: client, HTTPHeader: req.Header.Clone()}
@@ -291,7 +276,8 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 	}
 	urlStr = req.URL.String()
 	start := time.Now()
-	conn, response, err := websocket.Dial(trace.attach(dialCtx), urlStr, opts)
+	initialCtx := transportcapture.WithAttempt(dialCtx, models.RequestAttemptCauseWebSocketHandshake, nil)
+	conn, response, err := websocket.Dial(trace.attach(initialCtx), urlStr, opts)
 	if needsDigest && response != nil && response.StatusCode == http.StatusUnauthorized {
 		var authData models.DigestAuthData
 		if parseErr := models.FromJSON(effectiveAuth.Data, &authData); parseErr != nil {
@@ -307,7 +293,9 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 				return nil, digestErr
 			}
 			opts.HTTPHeader.Set("Authorization", value)
-			conn, response, err = websocket.Dial(trace.attach(dialCtx), urlStr, opts)
+			_ = response.Body.Close()
+			digestCtx := transportcapture.WithAttempt(dialCtx, models.RequestAttemptCauseDigest, recorder.LastAttemptID())
+			conn, response, err = websocket.Dial(trace.attach(digestCtx), urlStr, opts)
 		}
 	}
 	end := time.Now()
@@ -347,10 +335,17 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 		timing.Wait = 0
 	}
 
+	if err != nil {
+		recorder.SetOutcome(models.RequestRunOutcomeFailed, requestAttemptError("websocket_handshake", err))
+	} else {
+		recorder.SetOutcome(models.RequestRunOutcomeCompleted, nil)
+	}
+	run := recorder.Run()
 	responseData := &HTTPResponseData{
 		Headers:       map[string][]string{},
 		Timing:        timing,
-		ActualRequest: captureTransport.Request(),
+		ActualRequest: actualRequestFromRun(&run),
+		RequestRun:    &run,
 	}
 	if response != nil {
 		responseData.StatusCode = response.StatusCode
@@ -384,15 +379,20 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 		responseData.Scripts = scriptResults
 	}
 	s.persistVariableChanges(data, prepared)
+	s.http.enqueuePersist(persistJob{data: data, resp: responseData})
 
 	if err != nil {
 		cancel()
+		if response != nil && response.Body != nil {
+			_ = response.Body.Close()
+		}
 		wrapped := apperr.Wrap(err, apperr.CodeWSConnect, apperr.P("url", urlStr))
 		emitStream(WSEventName, StreamEvent{
 			ConnID: connID, Kind: "error", Data: wrapped.Error(), Timestamp: nowMillis(),
 		})
 		// Dial 失败后仍返回已捕获的握手请求/响应；错误已进入 WS 消息流，
 		// 前端因此既能重连，也能检查 400 响应头、Cookie 与实际请求。
+		responseData.Error = wrapped.Error()
 		return responseData, nil
 	}
 	// 单帧上限：-1 表示不限制，会让一个超大帧直接把内存打满

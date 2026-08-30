@@ -8,7 +8,6 @@ import (
 	"testing"
 	"time"
 
-	"PostPigeon/internal/apperr"
 	"PostPigeon/internal/models"
 )
 
@@ -84,6 +83,26 @@ func TestTruncateForStorage(t *testing.T) {
 	}
 }
 
+func TestSanitizeRequestRunAlwaysBoundsBodyAndMasksSensitiveHeaders(t *testing.T) {
+	run := &models.RequestRun{Attempts: []models.RequestAttempt{{
+		Request: models.HTTPRequestSnapshot{
+			Headers: []models.HTTPHeaderSnapshot{{Name: "Authorization", Value: "Bearer secret", Sensitive: true}},
+			Body: models.HTTPBodySnapshot{
+				Preview: strings.Repeat("x", 100), PreviewCodec: "utf8", Size: 100, Captured: true,
+			},
+		},
+	}}}
+	unmasked := sanitizeRequestRun(run, 10, false, nil)
+	if got := len(unmasked.Attempts[0].Request.Body.Preview); got != 10 || !unmasked.Attempts[0].Request.Body.Truncated {
+		t.Fatalf("关闭脱敏也必须限制实际请求体预览，len=%d body=%+v", got, unmasked.Attempts[0].Request.Body)
+	}
+	masked := sanitizeRequestRun(run, 10, true, []string{"secret"})
+	header := masked.Attempts[0].Request.Headers[0]
+	if header.Value == "Bearer secret" || !header.Redacted {
+		t.Fatalf("敏感请求头未脱敏: %+v", header)
+	}
+}
+
 // TestCancelRequest 验证进行中的请求可以被主动取消，并返回可识别的错误码。
 func TestCancelRequest(t *testing.T) {
 	db := newTestDB(t)
@@ -99,12 +118,16 @@ func TestCancelRequest(t *testing.T) {
 
 	hs := newTestHTTPService(t, db)
 	const reqID = "req-1"
-	errCh := make(chan error, 1)
+	type result struct {
+		resp *HTTPResponseData
+		err  error
+	}
+	resultCh := make(chan result, 1)
 	go func() {
-		_, err := hs.SendRequest(SendRequestData{
+		resp, err := hs.SendRequest(SendRequestData{
 			Method: "GET", BaseURL: srv.URL, Path: "/", RequestID: reqID, Timeout: 30000,
 		})
-		errCh <- err
+		resultCh <- result{resp: resp, err: err}
 	}()
 
 	if !waitFor(func() bool { return hs.IsRequestInFlight(reqID) }) {
@@ -115,12 +138,13 @@ func TestCancelRequest(t *testing.T) {
 	}
 
 	select {
-	case err := <-errCh:
-		if err == nil {
-			t.Fatalf("被取消的请求应返回错误")
+	case result := <-resultCh:
+		if result.err != nil {
+			t.Fatalf("进入传输层后的取消应返回可诊断响应包络: %v", result.err)
 		}
-		if code := apperr.Code(err); code != apperr.CodeRequestCanceled {
-			t.Errorf("错误码应为 %s，实际 %s（err=%v）", apperr.CodeRequestCanceled, code, err)
+		if result.resp == nil || result.resp.Error == "" || result.resp.RequestRun == nil ||
+			result.resp.RequestRun.Outcome != models.RequestRunOutcomeCancelled {
+			t.Errorf("取消响应缺少 cancelled 执行链: %+v", result.resp)
 		}
 	case <-time.After(10 * time.Second):
 		t.Fatalf("取消后请求未及时返回")
@@ -139,12 +163,12 @@ func TestRequestTimeoutErrorCode(t *testing.T) {
 	}))
 
 	hs := newTestHTTPService(t, db)
-	_, err := hs.SendRequest(SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/", Timeout: 200})
-	if err == nil {
-		t.Fatalf("超时请求应返回错误")
+	resp, err := hs.SendRequest(SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/", Timeout: 200})
+	if err != nil {
+		t.Fatalf("进入传输层后的超时应返回响应包络: %v", err)
 	}
-	if code := apperr.Code(err); code != apperr.CodeRequestTimeout {
-		t.Errorf("错误码应为 %s，实际 %s（err=%v）", apperr.CodeRequestTimeout, code, err)
+	if resp == nil || resp.Error == "" || resp.RequestRun == nil || resp.RequestRun.Outcome != models.RequestRunOutcomeTimedOut {
+		t.Errorf("超时响应缺少 timed_out 执行链: %+v", resp)
 	}
 }
 
@@ -238,9 +262,9 @@ func TestGlobalRequestTimeoutFallback(t *testing.T) {
 
 	hs := newTestHTTPService(t, db)
 	start := time.Now()
-	_, err := hs.SendRequest(SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/slow"})
-	if code := apperr.Code(err); code != apperr.CodeRequestTimeout {
-		t.Fatalf("错误码应为 %s，实际 %s（err=%v）", apperr.CodeRequestTimeout, code, err)
+	resp, err := hs.SendRequest(SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/slow"})
+	if err != nil || resp == nil || resp.Error == "" {
+		t.Fatalf("应返回包含超时错误与执行链的包络，resp=%+v err=%v", resp, err)
 	}
 	// 兜底值生效的证据：远早于旧的 30s 兜底
 	if elapsed := time.Since(start); elapsed > 5*time.Second {

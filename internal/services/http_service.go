@@ -7,6 +7,7 @@ import (
 	"crypto/tls"
 	"encoding/base64"
 	"encoding/json"
+	"errors"
 	"fmt"
 	"io"
 	"log/slog"
@@ -25,6 +26,7 @@ import (
 	"PostPigeon/internal/apperr"
 	"PostPigeon/internal/models"
 	"PostPigeon/internal/scripting"
+	"PostPigeon/internal/transportcapture"
 
 	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
@@ -255,6 +257,10 @@ type HTTPResponseData struct {
 	Timing         models.TimingInfo        `json:"timing"`
 	Size           int64                    `json:"size"`
 	ActualRequest  models.ActualRequestInfo `json:"actualRequest"`
+	// RequestRun 是本次点击发送产生的完整网络执行链。ActualRequest 仅为旧客户端兼容视图。
+	RequestRun *models.RequestRun `json:"requestRun,omitempty"`
+	// Error 表示已经进入传输层后的失败。此时仍返回响应包络，避免丢失可诊断的 attempt。
+	Error string `json:"error,omitempty"`
 	// Scripts 前置/后置脚本执行结果（无脚本时为 nil）
 	Scripts *ScriptResults `json:"scripts,omitempty"`
 	// Skipped 为 true 表示请求被前置脚本 pm.execution.skipRequest() 跳过，未真正发出
@@ -329,12 +335,9 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			}
 			s.persistModuleVarChanges(data.ModuleID, stores.Collection)
 			// 文案交给前端 i18n 渲染，后端只给出「被跳过」这一事实
-			return &HTTPResponseData{
-				StatusCode: 0,
-				Headers:    map[string][]string{},
-				Skipped:    true,
-				Scripts:    scriptResults,
-			}, nil
+			out := skippedRequestResponse(data, reqCtx, scriptResults)
+			s.enqueuePersist(persistJob{data: data, resp: out})
+			return out, nil
 		}
 	}
 
@@ -374,7 +377,9 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 				_ = envService.ApplyVariableChanges(data.EnvironmentID, up, rm)
 			}
 			s.persistModuleVarChanges(data.ModuleID, stores.Collection)
-			return &HTTPResponseData{StatusCode: 0, Headers: map[string][]string{}, Skipped: true, Scripts: scriptResults}, nil
+			out := skippedRequestResponse(data, reqCtx, scriptResults)
+			s.enqueuePersist(persistJob{data: data, resp: out})
+			return out, nil
 		}
 	}
 
@@ -522,17 +527,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	// 创建 HTTP 客户端。
 	// Cookie Jar 按「环境覆盖 → 模块默认」解析：同一会话内的登录态自动带到后续请求，
 	// 模块之间只有显式绑定同一个 Jar 才会共享。
-	client := &http.Client{
-		Jar:       s.cookies.jarForRequest(data.ModuleID, data.EnvironmentID),
-		Transport: transport,
-	}
-
-	// 处理重定向：沿接口、文件夹链、模块、项目、全局解析。
-	if !resolveFollowRedirects(requestPath, data.FollowRedirects, limits.FollowRedirects) {
-		client.CheckRedirect = func(req *http.Request, via []*http.Request) error {
-			return http.ErrUseLastResponse
-		}
-	}
+	client := &http.Client{Jar: s.cookies.jarForRequest(data.ModuleID, data.EnvironmentID)}
 
 	// 应用认证。digest 需要先收到 401 挑战，故此处跳过，等首个响应回来再补一次。
 	needsDigest := false
@@ -545,18 +540,24 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		}
 	}
 
-	// 记录实际请求信息
-	actualReq := models.ActualRequestInfo{
-		Method:  req.Method,
-		URL:     urlWithHost(req.URL),
-		Headers: flattenHeaders(req.Header),
-	}
-	if req.GetBody != nil {
-		bodyReader, _ := req.GetBody()
-		if bodyReader != nil {
-			bodyBytes, _ := io.ReadAll(bodyReader)
-			actualReq.Body = string(bodyBytes)
+	preparedSnapshot := transportcapture.SnapshotRequest(req, transportcapture.DefaultBodyPreviewBytes)
+	preparedSnapshot.CaptureLevel = "prepared"
+	recorder := transportcapture.NewRecorder("", data.ModuleID, nilOrNilString(data.EndpointID), &preparedSnapshot)
+	recorder.SetBodyPreviewBytes(requestCaptureLimit(limits.MaxStoredBodyBytes))
+	client.Transport = recorder.Transport(transport)
+
+	// 处理重定向：每次后续网络请求都显式标记 cause 与父 attempt。
+	if resolveFollowRedirects(requestPath, data.FollowRedirects, limits.FollowRedirects) {
+		client.CheckRedirect = func(next *http.Request, via []*http.Request) error {
+			if len(via) >= 10 {
+				return errors.New("stopped after 10 redirects")
+			}
+			*next = *next.WithContext(transportcapture.WithAttempt(
+				next.Context(), models.RequestAttemptCauseRedirect, recorder.LastAttemptID()))
+			return nil
 		}
+	} else {
+		client.CheckRedirect = func(_ *http.Request, _ []*http.Request) error { return http.ErrUseLastResponse }
 	}
 
 	// 计时
@@ -579,24 +580,45 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 
 	// 发送请求
 	start = time.Now()
-	resp, err := client.Do(req.WithContext(trace.attach(ctx)))
+	initialCtx := transportcapture.WithAttempt(ctx, models.RequestAttemptCauseInitial, nil)
+	resp, err := client.Do(req.WithContext(trace.attach(initialCtx)))
 	if err != nil {
-		return nil, s.classifyRequestError(err, tracked, &timedOut)
+		classified := s.classifyRequestError(err, tracked, &timedOut)
+		outcome := models.RequestRunOutcomeFailed
+		if timedOut.Load() {
+			outcome = models.RequestRunOutcomeTimedOut
+		} else if errors.Is(err, context.Canceled) {
+			outcome = models.RequestRunOutcomeCancelled
+		}
+		recorder.SetOutcome(outcome, requestAttemptError("send", classified))
+		run := recorder.Run()
+		out := &HTTPResponseData{
+			Headers: map[string][]string{}, ActualRequest: actualRequestFromRun(&run),
+			RequestRun: &run, Error: classified.Error(),
+		}
+		s.enqueuePersist(persistJob{data: data, resp: out})
+		return out, nil
 	}
 
 	// Digest 认证：第一次请求必然拿到 401 挑战，据此算出响应值后重发一次。
 	// 这是协议本身要求的往返，不是重试。
 	if needsDigest && resp.StatusCode == http.StatusUnauthorized {
-		retried, retryErr := s.retryWithDigest(ctx, client, req, resp, effectiveAuth, vars, actualReq.Body)
+		retried, retryErr := s.retryWithDigest(ctx, client, req, resp, effectiveAuth, vars, requestBodyPreview(preparedSnapshot.Body), recorder.LastAttemptID())
 		if retryErr != nil {
 			resp.Body.Close()
-			return nil, retryErr
+			recorder.SetOutcome(models.RequestRunOutcomeFailed, requestAttemptError("digest", retryErr))
+			run := recorder.Run()
+			out := &HTTPResponseData{
+				StatusCode: resp.StatusCode, Headers: resp.Header,
+				ActualRequest: actualRequestFromRun(&run), RequestRun: &run, Error: retryErr.Error(),
+			}
+			s.enqueuePersist(persistJob{data: data, resp: out})
+			return out, nil
 		}
 		if retried != nil {
 			resp.Body.Close()
 			resp = retried
 			start = time.Now()
-			actualReq.Headers = flattenHeaders(retried.Request.Header)
 		}
 	}
 
@@ -604,6 +626,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	// 避免把二进制下载当成“raw chunk”读进事件面板。
 	format := streamFormat(resp.Header.Get("Content-Type"))
 	if format != "" {
+		recorder.SetOutcome(models.RequestRunOutcomeStreaming, nil)
+		run := recorder.Run()
 		streaming = true // 通知外层 defer：ctx 交由后台 goroutine 持有，勿在此处取消
 		if timeoutTimer != nil {
 			timeoutTimer.Stop()
@@ -622,7 +646,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		streamLimits := sseReadLimitsFromSettings(limits)
 		reconnect := sseReconnectOptions{Enabled: limits.AutoReconnectSSE, MaxAttempts: limits.MaxSSEReconnects}
 		safego.Go("http.streamResponse", func() {
-			s.streamResponse(resp, streamID, ctx, cancel, streamLimits, format, client, req, reconnect)
+			s.streamResponse(resp, streamID, ctx, cancel, streamLimits, format, client, req, reconnect, recorder, data)
 		})
 
 		out := &HTTPResponseData{
@@ -630,7 +654,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			Headers:       resp.Header,
 			ContentType:   resp.Header.Get("Content-Type"),
 			Timing:        models.TimingInfo{Total: durMs(time.Since(start))},
-			ActualRequest: actualReq,
+			ActualRequest: actualRequestFromRun(&run),
+			RequestRun:    &run,
 			Streaming:     true,
 			StreamID:      streamID,
 			StreamFormat:  format,
@@ -647,7 +672,21 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	// IPC 和 SQLite（约 3 倍体积）。这里最多多读 1 字节以判定是否发生截断。
 	bodyBytes, truncated, err := readBodyWithLimit(resp.Body, limits.MaxResponseBytes)
 	if err != nil {
-		return nil, s.classifyRequestError(err, tracked, &timedOut)
+		classified := s.classifyRequestError(err, tracked, &timedOut)
+		outcome := models.RequestRunOutcomeFailed
+		if timedOut.Load() {
+			outcome = models.RequestRunOutcomeTimedOut
+		} else if errors.Is(err, context.Canceled) {
+			outcome = models.RequestRunOutcomeCancelled
+		}
+		recorder.SetOutcome(outcome, requestAttemptError("read_response", classified))
+		run := recorder.Run()
+		out := &HTTPResponseData{
+			StatusCode: resp.StatusCode, Headers: resp.Header, ContentType: resp.Header.Get("Content-Type"),
+			ActualRequest: actualRequestFromRun(&run), RequestRun: &run, Error: classified.Error(),
+		}
+		s.enqueuePersist(persistJob{data: data, resp: out})
+		return out, nil
 	}
 	end := time.Now()
 
@@ -703,6 +742,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	cookies := parseCookies(resp.Cookies())
 
 	// 构建响应数据
+	recorder.SetOutcome(models.RequestRunOutcomeCompleted, nil)
+	run := recorder.Run()
 	responseData := &HTTPResponseData{
 		StatusCode:    resp.StatusCode,
 		Headers:       resp.Header,
@@ -711,7 +752,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		Cookies:       cookies,
 		Timing:        timing,
 		Size:          int64(len(bodyBytes)),
-		ActualRequest: actualReq,
+		ActualRequest: actualRequestFromRun(&run),
+		RequestRun:    &run,
 	}
 	if truncated {
 		responseData.Truncated = true
@@ -1161,9 +1203,30 @@ func (r *streamBodyTee) Read(p []byte) (int, error) {
 
 // streamResponse 持续读取已识别的记录流，按格式解析后经 http:stream 事件推送。
 // SSE 可选择在正常 EOF 后重连；停止、读取错误和达到尝试上限都会发出 close 事件。
-func (s *HTTPService) streamResponse(resp *http.Response, connID string, ctx context.Context, cancel context.CancelFunc, limits sseReadLimits, format string, client *http.Client, requestTemplate *http.Request, reconnect sseReconnectOptions) {
+func (s *HTTPService) streamResponse(
+	resp *http.Response, connID string, ctx context.Context, cancel context.CancelFunc,
+	limits sseReadLimits, format string, client *http.Client, requestTemplate *http.Request,
+	reconnect sseReconnectOptions, recorder *transportcapture.Recorder, data SendRequestData,
+) {
 	defer cancel()
 	defer s.unregisterStream(connID)
+	runOutcome := models.RequestRunOutcomeCompleted
+	var runError *models.RequestAttemptError
+	defer func() {
+		if ctx.Err() != nil && runError == nil {
+			runOutcome = models.RequestRunOutcomeCancelled
+			runError = requestAttemptError("stream", ctx.Err())
+		}
+		recorder.SetOutcome(runOutcome, runError)
+		run := recorder.Run()
+		// 流在真正结束后再落库，保证重连 attempt 和最终 outcome 都进入同一执行链。
+		last := actualRequestFromRun(&run)
+		s.saveResponseAndHistory(data, &HTTPResponseData{
+			StatusCode: resp.StatusCode, Headers: resp.Header,
+			ContentType: resp.Header.Get("Content-Type"), ActualRequest: last, RequestRun: &run,
+			Streaming: true, StreamID: connID, StreamFormat: format,
+		})
+	}()
 
 	emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "open", Data: fmt.Sprintf("%d", resp.StatusCode), Timestamp: nowMillis()})
 	lastEventID, hasLastEventID := "", false
@@ -1202,6 +1265,8 @@ func (s *HTTPService) streamResponse(resp *http.Response, connID string, ctx con
 		}
 		_ = resp.Body.Close()
 		if err != nil {
+			runOutcome = models.RequestRunOutcomeFailed
+			runError = requestAttemptError("read_stream", err)
 			emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: err.Error(), Timestamp: nowMillis()})
 			return
 		}
@@ -1217,16 +1282,24 @@ func (s *HTTPService) streamResponse(resp *http.Response, connID string, ctx con
 		}
 		nextRequest, cloneErr := cloneSSEReconnectRequest(requestTemplate, ctx, lastEventID, hasLastEventID)
 		if cloneErr != nil {
+			runOutcome = models.RequestRunOutcomeFailed
+			runError = requestAttemptError("sse_reconnect", cloneErr)
 			emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: cloneErr.Error(), Timestamp: nowMillis()})
 			return
 		}
+		nextRequest = nextRequest.WithContext(transportcapture.WithAttempt(
+			nextRequest.Context(), models.RequestAttemptCauseSSEReconnect, recorder.LastAttemptID()))
 		nextResp, requestErr := client.Do(nextRequest)
 		if requestErr != nil {
+			runOutcome = models.RequestRunOutcomeFailed
+			runError = requestAttemptError("sse_reconnect", requestErr)
 			emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: requestErr.Error(), Timestamp: nowMillis()})
 			return
 		}
 		if streamFormat(nextResp.Header.Get("Content-Type")) != "sse" {
 			_ = nextResp.Body.Close()
+			runOutcome = models.RequestRunOutcomeFailed
+			runError = &models.RequestAttemptError{Phase: "sse_reconnect", Message: "SSE reconnect returned a non-SSE response"}
 			emitStream(HTTPStreamEventName, StreamEvent{ConnID: connID, Kind: "close", Data: "SSE reconnect returned a non-SSE response", Timestamp: nowMillis()})
 			return
 		}
@@ -1431,7 +1504,7 @@ func (s *HTTPService) applyAuth(ctx context.Context, client *http.Client, req *h
 // 返回 nil 表示挑战无法处理（如不是 Digest 方案），调用方应保留原响应。
 func (s *HTTPService) retryWithDigest(
 	ctx context.Context, client *http.Client, req *http.Request, resp *http.Response,
-	auth *models.EndpointAuth, vars map[string]string, body string,
+	auth *models.EndpointAuth, vars map[string]string, body string, parentAttemptID *string,
 ) (*http.Response, error) {
 	challenge, ok := parseDigestChallenge(resp.Header.Get("WWW-Authenticate"))
 	if !ok {
@@ -1451,7 +1524,8 @@ func (s *HTTPService) retryWithDigest(
 		return nil, err
 	}
 
-	retry := req.Clone(ctx)
+	retryCtx := transportcapture.WithAttempt(ctx, models.RequestAttemptCauseDigest, parentAttemptID)
+	retry := req.Clone(retryCtx)
 	retry.Header.Set("Authorization", value)
 	// Clone 不会复制请求体，需从 GetBody 重新取一份
 	if req.GetBody != nil {
@@ -1580,77 +1654,251 @@ func applyPathParams(u string, params []models.EndpointParam, vars map[string]st
 func (s *HTTPService) saveResponseAndHistory(data SendRequestData, resp *HTTPResponseData) {
 	limits := getRequestSettings(s.db)
 	storedBody := truncateForStorage(resp.Body, limits.MaxStoredBodyBytes)
-	storedReqBody := truncateForStorage(data.BodyContent, limits.MaxStoredBodyBytes)
+	storedReqBody := truncateForStorage(resp.ActualRequest.Body, limits.MaxStoredBodyBytes)
+	if resp.ActualRequest.Method == "" {
+		storedReqBody = truncateForStorage(data.BodyContent, limits.MaxStoredBodyBytes)
+	}
+	storedActualRequest := resp.ActualRequest
+	storedActualRequest.Body = truncateForStorage(storedActualRequest.Body, limits.MaxStoredBodyBytes)
 
 	// 脱敏：历史里存的 Authorization / Cookie 往往是长期有效的凭据
 	policy := getHistorySettings(s.db)
 	storedRespHeaders := resp.Headers
-	storedActualRequest := resp.ActualRequest
+	var storedRun *models.RequestRun
+	if resp.RequestRun != nil {
+		storedRun = sanitizeRequestRun(resp.RequestRun, limits.MaxStoredBodyBytes, policy.MaskSensitive,
+			collectSecretValues(s.db, data.EnvironmentID, data.ModuleID))
+	}
 	if policy.MaskSensitive {
 		secrets := collectSecretValues(s.db, data.EnvironmentID, data.ModuleID)
 		storedBody = maskSecretValues(storedBody, secrets)
 		storedReqBody = maskSecretValues(storedReqBody, secrets)
 		storedRespHeaders = maskMultiHeaders(resp.Headers)
 		storedActualRequest.Headers = maskHeaders(resp.ActualRequest.Headers)
-		storedActualRequest.Body = maskSecretValues(
-			truncateForStorage(resp.ActualRequest.Body, limits.MaxStoredBodyBytes), secrets)
+		storedActualRequest.Body = maskSecretValues(storedActualRequest.Body, secrets)
 	}
 
-	// 保存响应
-	if data.EndpointID != "" {
-		response := &models.Response{
-			EndpointID:    data.EndpointID,
-			StatusCode:    resp.StatusCode,
-			Headers:       models.ToJSON(storedRespHeaders),
-			Body:          storedBody,
-			ContentType:   resp.ContentType,
-			Cookies:       models.ToJSON(resp.Cookies),
-			Timing:        models.ToJSON(resp.Timing),
-			Size:          resp.Size,
-			ActualRequest: models.ToJSON(storedActualRequest),
+	// run、最近响应和历史必须原子写入，避免历史指向不存在或只写了一半的 attempt 链。
+	err := s.db.Transaction(func(tx *gorm.DB) error {
+		var runID *string
+		if storedRun != nil && storedRun.ModuleID != "" {
+			if err := tx.Create(storedRun).Error; err != nil {
+				return err
+			}
+			runID = &storedRun.ID
 		}
-		endpointService := NewEndpointService(s.db)
-		if err := endpointService.SaveResponse(data.EndpointID, response); err != nil {
-			slog.Error("保存响应失败", "error", err)
-		}
-	}
-
-	// 保存请求历史
-	if data.ModuleID != "" {
-		// 构建请求头
-		reqHeaders := make(map[string]string)
-		for _, h := range data.Headers {
-			if h.Enabled {
-				reqHeaders[h.Name] = h.Value
+		if data.EndpointID != "" && !resp.Skipped {
+			response := &models.Response{
+				EndpointID: data.EndpointID, RequestRunID: runID, StatusCode: resp.StatusCode,
+				Headers: models.ToJSON(storedRespHeaders), Body: storedBody, ContentType: resp.ContentType,
+				Cookies: models.ToJSON(resp.Cookies), Timing: models.ToJSON(resp.Timing), Size: resp.Size,
+				ActualRequest: models.ToJSON(storedActualRequest),
+			}
+			if err := NewEndpointService(tx).SaveResponse(data.EndpointID, response); err != nil {
+				return err
 			}
 		}
-		if policy.MaskSensitive {
-			reqHeaders = maskHeaders(reqHeaders)
+		if data.ModuleID != "" {
+			method, requestURL := storedActualRequest.Method, storedActualRequest.URL
+			if method == "" {
+				method = data.Method
+			}
+			if requestURL == "" {
+				requestURL = combineURL(data.BaseURL, data.Path)
+			}
+			reqHeaders := storedActualRequest.Headers
+			if reqHeaders == nil {
+				reqHeaders = map[string]string{}
+				for _, header := range data.Headers {
+					if header.Enabled {
+						reqHeaders[header.Name] = header.Value
+					}
+				}
+				if policy.MaskSensitive {
+					reqHeaders = maskHeaders(reqHeaders)
+				}
+			}
+			history := &models.RequestHistory{
+				ModuleID: data.ModuleID, EndpointID: nilOrNilString(data.EndpointID), RequestRunID: runID,
+				Method: method, URL: requestURL, StatusCode: resp.StatusCode,
+				Timing: models.ToJSON(resp.Timing), Size: resp.Size,
+				RequestHeaders: models.ToJSON(reqHeaders), RequestBody: storedReqBody,
+				ResponseHeaders: models.ToJSON(storedRespHeaders), ResponseBody: storedBody,
+				ContentType: resp.ContentType,
+			}
+			if err := tx.Create(history).Error; err != nil {
+				return err
+			}
 		}
-
-		history := &models.RequestHistory{
-			ModuleID:        data.ModuleID,
-			EndpointID:      nilOrNilString(data.EndpointID),
-			Method:          data.Method,
-			URL:             combineURL(data.BaseURL, data.Path),
-			StatusCode:      resp.StatusCode,
-			Timing:          models.ToJSON(resp.Timing),
-			Size:            resp.Size,
-			RequestHeaders:  models.ToJSON(reqHeaders),
-			RequestBody:     storedReqBody,
-			ResponseHeaders: models.ToJSON(storedRespHeaders),
-			ResponseBody:    storedBody,
-			ContentType:     resp.ContentType,
-		}
-		if err := s.db.Create(history).Error; err != nil {
-			slog.Error("保存请求历史失败", "error", err)
-			return
-		}
-		// 写入后立即按条数上限淘汰最旧记录，历史表才不会无限增长
+		return nil
+	})
+	if err != nil {
+		slog.Error("保存请求执行链/响应/历史失败", "error", err)
+		return
+	}
+	if data.ModuleID != "" {
 		if err := NewRequestHistoryService(s.db).enforceRowLimit(data.ModuleID); err != nil {
 			slog.Warn("裁剪请求历史失败", "moduleId", data.ModuleID, "error", err)
 		}
 	}
+}
+
+func requestCaptureLimit(storedLimit int64) int64 {
+	if storedLimit > 0 && storedLimit < transportcapture.DefaultBodyPreviewBytes {
+		return storedLimit
+	}
+	return transportcapture.DefaultBodyPreviewBytes
+}
+
+func skippedRequestResponse(data SendRequestData, request *scripting.RequestData, scripts *ScriptResults) *HTTPResponseData {
+	method, requestURL, body := data.Method, combineURL(data.BaseURL, data.Path), data.BodyContent
+	headers := enabledHeaders(data.Headers)
+	if request != nil {
+		method, requestURL, body, headers = request.Method, request.URL, request.Body, request.Headers
+	}
+	if method == "" {
+		method = http.MethodGet
+	}
+	prepared := models.HTTPRequestSnapshot{
+		Method: method, URL: requestURL, Protocol: "not_sent", CaptureLevel: "prepared_not_sent",
+		Headers: make([]models.HTTPHeaderSnapshot, 0, len(headers)),
+	}
+	for _, header := range headers {
+		prepared.Headers = append(prepared.Headers, models.HTTPHeaderSnapshot{
+			Name: header.Key, Value: header.Value, Source: "configured",
+		})
+	}
+	if req, err := http.NewRequest(method, requestURL, strings.NewReader(body)); err == nil {
+		for _, header := range prepared.Headers {
+			req.Header.Add(header.Name, header.Value)
+		}
+		prepared = transportcapture.SnapshotRequest(req, transportcapture.DefaultBodyPreviewBytes)
+		prepared.CaptureLevel = "prepared_not_sent"
+	}
+	recorder := transportcapture.NewRecorder("", data.ModuleID, nilOrNilString(data.EndpointID), &prepared)
+	recorder.SetOutcome(models.RequestRunOutcomeSkipped, nil)
+	run := recorder.Run()
+	return &HTTPResponseData{
+		Headers: map[string][]string{}, RequestRun: &run, Skipped: true, Scripts: scripts,
+	}
+}
+
+func requestAttemptError(phase string, err error) *models.RequestAttemptError {
+	if err == nil {
+		return nil
+	}
+	return &models.RequestAttemptError{Phase: phase, Code: apperr.Code(err), Message: err.Error()}
+}
+
+func requestBodyPreview(body models.HTTPBodySnapshot) string {
+	if body.PreviewCodec == "base64" {
+		decoded, err := base64.StdEncoding.DecodeString(body.Preview)
+		if err == nil {
+			return string(decoded)
+		}
+	}
+	return body.Preview
+}
+
+// actualRequestFromRun 为仍依赖旧单对象字段的客户端提供兼容视图。权威数据始终是 RequestRun。
+func actualRequestFromRun(run *models.RequestRun) models.ActualRequestInfo {
+	if run == nil || len(run.Attempts) == 0 {
+		return models.ActualRequestInfo{Headers: map[string]string{}}
+	}
+	selected := &run.Attempts[len(run.Attempts)-1]
+	if run.SelectedAttemptID != nil {
+		for i := range run.Attempts {
+			if run.Attempts[i].ID == *run.SelectedAttemptID {
+				selected = &run.Attempts[i]
+				break
+			}
+		}
+	}
+	headers := make(map[string]string, len(selected.Request.Headers))
+	for _, header := range selected.Request.Headers {
+		if previous, ok := headers[header.Name]; ok {
+			headers[header.Name] = previous + ", " + header.Value
+		} else {
+			headers[header.Name] = header.Value
+		}
+	}
+	return models.ActualRequestInfo{
+		Method: selected.Request.Method, URL: selected.Request.URL,
+		Headers: headers, Body: requestBodyPreview(selected.Request.Body),
+	}
+}
+
+func sanitizeRequestRun(run *models.RequestRun, bodyLimit int64, maskSensitive bool, secrets []string) *models.RequestRun {
+	if run == nil {
+		return nil
+	}
+	var out models.RequestRun
+	if err := models.FromJSON(models.ToJSON(run), &out); err != nil {
+		return nil
+	}
+	if out.PreparedRequest != nil {
+		sanitizeRequestSnapshot(out.PreparedRequest, bodyLimit, maskSensitive, secrets)
+	}
+	for i := range out.Attempts {
+		sanitizeRequestSnapshot(&out.Attempts[i].Request, bodyLimit, maskSensitive, secrets)
+		if out.Attempts[i].Response != nil {
+			out.Attempts[i].Response.Headers = sanitizeHeaderSnapshots(
+				out.Attempts[i].Response.Headers, maskSensitive, secrets)
+		}
+	}
+	return &out
+}
+
+func sanitizeRequestSnapshot(snapshot *models.HTTPRequestSnapshot, bodyLimit int64, maskSensitive bool, secrets []string) {
+	snapshot.Headers = sanitizeHeaderSnapshots(snapshot.Headers, maskSensitive, secrets)
+	snapshot.Body = truncateBodySnapshot(snapshot.Body, bodyLimit)
+	if maskSensitive && snapshot.Body.PreviewCodec == "utf8" {
+		snapshot.Body.Preview = maskSecretValues(snapshot.Body.Preview, secrets)
+	}
+}
+
+func sanitizeHeaderSnapshots(headers []models.HTTPHeaderSnapshot, maskSensitive bool, secrets []string) []models.HTTPHeaderSnapshot {
+	out := append([]models.HTTPHeaderSnapshot(nil), headers...)
+	if !maskSensitive {
+		return out
+	}
+	for i := range out {
+		if out[i].Sensitive {
+			out[i].Value = "••••••"
+			out[i].Redacted = true
+			continue
+		}
+		out[i].Value = maskSecretValues(out[i].Value, secrets)
+	}
+	return out
+}
+
+func truncateBodySnapshot(body models.HTTPBodySnapshot, limit int64) models.HTTPBodySnapshot {
+	if limit <= 0 || body.Preview == "" {
+		return body
+	}
+	preview := []byte(body.Preview)
+	if body.PreviewCodec == "base64" {
+		decoded, err := base64.StdEncoding.DecodeString(body.Preview)
+		if err != nil {
+			return body
+		}
+		preview = decoded
+	}
+	if int64(len(preview)) <= limit {
+		return body
+	}
+	preview = preview[:limit]
+	if body.PreviewCodec == "utf8" {
+		for len(preview) > 0 && !utf8.Valid(preview) {
+			preview = preview[:len(preview)-1]
+		}
+		body.Preview = string(preview)
+	} else {
+		body.Preview = base64.StdEncoding.EncodeToString(preview)
+	}
+	body.Truncated = true
+	return body
 }
 
 // truncateForStorage 按字节上限截断入库文本；limit<=0 表示不限制。

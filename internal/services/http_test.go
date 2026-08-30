@@ -10,10 +10,12 @@ import (
 	"net/http"
 	"net/http/httptest"
 	"strings"
+	"sync/atomic"
 	"testing"
 	"time"
 
 	"PostPigeon/internal/models"
+	"gorm.io/gorm"
 )
 
 // echoServer 回显请求信息的测试服务器
@@ -296,6 +298,34 @@ func TestHTTP_GET(t *testing.T) {
 	if resp.ActualRequest.Method != "GET" || !strings.Contains(resp.ActualRequest.URL, "/echo") {
 		t.Errorf("ActualRequest = %+v", resp.ActualRequest)
 	}
+	if resp.RequestRun == nil || resp.RequestRun.Outcome != models.RequestRunOutcomeCompleted || len(resp.RequestRun.Attempts) != 1 {
+		t.Fatalf("请求执行链不完整: %+v", resp.RequestRun)
+	}
+	if attempt := resp.RequestRun.Attempts[0]; attempt.Cause != models.RequestAttemptCauseInitial ||
+		attempt.Response == nil || attempt.Response.StatusCode != http.StatusOK {
+		t.Errorf("初始 attempt 不完整: %+v", attempt)
+	}
+}
+
+func TestHTTP_SkippedRequestHasRunWithoutAttempt(t *testing.T) {
+	db := newTestDB(t)
+	var requests atomic.Int32
+	srv := newTestServer(t, http.HandlerFunc(func(http.ResponseWriter, *http.Request) { requests.Add(1) }))
+	hs := newTestHTTPService(t, db)
+	resp, err := hs.SendRequest(SendRequestData{
+		Method: "POST", BaseURL: srv.URL, Path: "/skip", BodyContent: `{"secret":"value"}`,
+		PreRequestScript: `pm.execution.skipRequest();`,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !resp.Skipped || resp.RequestRun == nil || resp.RequestRun.Outcome != models.RequestRunOutcomeSkipped ||
+		len(resp.RequestRun.Attempts) != 0 || resp.RequestRun.PreparedRequest == nil {
+		t.Fatalf("跳过请求应保留 prepared 但没有 attempt: %+v", resp)
+	}
+	if requests.Load() != 0 {
+		t.Fatalf("跳过请求不应进入网络层，实际 %d 次", requests.Load())
+	}
 }
 
 func TestHTTP_SSEStreaming(t *testing.T) {
@@ -328,6 +358,52 @@ func TestHTTP_SSEStreaming(t *testing.T) {
 	}
 	if !strings.Contains(resp.ContentType, "text/event-stream") {
 		t.Errorf("ContentType=%q", resp.ContentType)
+	}
+}
+
+func TestHTTP_SSEReconnectPersistsAttemptChain(t *testing.T) {
+	db := newTestDB(t)
+	var requests atomic.Int32
+	srv := newTestServer(t, http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		requests.Add(1)
+		w.Header().Set("Content-Type", "text/event-stream")
+		_, _ = fmt.Fprint(w, "id: cursor\ndata: done\n\n")
+	}))
+	settings := models.DefaultRequestSettings
+	settings.AutoReconnectSSE = true
+	settings.MaxSSEReconnects = 1
+	if err := NewSettingsService(db).SaveRequestSettings(settings); err != nil {
+		t.Fatal(err)
+	}
+	project := mustCreateProject(t, db, "sse-run")
+	module := defaultModule(t, db, project.ID)
+	endpoint, err := NewEndpointService(db).CreateEndpoint(module.ID, nil, "stream", "GET", "/")
+	if err != nil {
+		t.Fatal(err)
+	}
+
+	hs := newTestHTTPService(t, db)
+	resp, err := hs.SendRequest(SendRequestData{
+		EndpointID: endpoint.ID, ModuleID: module.ID, Method: "GET", BaseURL: srv.URL, Path: "/",
+	})
+	if err != nil || !resp.Streaming {
+		t.Fatalf("启动 SSE 失败: resp=%+v err=%v", resp, err)
+	}
+	if !waitFor(func() bool {
+		var run models.RequestRun
+		if err := db.Preload("Attempts").Order("created_at DESC").First(&run).Error; err != nil {
+			return false
+		}
+		return run.Outcome == models.RequestRunOutcomeCompleted && len(run.Attempts) == 2
+	}) {
+		t.Fatalf("SSE 重连执行链未持久化，server requests=%d", requests.Load())
+	}
+	var run models.RequestRun
+	if err := db.Preload("Attempts", func(tx *gorm.DB) *gorm.DB { return tx.Order("sequence ASC") }).First(&run).Error; err != nil {
+		t.Fatal(err)
+	}
+	if run.Attempts[1].Cause != models.RequestAttemptCauseSSEReconnect || run.Attempts[1].ParentAttemptID == nil {
+		t.Fatalf("SSE 重连 attempt 缺少因果关联: %+v", run.Attempts)
 	}
 }
 
@@ -625,6 +701,11 @@ func TestHTTP_RedirectFollow(t *testing.T) {
 	if resp.StatusCode != 200 {
 		t.Errorf("跟随重定向状态码 = %d，期望 200", resp.StatusCode)
 	}
+	if resp.RequestRun == nil || len(resp.RequestRun.Attempts) != 2 ||
+		resp.RequestRun.Attempts[1].Cause != models.RequestAttemptCauseRedirect ||
+		resp.RequestRun.Attempts[1].ParentAttemptID == nil {
+		t.Fatalf("重定向链未完整捕获: %+v", resp.RequestRun)
+	}
 
 	// 不跟随 → 返回 302
 	resp, err = hs.SendRequest(SendRequestData{
@@ -636,6 +717,9 @@ func TestHTTP_RedirectFollow(t *testing.T) {
 	if resp.StatusCode != 302 {
 		t.Errorf("不跟随重定向状态码 = %d，期望 302", resp.StatusCode)
 	}
+	if resp.RequestRun == nil || len(resp.RequestRun.Attempts) != 1 {
+		t.Fatalf("禁用重定向时只应有一次网络请求: %+v", resp.RequestRun)
+	}
 }
 
 func TestHTTP_Timeout(t *testing.T) {
@@ -643,11 +727,14 @@ func TestHTTP_Timeout(t *testing.T) {
 	srv := echoServer(t)
 	hs := newTestHTTPService(t, db)
 
-	_, err := hs.SendRequest(SendRequestData{
+	resp, err := hs.SendRequest(SendRequestData{
 		Method: "GET", BaseURL: srv.URL, Path: "/slow", Timeout: 100, // 100ms
 	})
-	if err == nil {
-		t.Error("超时请求应返回错误，但成功了")
+	if err != nil {
+		t.Fatalf("进入传输层后的失败应返回可诊断响应包络: %v", err)
+	}
+	if resp == nil || resp.Error == "" || resp.RequestRun == nil || resp.RequestRun.Outcome != models.RequestRunOutcomeTimedOut {
+		t.Fatalf("超时响应缺少失败执行链: %+v", resp)
 	}
 }
 
@@ -683,6 +770,21 @@ func TestHTTP_SaveResponseAndHistory(t *testing.T) {
 		return c == 1
 	}) {
 		t.Error("发送后未异步保存请求历史")
+	}
+	var storedResponse models.Response
+	if err := db.Where("endpoint_id = ?", e.ID).First(&storedResponse).Error; err != nil {
+		t.Fatal(err)
+	}
+	var history models.RequestHistory
+	if err := db.Where("module_id = ?", m.ID).First(&history).Error; err != nil {
+		t.Fatal(err)
+	}
+	if storedResponse.RequestRunID == nil || history.RequestRunID == nil || *storedResponse.RequestRunID != *history.RequestRunID {
+		t.Fatalf("响应和历史未关联同一执行链: response=%+v history=%+v", storedResponse.RequestRunID, history.RequestRunID)
+	}
+	detail, err := NewRequestHistoryService(db).GetHistoryDetail(history.ID)
+	if err != nil || detail.RequestRun == nil || len(detail.RequestRun.Attempts) != 1 {
+		t.Fatalf("历史详情未加载执行链: detail=%+v err=%v", detail, err)
 	}
 }
 

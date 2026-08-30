@@ -152,6 +152,12 @@ func TestDigestAuthEndToEnd(t *testing.T) {
 	if attempts != 2 {
 		t.Errorf("应恰好往返两次（挑战 + 应答），实际 %d 次", attempts)
 	}
+	if resp.RequestRun == nil || len(resp.RequestRun.Attempts) != 2 ||
+		resp.RequestRun.Attempts[0].Cause != models.RequestAttemptCauseInitial ||
+		resp.RequestRun.Attempts[1].Cause != models.RequestAttemptCauseDigest ||
+		resp.RequestRun.Attempts[1].ParentAttemptID == nil {
+		t.Fatalf("Digest 挑战链未完整捕获: %+v", resp.RequestRun)
+	}
 }
 
 // TestOAuth2ClientCredentials 验证 client_credentials 换取令牌并注入 Authorization。

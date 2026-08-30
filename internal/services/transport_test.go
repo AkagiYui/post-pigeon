@@ -102,8 +102,9 @@ func TestInsecureSkipVerifyAllowsSelfSigned(t *testing.T) {
 	hs := newTestHTTPService(t, db)
 
 	// 默认严格校验：自签证书应被拒绝
-	if _, err := hs.SendRequest(SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/"}); err == nil {
-		t.Errorf("默认应校验证书并拒绝自签证书")
+	strictResp, err := hs.SendRequest(SendRequestData{Method: "GET", BaseURL: srv.URL, Path: "/"})
+	if err != nil || strictResp == nil || strictResp.Error == "" || strictResp.RequestRun == nil {
+		t.Errorf("默认应校验证书并返回失败执行链，resp=%+v err=%v", strictResp, err)
 	}
 
 	// 接口级选择 insecure：应能连通

@@ -12,6 +12,7 @@ const (
 	RequestRunOutcomeCompleted = "completed"
 	RequestRunOutcomeFailed    = "failed"
 	RequestRunOutcomeCancelled = "cancelled"
+	RequestRunOutcomeTimedOut  = "timed_out"
 	RequestRunOutcomeSkipped   = "skipped"
 	RequestRunOutcomeStreaming = "streaming"
 )

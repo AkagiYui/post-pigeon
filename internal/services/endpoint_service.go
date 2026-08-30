@@ -438,6 +438,7 @@ func (s *EndpointService) SaveResponse(endpointID string, resp *models.Response)
 	}
 
 	result = s.db.Model(&existing).Updates(map[string]any{
+		"request_run_id": resp.RequestRunID,
 		"status_code":    resp.StatusCode,
 		"headers":        resp.Headers,
 		"body":           resp.Body,
