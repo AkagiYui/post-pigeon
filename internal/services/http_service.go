@@ -299,6 +299,7 @@ func (s *HTTPService) ListScriptLibraries() ([]scripting.LibraryInfo, error) {
 
 // SendRequest 发送 HTTP 请求
 func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, error) {
+	lifecycle := newRequestLifecycleTiming()
 	configuredSnapshot := configuredRequestSnapshot(data)
 	prepared := s.prepareRequestData(&data)
 	envService := prepared.environmentService
@@ -583,7 +584,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	}
 
 	// 发送请求
-	start = time.Now()
+	start = lifecycle.startNetwork()
 	initialCtx := transportcapture.WithAttempt(ctx, models.RequestAttemptCauseInitial, nil)
 	resp, err := client.Do(req.WithContext(trace.attach(initialCtx)))
 	if err != nil {
@@ -630,6 +631,8 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	// 避免把二进制下载当成“raw chunk”读进事件面板。
 	format := streamFormat(resp.Header.Get("Content-Type"))
 	if format != "" {
+		responseFinishedAt := time.Now()
+		lifecycle.finishResponse(responseFinishedAt)
 		recorder.SetOutcome(models.RequestRunOutcomeStreaming, nil)
 		run := s.capturedRequestRun(recorder, data)
 		streaming = true // 通知外层 defer：ctx 交由后台 goroutine 持有，勿在此处取消
@@ -654,10 +657,12 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		})
 
 		out := &HTTPResponseData{
-			StatusCode:    resp.StatusCode,
-			Headers:       resp.Header,
-			ContentType:   resp.Header.Get("Content-Type"),
-			Timing:        models.TimingInfo{Total: durMs(time.Since(start))},
+			StatusCode:  resp.StatusCode,
+			Headers:     resp.Header,
+			ContentType: resp.Header.Get("Content-Type"),
+			Timing: lifecycle.complete(models.TimingInfo{
+				Total: durMs(responseFinishedAt.Sub(start)), Reused: reused,
+			}, time.Now()),
 			ActualRequest: actualRequestFromRun(&run),
 			RequestRun:    &run,
 			Streaming:     true,
@@ -693,6 +698,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 		return out, nil
 	}
 	end := time.Now()
+	lifecycle.finishResponse(end)
 
 	// 计算计时信息（含各阶段分解，单位毫秒，保留亚毫秒精度）
 	timing := models.TimingInfo{
@@ -809,6 +815,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	if scriptResults.PreRequest != nil || scriptResults.PostResponse != nil {
 		responseData.Scripts = scriptResults
 	}
+	responseData.Timing = lifecycle.complete(responseData.Timing, time.Now())
 
 	// 异步保存响应和请求历史（有界队列，队列满时丢弃而非堆积 goroutine）
 	s.enqueuePersist(persistJob{data: data, resp: responseData})

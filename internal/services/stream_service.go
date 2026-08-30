@@ -113,6 +113,7 @@ func (s *WebSocketService) ServiceShutdown() error {
 // 请求体不属于 WebSocket 握手；消息收发仍由 Send/SendBinary 与事件流处理。
 // 返回值沿用普通 HTTP 响应模型，供前端展示握手状态、响应头/Cookie、实际请求与脚本输出。
 func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConvertWSProtocol bool) (out *HTTPResponseData, retErr error) {
+	lifecycle := newRequestLifecycleTiming()
 	configuredSnapshot := configuredRequestSnapshot(data)
 	s.close(connID, false) // 若已存在同 ID 连接，先关闭；新一轮连接自行发送后续状态
 	defer func() {
@@ -277,7 +278,7 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 		reused:       &reused,
 	}
 	urlStr = req.URL.String()
-	start := time.Now()
+	start := lifecycle.startNetwork()
 	initialCtx := transportcapture.WithAttempt(dialCtx, models.RequestAttemptCauseWebSocketHandshake, nil)
 	conn, response, err := websocket.Dial(trace.attach(initialCtx), urlStr, opts)
 	if needsDigest && response != nil && response.StatusCode == http.StatusUnauthorized {
@@ -301,6 +302,7 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 		}
 	}
 	end := time.Now()
+	lifecycle.finishResponse(end)
 	timing := models.TimingInfo{Total: durMs(end.Sub(start)), Reused: reused}
 	if !dnsStart.IsZero() && !dnsEnd.IsZero() {
 		timing.DNSLookup = durMs(dnsEnd.Sub(dnsStart))
@@ -381,6 +383,7 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 		responseData.Scripts = scriptResults
 	}
 	s.persistVariableChanges(data, prepared)
+	responseData.Timing = lifecycle.complete(responseData.Timing, time.Now())
 	s.http.enqueuePersist(persistJob{data: data, resp: responseData})
 
 	if err != nil {

@@ -34,16 +34,20 @@ func (r *Response) BeforeCreate(tx *gorm.DB) error {
 
 // TimingInfo 请求各阶段计时信息（单位：毫秒，保留亚毫秒精度）
 type TimingInfo struct {
+	Prepare      float64 `json:"prepare"`      // 准备：进入请求流程 → 开始网络发送
+	Socket       float64 `json:"socket"`       // Socket 初始化：等待可用连接 / 开始新连接
 	DNSLookup    float64 `json:"dnsLookup"`    // DNS 查询耗时
 	TLSHandshake float64 `json:"tlsHandshake"` // TLS 握手耗时
 	TCPConnect   float64 `json:"tcpConnect"`   // TCP 连接耗时
-	TTFB         float64 `json:"ttfb"`         // 首字节时间（从请求开始到收到首字节）
-	Total        float64 `json:"total"`        // 总耗时（含内容下载）
+	TTFB         float64 `json:"ttfb"`         // 首字节时间（网络开始 → 收到首字节）
+	Total        float64 `json:"total"`        // 完整请求生命周期总耗时
 	// 阶段分解（供前端耗时 popover 展示）
-	Stalled  float64 `json:"stalled"`  // 准备：请求开始 → 开始建立连接（连接复用时接近 0）
-	Wait     float64 `json:"wait"`     // 等待：请求发出 → 收到首字节（服务端处理时间）
+	Stalled  float64 `json:"stalled"`  // 旧数据兼容：等价于 Socket；新展示读取 socket
+	Wait     float64 `json:"wait"`     // 等待：连接就绪 → 收到首字节
 	Download float64 `json:"download"` // 下载内容：首字节 → 响应体读取完成
+	Process  float64 `json:"process"`  // 处理：响应体读取完成 → 响应交付前
 	Reused   bool    `json:"reused"`   // 连接是否复用（DNS/TCP/TLS 命中缓存）
+	TLSUsed  bool    `json:"tlsUsed"`  // 是否实际建立了 TLS 连接（用于条件展示 SSL 阶段）
 }
 
 // ActualRequestInfo 实际发送的请求信息
