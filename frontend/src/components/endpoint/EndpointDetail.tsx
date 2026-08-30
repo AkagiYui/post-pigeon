@@ -6,7 +6,7 @@ import { Icon } from "@iconify-icon/solid"
 import { createEffect, createMemo, createSignal, For, type JSX, on, onCleanup, Show } from "solid-js"
 
 import { HTTPService } from "@/../bindings/PostPigeon/internal/services"
-import { countParams, hasEffectiveAuth } from "@/components/endpoint/endpoint-data"
+import { countBody, countHeaders, countParams, hasEffectiveAuth } from "@/components/endpoint/endpoint-data"
 import { Badge } from "@/components/ui/badge"
 import { Button } from "@/components/ui/button"
 import { Combobox, type ComboboxOption } from "@/components/ui/combobox"
@@ -340,13 +340,15 @@ export function EndpointDetail(props: EndpointDetailProps) {
     disabledGlobalParams: ep().disabledGlobalParams,
     globalQueryParams: props.globalQueryParams,
   })
+  const bodyCount = () => countBody(ep().bodyType, ep().bodyContent, ep().bodyFields)
+  const headersCount = () => countHeaders(ep().headers)
 
   // 请求设置标签（前置/后置操作作为顶级 tab，位于认证与设置之间）
   const requestTabs = createMemo(() => [
     ...(isWs() ? [{ key: "message", label: t("stream.message") }] : []),
     { key: "params", label: tabLabelWithCount(t("endpoint.params"), paramsCount()) },
-    { key: "body", label: t("endpoint.body") },
-    { key: "headers", label: t("endpoint.headers") },
+    { key: "body", label: tabLabelWithCount(t("endpoint.body"), bodyCount()) },
+    { key: "headers", label: tabLabelWithCount(t("endpoint.headers"), headersCount()) },
     { key: "cookies", label: t("endpoint.cookies") },
     { key: "auth", label: tabLabelWithCount(t("endpoint.auth"), hasEffectiveAuth(ep().auth, ep().hasInheritedAuth) ? 1 : 0) },
     { key: "preOperations", label: tabLabelWithCount(t("op.stage.pre"), preOpsCount()) },
@@ -648,7 +650,12 @@ export function EndpointDetail(props: EndpointDetailProps) {
                     fields={ep().bodyFields}
                     onChange={(patch) => props.onChange?.(patch)}
                   />
-                  case "headers": return <HeadersEditor value={ep().headers} onChange={(v) => props.onChange?.({ headers: v })} />
+                  case "headers": return <HeadersEditor
+                    value={ep().headers}
+                    bodyType={ep().bodyType}
+                    contentType={ep().contentType}
+                    onChange={(v) => props.onChange?.({ headers: v })}
+                  />
                   case "auth": return <AuthEditor value={ep().auth} onChange={(v) => props.onChange?.({ auth: v })} />
                   case "preOperations": return <OperationsEditor
                     stage="pre"

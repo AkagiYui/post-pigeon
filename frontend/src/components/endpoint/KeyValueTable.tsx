@@ -8,7 +8,7 @@
 // - Enter 跳到下一行同列（末行则落到草稿行），可以一路键盘录完一张表。
 // - 「批量编辑」把整张表摊成 `name: value` 文本，整段 query string 可以直接粘贴。
 import { Icon } from "@iconify-icon/solid"
-import { batch, createSignal, type JSX, Show } from "solid-js"
+import { batch, createSignal, For, type JSX, Show } from "solid-js"
 
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -59,6 +59,8 @@ export interface KeyValueTableProps<T extends KeyValueRow> {
   extraColumns?: (context: KeyValueTableContext<T>) => TableColumn<T>[]
   /** 是否允许按拖拽手柄排序 */
   sortable?: boolean
+  /** 参数名/请求头名称候选，使用原生 datalist，不限制自由输入 */
+  nameSuggestions?: string[]
 }
 
 export interface KeyValueCellContext<T extends KeyValueRow> {
@@ -89,6 +91,7 @@ export function KeyValueTable<T extends KeyValueRow>(props: KeyValueTableProps<T
   const [bulk, setBulk] = createSignal(false)
   const [bulkText, setBulkText] = createSignal("")
   const [draggedID, setDraggedID] = createSignal("")
+  const suggestionsID = `key-value-suggestions-${crypto.randomUUID()}`
 
   const isDraft = (row: T) => !props.fixedRows && row.id === draft().id
   const displayRows = () => props.fixedRows ? props.rows : [...props.rows, draft()]
@@ -212,7 +215,21 @@ export function KeyValueTable<T extends KeyValueRow>(props: KeyValueTableProps<T
         header: props.nameLabel ?? t("endpoint.param.name"), render: (row) => (
           props.nameReadOnly
             ? <Input size="sm" value={row.name} readOnly class={cn(cellInputClass, "font-mono")} />
-            : cellInput(row, "name", () => isDraft(row) ? (props.namePlaceholder ?? t("endpoint.param.add")) : undefined)
+            : (
+                <Input
+                  size="sm"
+                  value={row.name}
+                  list={props.nameSuggestions?.length ? suggestionsID : undefined}
+                  placeholder={isDraft(row) ? (props.namePlaceholder ?? t("endpoint.param.add")) : undefined}
+                  class={cellInputClass}
+                  onInput={event => updateRow(row, "name", event.currentTarget.value)}
+                  onKeyDown={(event) => {
+                    if (event.key !== "Enter") return
+                    event.preventDefault()
+                    focusNextRowSameColumn(event.currentTarget)
+                  }}
+                />
+              )
         ),
       },
       {
@@ -266,6 +283,11 @@ export function KeyValueTable<T extends KeyValueRow>(props: KeyValueTableProps<T
 
   return (
     <div class="space-y-1.5">
+      <Show when={props.nameSuggestions?.length}>
+        <datalist id={suggestionsID}>
+          <For each={props.nameSuggestions}>{name => <option value={name} />}</For>
+        </datalist>
+      </Show>
       <Show when={props.title || !props.fixedRows}>
         <div class="flex items-center justify-between gap-2 min-h-7">
           <div class="text-sm font-medium text-foreground">{props.title}</div>

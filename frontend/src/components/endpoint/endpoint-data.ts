@@ -214,6 +214,18 @@ export function countParams(input: ParamsCountInput): number {
   return query + pathParams + global
 }
 
+/** Apifox 的 Body 徽标：表单按字段数，raw/JSON/XML/GraphQL/Binary 按是否有内容计 1。 */
+export function countBody(bodyType: BodyType, bodyContent: string, bodyFields: BodyFieldRow[]): number {
+  if (bodyType === "none") return 0
+  if (bodyType === "form-data" || bodyType === "x-www-form-urlencoded") return bodyFields.length
+  return bodyContent ? 1 : 0
+}
+
+/** Headers 徽标只统计用户 Header；自动生成的系统 Header 不计数。 */
+export function countHeaders(headers: HeaderRow[]): number {
+  return headers.length
+}
+
 /**
  * Apifox 风格的认证标签状态：数字不是认证字段数量，而是“是否有一组生效认证”的布尔标记。
  * 空或 inherit 使用上级链的解析结果；none 显式停止继承；其它具体类型均视为已配置。

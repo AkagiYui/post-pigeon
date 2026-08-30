@@ -43,6 +43,8 @@
   "endpoint.params": "参数",
   "endpoint.body": "请求体",
   "endpoint.headers": "请求头",
+  "endpoint.header.system": "系统请求头",
+  "endpoint.header.systemGenerated": "根据请求体自动生成",
   "endpoint.auth": "认证",
   "endpoint.cookies": "Cookies",
   "endpoint.settings": "设置",

@@ -6,6 +6,8 @@ import { type BodyFieldRow, emptyAuth } from "./editor-types"
 import {
   authDataToState,
   authStateToData,
+  countBody,
+  countHeaders,
   countParams,
   deriveScriptFromOps,
   fromAuthModel,
@@ -341,5 +343,29 @@ describe("参数 tab 的数字", () => {
       params: [row("header", "H"), row("cookie", "C"), row("path", "id")],
       path: "/x",
     })).toBe(0)
+  })
+})
+
+describe("Body 与 Headers tab 的数字", () => {
+  it("表单 Body 按字段数计数，且不按启用状态过滤", () => {
+    const rows = [
+      { id: "1", name: "a", value: "1", fieldType: "text", enabled: true, dataType: "string", description: "", required: false, contentType: "", schema: "", style: "", explode: null, sortOrder: 0 },
+      { id: "2", name: "b", value: "2", fieldType: "text", enabled: false, dataType: "string", description: "", required: false, contentType: "", schema: "", style: "", explode: null, sortOrder: 1 },
+    ] as BodyFieldRow[]
+    expect(countBody("form-data", "", rows)).toBe(2)
+    expect(countBody("x-www-form-urlencoded", "", rows)).toBe(2)
+  })
+
+  it("非表单 Body 有内容计 1，无内容或 none 计 0", () => {
+    expect(countBody("json", "{}", [])).toBe(1)
+    expect(countBody("json", "", [])).toBe(0)
+    expect(countBody("none", "stale", [])).toBe(0)
+  })
+
+  it("Headers 只按用户行计数", () => {
+    expect(countHeaders([
+      { id: "1", name: "Accept", value: "*/*", description: "", enabled: true, required: false, example: "" },
+      { id: "2", name: "X-Off", value: "1", description: "", enabled: false, required: false, example: "" },
+    ])).toBe(2)
   })
 })

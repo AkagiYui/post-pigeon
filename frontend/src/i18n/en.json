@@ -43,6 +43,8 @@
   "endpoint.params": "Params",
   "endpoint.body": "Body",
   "endpoint.headers": "Headers",
+  "endpoint.header.system": "System Headers",
+  "endpoint.header.systemGenerated": "Generated from the request body",
   "endpoint.auth": "Auth",
   "endpoint.cookies": "Cookies",
   "endpoint.settings": "Settings",
