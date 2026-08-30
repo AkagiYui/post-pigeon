@@ -13,6 +13,22 @@ Release 正文后面备查。
 
 ### 新增
 
+- **导入能力补齐常见 API 工具与抓包格式**：统一导入向导现在除了 Apifox、OpenAPI、Swagger、
+  Postman 和 cURL，还可以直接读取 HAR、Insomnia、JMeter JMX、YApi、ApiPost 与 Hoppscotch。
+  HAR 会保留结构化 Query、重复请求头与正文；其余客户端格式会转换目录、请求、变量、认证、脚本和
+  请求体，并继续使用同一套导入预览与选择流程，不需要联网或启动外部转换服务
+
+- **模块可导出为六种可互操作格式**：模块导出新增 OpenAPI 3.1、OpenAPI 3.0、Swagger 2.0、
+  Postman Collection 2.1、HAR 和 Markdown 文档，可按用途选择下载格式。导出会覆盖目录、接口、
+  参数、请求头、请求体、认证、示例与 Schema；Postman 还会携带变量和前置/后置脚本，HAR 使用模块
+  环境地址生成可重放请求。可能包含明文密钥的格式会在保存前明确提醒
+
+- **实际请求代码生成扩展为 17 个目标**：从选中的真实网络请求可以生成 cURL、HTTPie、Wget、
+  PowerShell、Fetch、Axios、Node.js HTTP、Python http.client、Python Requests、Go net/http、
+  Java HttpClient、Kotlin OkHttp、C# HttpClient、PHP cURL、Ruby Net::HTTP、Rust Reqwest 与
+  Swift URLSession。所有生成器共用可扩展注册表，在目标客户端允许时保留重复请求头，并统一处理
+  敏感值默认脱敏以及 UTF-8 和 Base64 二进制正文；新增目标只需登记并实现一个生成模板
+
 - **接口响应耗时升级为完整生命周期瀑布图**：HTTP 请求与 WebSocket 握手会从进入请求流程开始，
   连续记录准备、Socket 初始化、DNS 查询、TCP/SSL 握手、等待首字节、下载内容和响应处理，
   各阶段互不重叠并完整覆盖总耗时；等待首字节阶段包含请求上传，连接失败、Digest 认证失败、
