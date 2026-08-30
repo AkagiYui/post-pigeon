@@ -11,7 +11,7 @@ info:
   description: "PostPigeon Application" # 应用描述
   copyright: "(c) 2026, AkagiYui" # 版权信息
   comments: "PostPigeon Application" # 注释
-  version: "0.0.5" # The application version
+  version: "0.0.6" # The application version
   # cfBundleIconName: "appicon" # The macOS icon name in Assets.car icon bundles (optional)
   #                               # Should match the name of your .icon file without the extension
   #                               # If not set and Assets.car exists, defaults to "appicon"
