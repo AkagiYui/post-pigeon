@@ -1468,7 +1468,16 @@ func (s *HTTPService) setRequestBody(req *http.Request, data SendRequestData, va
 			if !field.Enabled {
 				continue
 			}
-			values.Set(field.Name, resolveVars(field.Value, vars))
+			value := field.Value
+			// 兼容修复前已经保存的脏数据：urlencoded 不支持文件字段，不能把内部的
+			// {fileName,path} 引用 JSON 原样泄漏到请求体。与前端切换逻辑一致，降级为文件名。
+			if field.FieldType == "file" {
+				if file, ok := parseFileField(field.Value); ok {
+					value = file.displayName()
+				}
+			}
+			// Add 保留同名字段；Set 会静默丢掉前面的值，与 multipart 的逐项发送语义不一致。
+			values.Add(field.Name, resolveVars(value, vars))
 		}
 		body := values.Encode()
 		req.Body = io.NopCloser(strings.NewReader(body))

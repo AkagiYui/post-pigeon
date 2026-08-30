@@ -12,6 +12,7 @@ import {
   fromBodyFieldModels,
   fromOperationModels,
   hasEffectiveAuth,
+  normalizeBodyFieldsForType,
   parseStringArray,
   safeParseJSON,
   toAuthModel,
@@ -204,6 +205,21 @@ describe("deriveScriptFromOps", () => {
 })
 
 describe("请求体字段转换", () => {
+  it("切到 urlencoded 时把文件字段降级成可见的文件名文本", () => {
+    const rows = normalizeBodyFieldsForType([
+      { id: "1", name: "f", value: "", fieldType: "file", enabled: true, fileName: "a.png", filePath: "/tmp/a.png" },
+      { id: "2", name: "note", value: "hello", fieldType: "text", enabled: true },
+    ], "x-www-form-urlencoded")
+
+    expect(rows[0]).toMatchObject({ fieldType: "text", value: "a.png", fileName: "", filePath: "" })
+    expect(rows[1]).toMatchObject({ fieldType: "text", value: "hello" })
+  })
+
+  it("其它请求体类型保持字段引用不变", () => {
+    const rows = [{ id: "1", name: "f", value: "", fieldType: "file" as const, enabled: true, fileName: "a.png" }]
+    expect(normalizeBodyFieldsForType(rows, "form-data")).toBe(rows)
+  })
+
   it("文件字段存的是路径而不是内容", () => {
     const models = toBodyFieldModels([
       { id: "1", name: "f", value: "", fieldType: "file", enabled: true, fileName: "a.png", filePath: "/tmp/a.png" },

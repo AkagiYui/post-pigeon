@@ -23,7 +23,7 @@ import {
   type ParamRow,
   type TimingData,
 } from "@/components/endpoint/editor-types"
-import { type EndpointType, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
+import { type BodyType, type EndpointType, type OperationStage, type OperationType, type ParamLocation } from "@/lib/types"
 import { extractPathParams } from "@/lib/utils"
 
 /** 端点默认字段（新字段的默认值集中在此，供各处构造 EndpointData 时展开使用） */
@@ -235,6 +235,26 @@ function fileFieldValue(row: BodyFieldRow): string {
     return JSON.stringify({ fileName: row.fileName || "", content: row.fileContent })
   }
   return JSON.stringify({ fileName: row.fileName || "" })
+}
+
+/**
+ * 请求体类型切换时清理目标编码不支持的字段形态。
+ *
+ * form-data 文件行在编辑态把真实值拆在 fileName/filePath/fileContent 中，value 为空。
+ * 若只把 bodyType 改成 urlencoded，界面会显示空值，发送时却会把文件引用 JSON 当作
+ * 普通表单值发出去。Apifox 在这个切换点会把 file 降级为 string/array；目前我们的
+ * 文件行只支持单文件，因此降级成可见、可继续编辑的文件名字符串。
+ */
+export function normalizeBodyFieldsForType(rows: BodyFieldRow[], bodyType: BodyType): BodyFieldRow[] {
+  if (bodyType !== "x-www-form-urlencoded") return rows
+  return rows.map(row => row.fieldType !== "file" ? row : {
+    ...row,
+    fieldType: "text",
+    value: row.fileName || row.value,
+    fileName: "",
+    filePath: "",
+    fileContent: "",
+  })
 }
 
 export function toBodyFieldModels(rows: BodyFieldRow[]): EndpointBodyField[] {

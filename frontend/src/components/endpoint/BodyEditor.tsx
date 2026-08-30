@@ -4,6 +4,7 @@ import { createMemo, For, Show } from "solid-js"
 
 import { FileService } from "@/../bindings/PostPigeon/internal/services"
 import type { BodyFieldRow } from "@/components/endpoint/EndpointDetail"
+import { normalizeBodyFieldsForType } from "@/components/endpoint/endpoint-data"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
 import { CodeEditor, type CodeLanguage } from "@/components/ui/code-editor"
@@ -75,6 +76,11 @@ export interface BodyEditorProps {
 }
 
 export function BodyEditor(props: BodyEditorProps) {
+  const changeBodyType = (bodyType: BodyType) => {
+    const bodyFields = normalizeBodyFieldsForType(props.fields, bodyType)
+    props.onChange(bodyFields === props.fields ? { bodyType } : { bodyType, bodyFields })
+  }
+
   const addField = () => {
     props.onChange({ bodyFields: [...props.fields, {
       id: crypto.randomUUID(),
@@ -163,7 +169,7 @@ export function BodyEditor(props: BodyEditorProps) {
                     ? "bg-accent text-white"
                     : "bg-muted text-muted-foreground hover:text-foreground",
                 )}
-                onClick={() => props.onChange({ bodyType: opt.value as BodyType })}
+                onClick={() => changeBodyType(opt.value as BodyType)}
               >
                 {t(opt.labelKey)}
               </button>

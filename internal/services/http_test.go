@@ -9,6 +9,8 @@ import (
 	"io"
 	"net/http"
 	"net/http/httptest"
+	"net/url"
+	"reflect"
 	"strings"
 	"sync/atomic"
 	"testing"
@@ -612,6 +614,37 @@ func TestHTTP_URLEncoded(t *testing.T) {
 	body, _ := echo["body"].(string)
 	if !strings.Contains(body, "foo=bar") || !strings.Contains(body, "baz=qux") {
 		t.Errorf("urlencoded 请求体 = %q", body)
+	}
+}
+
+func TestHTTP_URLEncodedPreservesRepeatedNamesAndSanitizesLegacyFile(t *testing.T) {
+	db := newTestDB(t)
+	srv := echoServer(t)
+	hs := newTestHTTPService(t, db)
+
+	resp, err := hs.SendRequest(SendRequestData{
+		Method: "POST", BaseURL: srv.URL, Path: "/echo",
+		BodyType: string(models.BodyTypeURLEncoded),
+		BodyFields: []models.EndpointBodyField{
+			{Name: "tag", Value: "a", Enabled: true},
+			{Name: "tag", Value: "b", Enabled: true},
+			{Name: "legacy", FieldType: "file", Value: `{"fileName":"old.txt","path":"/tmp/old.txt"}`, Enabled: true},
+		},
+	})
+	if err != nil {
+		t.Fatalf("err=%v", err)
+	}
+	echo := decodeEcho(t, resp.Body)
+	body, _ := echo["body"].(string)
+	parsed, err := url.ParseQuery(body)
+	if err != nil {
+		t.Fatalf("解析 urlencoded 请求体失败: %v", err)
+	}
+	if got := parsed["tag"]; !reflect.DeepEqual(got, []string{"a", "b"}) {
+		t.Fatalf("同名字段 = %#v", got)
+	}
+	if got := parsed.Get("legacy"); got != "old.txt" {
+		t.Fatalf("历史文件字段 = %q，期望文件名", got)
 	}
 }
 
