@@ -114,6 +114,8 @@ type Options struct {
 	Timeout     time.Duration
 	RequestName string
 	RequestID   string
+	// DatabaseExec 由宿主注入数据库执行器；未提供时 pm.database.execute 会抛出明确错误。
+	DatabaseExec func(driver, dsn, query string) (any, error)
 }
 
 // Engine 持有可跨 runtime 复用的模块注册表。并发安全，可作为单例长期持有。

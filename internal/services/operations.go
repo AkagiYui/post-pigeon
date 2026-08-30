@@ -218,6 +218,23 @@ func translateOperation(db *gorm.DB, op models.Operation) string {
 		ms := min(d.Milliseconds, 10000)
 		return fmt.Sprintf("{const __e=Date.now()+%d;while(Date.now()<__e){}}", ms)
 
+	case models.OpTypeDatabase:
+		var d models.DatabaseOperationData
+		_ = json.Unmarshal([]byte(op.Data), &d)
+		if strings.TrimSpace(d.DSN) == "" || strings.TrimSpace(d.Query) == "" {
+			return ""
+		}
+		driver := d.Driver
+		if driver == "" {
+			driver = "sqlite"
+		}
+		storeResult := ""
+		if d.ResultVariable != "" {
+			storeResult = fmt.Sprintf("pm.environment.set(%s, JSON.stringify(__pp_db_result));", jsString(d.ResultVariable))
+		}
+		return fmt.Sprintf("{const __pp_db_result=pm.database.execute(%s,pm.variables.replaceIn(%s),pm.variables.replaceIn(%s));%s}",
+			jsString(driver), jsString(d.DSN), jsString(d.Query), storeResult)
+
 	default:
 		return ""
 	}

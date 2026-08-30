@@ -134,7 +134,8 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
     const base = [
       { key: "general", label: t("settings.general") },
       { key: "auth", label: tabLabelWithCount(t("endpoint.auth"), hasEffectiveAuth(auth(), hasInheritedAuth()) ? 1 : 0) },
-      { key: "operations", label: t("endpoint.operations") },
+      { key: "preOperations", label: tabLabelWithCount(t("op.stage.pre"), operations().filter(op => op.stage === "pre" && op.enabled).length + inheritedOperations().filter(item => item.operation.stage === "pre" && item.operation.enabled).length) },
+      { key: "postOperations", label: tabLabelWithCount(t("op.stage.post"), operations().filter(op => op.stage === "post" && op.enabled).length + inheritedOperations().filter(item => item.operation.stage === "post" && item.operation.enabled).length) },
     ]
     if (props.scopeType === "module") base.splice(2, 0, { key: "params", label: t("scope.autoParams") }, { key: "variables", label: t("scope.variables") })
     return base
@@ -212,7 +213,8 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
                 </div>
               )
               if (key === "auth") return <AuthEditor value={auth()} onChange={setAuth} />
-              if (key === "operations") return <OperationsEditor operations={operations()} inheritedOperations={inheritedOperations()} onInheritedOverride={overrideInheritedOperation} onChange={setOperations} projectId={props.projectId} />
+              if (key === "preOperations") return <OperationsEditor stage="pre" operations={operations()} inheritedOperations={inheritedOperations()} onInheritedOverride={overrideInheritedOperation} onChange={setOperations} projectId={props.projectId} />
+              if (key === "postOperations") return <OperationsEditor stage="post" operations={operations()} inheritedOperations={inheritedOperations()} onInheritedOverride={overrideInheritedOperation} onChange={setOperations} projectId={props.projectId} />
               if (key === "params") return (
                 <div class="p-3 h-full overflow-auto">
                   <p class="text-sm text-muted-foreground mb-2">{t("scope.autoParamsHint")}</p>

@@ -26,6 +26,7 @@ import (
 	"PostPigeon/internal/models"
 	"PostPigeon/internal/scripting"
 
+	"github.com/glebarez/sqlite"
 	"github.com/google/uuid"
 	"github.com/wailsapp/wails/v3/pkg/application"
 	"gorm.io/gorm"
@@ -298,9 +299,10 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	// 执行前置脚本（可修改 method/url/headers/body 及环境变量）
 	if strings.TrimSpace(data.PreRequestScript) != "" {
 		scriptResults.PreRequest = s.engine.Run(data.PreRequestScript, scripting.Options{
-			Phase:   scripting.PhasePreRequest,
-			Request: reqCtx,
-			Stores:  stores,
+			Phase:        scripting.PhasePreRequest,
+			Request:      reqCtx,
+			Stores:       stores,
+			DatabaseExec: s.executeDatabaseOperation,
 		})
 		// 将脚本对请求的修改应用回 data
 		data.Method = reqCtx.Method
@@ -347,7 +349,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 
 	if strings.TrimSpace(data.PreSendScript) != "" {
 		result := s.engine.Run(data.PreSendScript, scripting.Options{
-			Phase: scripting.PhasePreRequest, Request: reqCtx, Stores: stores,
+			Phase: scripting.PhasePreRequest, Request: reqCtx, Stores: stores, DatabaseExec: s.executeDatabaseOperation,
 		})
 		scriptResults.PreRequest = mergeScriptResult(scriptResults.PreRequest, result)
 		data.Method = reqCtx.Method
@@ -715,10 +717,11 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 			ResponseSize: int64(len(bodyBytes)),
 		}
 		scriptResults.PostResponse = s.engine.Run(data.PostResponseScript, scripting.Options{
-			Phase:    scripting.PhasePostResponse,
-			Request:  reqCtx,
-			Response: respCtx,
-			Stores:   stores,
+			Phase:        scripting.PhasePostResponse,
+			Request:      reqCtx,
+			Response:     respCtx,
+			Stores:       stores,
+			DatabaseExec: s.executeDatabaseOperation,
 		})
 		// 应用后置脚本对响应的修改（setBody / headers）
 		if respCtx.Body != string(bodyBytes) {
@@ -775,6 +778,36 @@ func mergeScriptResult(first, second *scripting.Result) *scripting.Result {
 		first.NextRequest = second.NextRequest
 	}
 	return first
+}
+
+func (s *HTTPService) executeDatabaseOperation(driver, dsn, query string) (any, error) {
+	if driver == "" {
+		driver = "sqlite"
+	}
+	if driver != "sqlite" {
+		return nil, fmt.Errorf("unsupported database driver %q (currently only sqlite is available)", driver)
+	}
+	connection, err := gorm.Open(sqlite.Open(dsn), &gorm.Config{})
+	if err != nil {
+		return nil, fmt.Errorf("open sqlite database: %w", err)
+	}
+	sqlDB, err := connection.DB()
+	if err == nil {
+		defer sqlDB.Close()
+	}
+	trimmed := strings.ToUpper(strings.TrimSpace(query))
+	if strings.HasPrefix(trimmed, "SELECT") || strings.HasPrefix(trimmed, "PRAGMA") || strings.HasPrefix(trimmed, "WITH") {
+		var rows []map[string]any
+		if err := connection.Raw(query).Scan(&rows).Error; err != nil {
+			return nil, fmt.Errorf("execute database query: %w", err)
+		}
+		return rows, nil
+	}
+	result := connection.Exec(query)
+	if result.Error != nil {
+		return nil, fmt.Errorf("execute database statement: %w", result.Error)
+	}
+	return map[string]any{"rowsAffected": result.RowsAffected}, nil
 }
 
 // readBodyWithLimit 读取响应体，最多 limit 字节；limit<=0 表示不限制。

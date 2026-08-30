@@ -1,6 +1,7 @@
 package scripting
 
 import (
+	"fmt"
 	"time"
 
 	"github.com/dop251/goja"
@@ -41,6 +42,20 @@ func buildPM(vm *goja.Runtime, loop *eventloop.EventLoop, opts Options, res *Res
 
 	// pm.sendRequest
 	pm.Set("sendRequest", buildSendRequest(vm, loop, res))
+
+	// pm.database.execute：供数据库类型的前置/后置操作使用。
+	database := vm.NewObject()
+	database.Set("execute", func(call goja.FunctionCall) goja.Value {
+		if opts.DatabaseExec == nil {
+			panic(vm.NewGoError(fmt.Errorf("database operations are unavailable in this runtime")))
+		}
+		value, err := opts.DatabaseExec(call.Argument(0).String(), call.Argument(1).String(), call.Argument(2).String())
+		if err != nil {
+			panic(vm.NewGoError(err))
+		}
+		return vm.ToValue(value)
+	})
+	pm.Set("database", database)
 
 	// pm.test（同步 / 异步(done) / skip / index）
 	buildTest(vm, loop, pm, res)

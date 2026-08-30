@@ -14,6 +14,45 @@ type EndpointService struct {
 	db *gorm.DB
 }
 
+// OperationSource 是操作编辑器“从其他接口/文件夹导入”的候选来源。
+type OperationSource struct {
+	OwnerType  string             `json:"ownerType"`
+	OwnerID    string             `json:"ownerId"`
+	Name       string             `json:"name"`
+	Operations []models.Operation `json:"operations"`
+}
+
+// ListOperationSources 列出项目内在指定阶段拥有本地操作的模块、文件夹和接口。
+func (s *EndpointService) ListOperationSources(projectID, stage string) ([]OperationSource, error) {
+	var modules []models.Module
+	if err := s.db.Where("project_id = ?", projectID).Order("sort_order ASC").Find(&modules).Error; err != nil {
+		return nil, err
+	}
+	result := make([]OperationSource, 0)
+	for _, module := range modules {
+		appendSource := func(ownerType models.OperationOwnerType, ownerID, name string) {
+			ops := loadOperations(s.db, ownerType, ownerID, models.OperationStage(stage))
+			if len(ops) > 0 {
+				result = append(result, OperationSource{OwnerType: string(ownerType), OwnerID: ownerID, Name: name, Operations: ops})
+			}
+		}
+		appendSource(models.OperationOwnerModule, module.ID, module.Name)
+		var folders []models.Folder
+		s.db.Where("module_id = ?", module.ID).Order("sort_order ASC").Find(&folders)
+		for _, folder := range folders {
+			if folder.Name != "__root" {
+				appendSource(models.OperationOwnerFolder, folder.ID, module.Name+" / "+folder.Name)
+			}
+		}
+		var endpoints []models.Endpoint
+		s.db.Where("module_id = ?", module.ID).Order("sort_order ASC").Find(&endpoints)
+		for _, endpoint := range endpoints {
+			appendSource(models.OperationOwnerEndpoint, endpoint.ID, module.Name+" / "+endpoint.Name)
+		}
+	}
+	return result, nil
+}
+
 // NewEndpointService 创建端点服务实例
 func NewEndpointService(db *gorm.DB) *EndpointService {
 	return &EndpointService{db: db}

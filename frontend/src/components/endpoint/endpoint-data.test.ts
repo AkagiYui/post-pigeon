@@ -184,6 +184,7 @@ describe("deriveScriptFromOps", () => {
     id: crypto.randomUUID(), stage, phase: "beforeVariables" as const, type: "script" as const, name: "", enabled, script,
     libraryId: "", assertSource: "", assertExpression: "", assertComparison: "", assertTarget: "",
     varName: "", varScope: "", varSource: "", varExpression: "", waitMs: 0,
+    databaseDriver: "sqlite", databaseDSN: "", databaseQuery: "", databaseResultVariable: "",
   })
 
   it("拼接同阶段的启用脚本", () => {

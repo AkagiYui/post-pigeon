@@ -127,6 +127,11 @@ export interface OperationRow {
   varExpression: string
   // wait
   waitMs: number
+  // database
+  databaseDriver: string
+  databaseDSN: string
+  databaseQuery: string
+  databaseResultVariable: string
 }
 
 export interface InheritedOperationRow {
@@ -151,6 +156,7 @@ export function emptyOperation(stage: OperationStage, type: OperationType = "scr
     assertSource: "responseJson", assertExpression: "", assertComparison: "eq", assertTarget: "",
     varName: "", varScope: "environment", varSource: "responseJson", varExpression: "",
     waitMs: 1000,
+    databaseDriver: "sqlite", databaseDSN: "", databaseQuery: "", databaseResultVariable: "",
   }
 }
 

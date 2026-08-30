@@ -2,10 +2,12 @@
 // 每个阶段（pre/post）维护一组有序操作，支持 脚本 / 断言 / 提取变量 / 等待 / 引用脚本库，
 // 可单独启用/禁用、上移下移、删除。脚本使用 CodeMirror 编辑。
 import { Icon } from "@iconify-icon/solid"
-import { createMemo, createSignal, For, onMount, Show } from "solid-js"
+import { createSortable, DragDropProvider, DragDropSensors, type DragEvent, SortableProvider, transformStyle } from "@thisbeyond/solid-dnd"
+import { createEffect, createMemo, createSignal, For, onMount, Show } from "solid-js"
 
 import type { ScriptLibrary } from "@/../bindings/PostPigeon/internal/models"
-import { ScriptLibraryService } from "@/../bindings/PostPigeon/internal/services"
+import { EndpointService, type OperationSource, ScriptLibraryService } from "@/../bindings/PostPigeon/internal/services"
+import { fromOperationModels } from "@/components/endpoint/endpoint-data"
 import { emptyOperation, type InheritedOperationRow, type OperationRow } from "@/components/endpoint/EndpointDetail"
 import { Button } from "@/components/ui/button"
 import { Checkbox } from "@/components/ui/checkbox"
@@ -30,10 +32,13 @@ export interface OperationsEditorProps {
   onInheritedOverride?: (operationId: string, enabled: boolean | null) => void
 }
 
-const opTypeOptions = () => [
+const opTypeOptions = (stage?: OperationStage) => [
   { value: "script", label: t("op.type.script") },
-  { value: "assert", label: t("op.type.assert") },
-  { value: "extractVar", label: t("op.type.extractVar") },
+  { value: "database", label: t("op.type.database") },
+  ...(stage === "post" ? [
+    { value: "assert", label: t("op.type.assert") },
+    { value: "extractVar", label: t("op.type.extractVar") },
+  ] : []),
   { value: "wait", label: t("op.type.wait") },
   { value: "libraryScript", label: t("op.type.libraryScript") },
 ]
@@ -72,6 +77,9 @@ export function OperationsEditor(props: OperationsEditorProps) {
   const stage = () => props.stage ?? internalStage()
   const [libraries, setLibraries] = createSignal<ScriptLibrary[]>([])
   const [inheritedOpen, setInheritedOpen] = createSignal(false)
+  const [addType, setAddType] = createSignal<OperationType>("script")
+  const [sources, setSources] = createSignal<OperationSource[]>([])
+  const [sourceId, setSourceId] = createSignal("")
 
   onMount(async () => {
     if (!props.projectId) return
@@ -79,6 +87,15 @@ export function OperationsEditor(props: OperationsEditorProps) {
       const list = await ScriptLibraryService.ListScripts(props.projectId)
       setLibraries((list || []) as ScriptLibrary[])
     } catch (e) { toastError(e, "error.op.loadFailed") }
+  })
+
+  createEffect(() => {
+    const projectId = props.projectId
+    const currentStage = stage()
+    if (!projectId) { setSources([]); return }
+    void EndpointService.ListOperationSources(projectId, currentStage)
+      .then(list => { setSources(list || []); setSourceId("") })
+      .catch(e => toastError(e, "error.op.loadFailed"))
   })
 
   // 当前阶段的操作（保持在整表中的索引以便原地更新）
@@ -96,7 +113,23 @@ export function OperationsEditor(props: OperationsEditorProps) {
   }
 
   const addOp = () => {
-    props.onChange([...props.operations, emptyOperation(stage(), "script")])
+    const allowed = opTypeOptions(stage()).some(item => item.value === addType()) ? addType() : "script"
+    props.onChange([...props.operations, emptyOperation(stage(), allowed)])
+  }
+
+  const importOperations = () => {
+    const source = sources().find(item => `${item.ownerType}:${item.ownerId}` === sourceId())
+    if (!source) return
+    const imported = fromOperationModels(source.operations).map(op => ({ ...op, id: crypto.randomUUID(), stage: stage() }))
+    props.onChange([...props.operations, ...imported])
+  }
+
+  const duplicateOp = (id: string) => {
+    const index = props.operations.findIndex(op => op.id === id)
+    if (index < 0) return
+    const all = [...props.operations]
+    all.splice(index + 1, 0, { ...all[index], id: crypto.randomUUID(), name: all[index].name ? `${all[index].name} ${t("op.copySuffix")}` : "" })
+    props.onChange(all)
   }
 
   const removeOp = (id: string) => {
@@ -113,6 +146,20 @@ export function OperationsEditor(props: OperationsEditorProps) {
     const a = list[pos].idx
     const b = list[target].idx
     ;[all[a], all[b]] = [all[b], all[a]]
+    props.onChange(all)
+  }
+
+  const handleDragEnd = (event: DragEvent) => {
+    const { draggable, droppable } = event
+    if (!droppable || draggable.id === droppable.id) return
+    const all = [...props.operations]
+    const from = all.findIndex(op => op.id === draggable.id)
+    const to = all.findIndex(op => op.id === droppable.id)
+    if (from < 0 || to < 0 || all[from].stage !== stage() || all[to].stage !== stage()) return
+    const targetPhase = all[to].phase
+    const [moved] = all.splice(from, 1)
+    if (stage() === "pre") moved.phase = targetPhase
+    all.splice(to, 0, moved)
     props.onChange(all)
   }
 
@@ -147,12 +194,12 @@ export function OperationsEditor(props: OperationsEditorProps) {
           <div class="border border-border rounded-md overflow-hidden bg-muted/20">
             <button class="w-full flex items-center gap-2 px-3 py-2 text-xs text-left" onClick={() => setInheritedOpen(v => !v)}>
               <Icon icon={inheritedOpen() ? "lucide:chevron-down" : "lucide:chevron-right"} class="h-3.5 w-3.5" />
-              <span class="font-medium">继承的操作</span>
+              <span class="font-medium">{t("op.inherited")}</span>
               <span class="text-muted-foreground">{inheritedStageOps().length}</span>
               <Show when={props.onInheritEnabledChange}>
                 <span class="ml-auto flex items-center gap-1.5" onClick={(e) => e.stopPropagation()}>
                   <Checkbox checked={props.inheritEnabled !== false} onChange={(e) => props.onInheritEnabledChange?.(e.currentTarget.checked)} />
-                  <span>启用继承</span>
+                  <span>{t("op.inheritEnabled")}</span>
                 </span>
               </Show>
             </button>
@@ -165,27 +212,36 @@ export function OperationsEditor(props: OperationsEditorProps) {
             </Show>
           </div>
         </Show>
+        <DragDropProvider onDragEnd={handleDragEnd}>
+          <DragDropSensors />
+          <SortableProvider ids={stageOps().map(item => item.op.id)}>
         <Show when={stage() === "pre"} fallback={
           <For each={stageOps()} fallback={<div class="text-sm text-muted-foreground text-center py-6">{t("op.empty")}</div>}>
-            {(item) => <OperationCard op={item.op} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
+            {(item) => <OperationCard op={item.op} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onDuplicate={() => duplicateOp(item.op.id)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
           </For>
         }>
           <For each={beforeVariableOps()}>
-            {(item) => <OperationCard op={item.op} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
+            {(item) => <OperationCard op={item.op} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onDuplicate={() => duplicateOp(item.op.id)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
           </For>
           <div class="flex items-center gap-2 py-1 text-[11px] text-muted-foreground select-none">
-            <div class="h-px flex-1 bg-border" /><Icon icon="lucide:braces" class="h-3.5 w-3.5" /><span>变量替换</span><div class="h-px flex-1 bg-border" />
+            <div class="h-px flex-1 bg-border" /><Icon icon="lucide:braces" class="h-3.5 w-3.5" /><span>{t("op.variableReplacement")}</span><div class="h-px flex-1 bg-border" />
           </div>
           <For each={afterVariableOps()}>
-            {(item) => <OperationCard op={item.op} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
+            {(item) => <OperationCard op={item.op} libraries={libraries()} onUpdate={(patch) => updateOp(item.op.id, patch)} onDuplicate={() => duplicateOp(item.op.id)} onRemove={() => removeOp(item.op.id)} onMoveUp={() => moveOp(item.op.id, -1)} onMoveDown={() => moveOp(item.op.id, 1)} />}
           </For>
         </Show>
+          </SortableProvider>
+        </DragDropProvider>
       </div>
 
-      <Button variant="outline" size="sm" class="mt-2 shrink-0 self-start" onClick={addOp}>
-        <Icon icon="lucide:plus" class="h-3 w-3" />
-        {t("op.add")}
-      </Button>
+      <div class="mt-2 shrink-0 self-start flex items-center gap-1.5">
+        <Select options={opTypeOptions(stage())} value={addType()} onChange={(v) => setAddType(v as OperationType)} size="sm" class="w-32" />
+        <Button variant="outline" size="sm" onClick={addOp}><Icon icon="lucide:plus" class="h-3 w-3" />{t("op.add")}</Button>
+        <Show when={sources().length > 0}>
+          <Select options={[{ value: "", label: t("op.importSource") }, ...sources().map(item => ({ value: `${item.ownerType}:${item.ownerId}`, label: item.name }))]} value={sourceId()} onChange={setSourceId} size="sm" class="w-44" />
+          <Button variant="outline" size="sm" disabled={!sourceId()} onClick={importOperations}><Icon icon="lucide:import" class="h-3 w-3" />{t("op.import")}</Button>
+        </Show>
+      </div>
     </div>
   )
 }
@@ -204,11 +260,11 @@ function InheritedOperationCard(props: {
           disabled={props.disabled || !props.onOverride}
           onChange={(e) => props.onOverride?.(op().id, e.currentTarget.checked)}
         />
-        <span class="text-xs font-medium">{op().name || opTypeOptions().find(x => x.value === op().type)?.label || op().type}</span>
-        <span class="text-[11px] text-muted-foreground">来自 {props.item.sourceName || props.item.sourceType}</span>
+        <span class="text-xs font-medium">{op().name || opTypeOptions(op().stage).find(x => x.value === op().type)?.label || op().type}</span>
+        <span class="text-[11px] text-muted-foreground">{t("op.from", { source: props.item.sourceName || props.item.sourceType })}</span>
         <Show when={props.item.overridden}>
           <Button class="ml-auto" variant="ghost" size="sm" onClick={() => props.onOverride?.(op().id, null)}>
-            <Icon icon="lucide:rotate-ccw" class="h-3 w-3" />恢复跟随
+            <Icon icon="lucide:rotate-ccw" class="h-3 w-3" />{t("op.restoreFollowing")}
           </Button>
         </Show>
       </div>
@@ -224,23 +280,27 @@ function OperationCard(props: {
   op: OperationRow
   libraries: ScriptLibrary[]
   onUpdate: (patch: Partial<OperationRow>) => void
+  onDuplicate: () => void
   onRemove: () => void
   onMoveUp: () => void
   onMoveDown: () => void
 }) {
   const op = () => props.op
+  const sortable = createSortable(props.op.id)
+  const [expanded, setExpanded] = createSignal(true)
   return (
-    <div class={cn("border border-border rounded-md overflow-hidden", !op().enabled && "opacity-60")}>
+    <div use:sortable={sortable} class={cn("border border-border rounded-md overflow-hidden", !op().enabled && "opacity-60", sortable.isActiveDraggable && "shadow-md z-10")} style={{ ...transformStyle(sortable.transform) }}>
       {/* 卡片头 */}
       <div class="flex items-center gap-2 px-2 py-1.5 bg-muted/40 border-b border-border">
-        <Icon icon="lucide:grip-vertical" class="h-3.5 w-3.5 text-muted-foreground shrink-0" />
+        <button class="cursor-grab active:cursor-grabbing text-muted-foreground" {...sortable.dragActivators}><Icon icon="lucide:grip-vertical" class="h-3.5 w-3.5 shrink-0" /></button>
+        <Button variant="ghost" size="icon-sm" onClick={() => setExpanded(v => !v)}><Icon icon={expanded() ? "lucide:chevron-down" : "lucide:chevron-right"} class="h-3 w-3" /></Button>
         <Checkbox
           checked={op().enabled}
           onChange={(e) => props.onUpdate({ enabled: e.currentTarget.checked })}
           class="shrink-0"
         />
         <Select
-          options={opTypeOptions()}
+          options={opTypeOptions(op().stage)}
           value={op().type}
           onChange={(v) => props.onUpdate({ type: v as OperationType })}
           size="sm"
@@ -255,7 +315,7 @@ function OperationCard(props: {
         />
         <Show when={op().stage === "pre"}>
           <Select
-            options={[{ value: "beforeVariables", label: "替换前" }, { value: "afterVariables", label: "替换后" }]}
+            options={[{ value: "beforeVariables", label: t("op.beforeVariables") }, { value: "afterVariables", label: t("op.afterVariables") }]}
             value={op().phase}
             onChange={(v) => props.onUpdate({ phase: v as OperationRow["phase"] })}
             size="sm"
@@ -264,11 +324,12 @@ function OperationCard(props: {
         </Show>
         <Button variant="ghost" size="icon-sm" onClick={props.onMoveUp}><Icon icon="lucide:chevron-up" class="h-3 w-3" /></Button>
         <Button variant="ghost" size="icon-sm" onClick={props.onMoveDown}><Icon icon="lucide:chevron-down" class="h-3 w-3" /></Button>
+        <Button variant="ghost" size="icon-sm" onClick={props.onDuplicate}><Icon icon="lucide:copy" class="h-3 w-3" /></Button>
         <Button variant="ghost" size="icon-sm" onClick={props.onRemove}><Icon icon="lucide:trash-2" class="h-3 w-3" /></Button>
       </div>
 
       {/* 卡片体 */}
-      <div class="p-2">
+      <Show when={expanded()}><div class="p-2">
         <Show when={op().type === "script"}>
           <div class="h-48">
             <CodeEditor language="javascript" value={op().script} onChange={(v) => props.onUpdate({ script: v })} placeholder={t("op.scriptPlaceholder")} />
@@ -318,7 +379,18 @@ function OperationCard(props: {
             <span class="text-sm text-muted-foreground">{t("op.milliseconds")}</span>
           </div>
         </Show>
-      </div>
+
+        <Show when={op().type === "database"}>
+          <div class="flex flex-col gap-2">
+            <div class="flex items-center gap-2">
+              <Select options={[{ value: "sqlite", label: "SQLite" }]} value={op().databaseDriver} onChange={(v) => props.onUpdate({ databaseDriver: v })} size="sm" class="w-28" />
+              <Input size="sm" value={op().databaseDSN} onInput={(e) => props.onUpdate({ databaseDSN: e.currentTarget.value })} placeholder={t("op.database.path")} class="flex-1" />
+              <Input size="sm" value={op().databaseResultVariable} onInput={(e) => props.onUpdate({ databaseResultVariable: e.currentTarget.value })} placeholder={t("op.database.resultVariable")} class="w-40" />
+            </div>
+            <div class="h-32"><CodeEditor language="text" value={op().databaseQuery} onChange={(v) => props.onUpdate({ databaseQuery: v })} placeholder={t("op.database.query")} /></div>
+          </div>
+        </Show>
+      </div></Show>
     </div>
   )
 }

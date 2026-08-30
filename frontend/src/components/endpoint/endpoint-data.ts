@@ -118,6 +118,7 @@ export function toOperationModels(rows: OperationRow[]): Operation[] {
       case "assert": data = JSON.stringify({ source: r.assertSource, expression: r.assertExpression, comparison: r.assertComparison, target: r.assertTarget }); break
       case "extractVar": data = JSON.stringify({ variable: r.varName, scope: r.varScope, source: r.varSource, expression: r.varExpression }); break
       case "wait": data = JSON.stringify({ milliseconds: r.waitMs }); break
+      case "database": data = JSON.stringify({ driver: r.databaseDriver, dsn: r.databaseDSN, query: r.databaseQuery, resultVariable: r.databaseResultVariable }); break
     }
     return new Operation({ id: r.id.startsWith("__unsaved_") ? "" : r.id, stage: r.stage, phase: r.stage === "pre" ? r.phase : "", type: r.type, name: r.name, enabled: r.enabled, sortOrder: i, data })
   })
@@ -134,6 +135,10 @@ export interface OperationDataPayload {
   variable?: string
   scope?: string
   milliseconds?: number
+  driver?: string
+  dsn?: string
+  query?: string
+  resultVariable?: string
 }
 
 /** 单条后端 Operation → 编辑态行 */
@@ -152,6 +157,8 @@ export function operationToRow(o: Operation): OperationRow {
     varName: d.variable || "", varScope: d.scope || "environment",
     varSource: d.source || "responseJson", varExpression: d.expression || "",
     waitMs: d.milliseconds || 1000,
+    databaseDriver: d.driver || "sqlite", databaseDSN: d.dsn || "",
+    databaseQuery: d.query || "", databaseResultVariable: d.resultVariable || "",
   }
 }
 

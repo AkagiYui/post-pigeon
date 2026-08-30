@@ -19,7 +19,7 @@ export type EndpointType = "http" | "doc" | "websocket"
 export type OperationStage = "pre" | "post"
 
 /** 操作类型 */
-export type OperationType = "script" | "libraryScript" | "assert" | "extractVar" | "wait"
+export type OperationType = "script" | "libraryScript" | "assert" | "extractVar" | "wait" | "database"
 
 /** 主题模式 */
 export type ThemeMode = "light" | "dark" | "system"

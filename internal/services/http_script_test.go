@@ -1,6 +1,8 @@
 package services
 
 import (
+	"fmt"
+	"path/filepath"
 	"strings"
 	"testing"
 
@@ -125,6 +127,32 @@ func TestPreSendScriptRunsAfterVariableReplacement(t *testing.T) {
 	}
 	if resp.Scripts == nil || resp.Scripts.PreRequest == nil || !resp.Scripts.PreRequest.Executed {
 		t.Fatalf("both pre-request phases should be reported: %+v", resp.Scripts)
+	}
+}
+
+func TestDatabaseOperationExecutesSQLiteAndExposesRows(t *testing.T) {
+	db := newTestDB(t)
+	httpSvc := newTestHTTPService(t, db)
+	dsn := filepath.Join(t.TempDir(), "operation.db")
+	if _, err := httpSvc.executeDatabaseOperation("sqlite", dsn, "CREATE TABLE users (name text)"); err != nil {
+		t.Fatal(err)
+	}
+	if _, err := httpSvc.executeDatabaseOperation("sqlite", dsn, "INSERT INTO users(name) VALUES ('Alice')"); err != nil {
+		t.Fatal(err)
+	}
+	server := echoServer(t)
+	resp, err := httpSvc.SendRequest(SendRequestData{
+		Method: "GET", BaseURL: server.URL, Path: "/echo",
+		PreRequestScript: fmt.Sprintf(`
+			const rows = pm.database.execute('sqlite', %q, 'SELECT name FROM users');
+			pm.request.headers.upsert('X-Db-Name', rows[0].name);
+		`, dsn),
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if !strings.Contains(resp.Body, `"X-Db-Name":"Alice"`) {
+		t.Fatalf("database result was not exposed to operation script: %s", resp.Body)
 	}
 }
 

@@ -32,6 +32,7 @@ const (
 	OpTypeAssert        OperationType = "assert"        // 断言
 	OpTypeExtractVar    OperationType = "extractVar"    // 提取变量
 	OpTypeWait          OperationType = "wait"          // 等待（延时）
+	OpTypeDatabase      OperationType = "database"      // 数据库操作
 	OpTypeInherit       OperationType = "inherit"       // 继承标记：在此处运行上级继承的操作
 )
 
@@ -104,4 +105,12 @@ type ExtractVarOperationData struct {
 // WaitOperationData 等待操作的数据
 type WaitOperationData struct {
 	Milliseconds int `json:"milliseconds"`
+}
+
+// DatabaseOperationData 当前支持 SQLite 文件；Query 可包含变量占位符，结果可写入环境变量。
+type DatabaseOperationData struct {
+	Driver         string `json:"driver"`
+	DSN            string `json:"dsn"`
+	Query          string `json:"query"`
+	ResultVariable string `json:"resultVariable"`
 }
