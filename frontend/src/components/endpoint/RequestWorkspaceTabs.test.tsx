@@ -62,6 +62,35 @@ function drag(element: Element, type: string, dataTransfer: ReturnType<typeof tr
   fireEvent(element, event)
   return event
 }
+
+// jsdom 没有布局或 Web Animations；提供实际宽度和当前过渡进度，验证 DOM 重排的衔接。
+function measureTabs(widths: Record<string, number>, progress = 1, rtl = false) {
+  const records = new Map<string, { slot: HTMLElement; row: HTMLElement; animate: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn> }>()
+  for (const slot of document.querySelectorAll<HTMLElement>("[data-workspace-tab-slot]")) {
+    const id = slot.dataset.workspaceTabSlot!
+    const row = slot.firstElementChild as HTMLElement
+    slot.style.direction = rtl ? "rtl" : "ltr"
+    row.style.opacity = "1"
+    const rect = () => {
+      const ids = [...document.querySelectorAll<HTMLElement>("[data-workspace-tab-slot]")].map(node => node.dataset.workspaceTabSlot!)
+      const preceding = ids.slice(0, ids.indexOf(id)).reduce((sum, key) => sum + widths[key], 0)
+      const left = rtl ? Object.values(widths).reduce((sum, width) => sum + width, 0) - preceding - widths[id] : preceding
+      return { left, right: left + widths[id], width: widths[id], top: 0, bottom: 44, height: 44 } as DOMRect
+    }
+    vi.spyOn(slot, "getBoundingClientRect").mockImplementation(rect)
+    vi.spyOn(row, "getBoundingClientRect").mockImplementation(() => {
+      const bounds = rect()
+      const offset = Number(row.style.transform.match(/translateX\(([-\d.]+)px\)/)?.[1] ?? 0) * progress
+      return { ...bounds, left: bounds.left + offset, right: bounds.right + offset } as DOMRect
+    })
+    const cancel = vi.fn()
+    const animate = vi.fn(() => ({ cancel, onfinish: null }))
+    Object.defineProperty(row, "animate", { configurable: true, value: animate })
+    records.set(id, { slot, row, animate, cancel })
+  }
+  return records
+}
+
 function middleClick(element: Element) {
   fireEvent.mouseDown(element, { button: 1 })
   fireEvent.mouseUp(element, { button: 1 })
@@ -442,6 +471,66 @@ describe("RequestWorkspaceTabs", () => {
     expect(actions.onMove).toHaveBeenLastCalledWith("Pin A", "Pin B")
     expect(actions.onChange).not.toHaveBeenCalled()
     expect(actions.onClose).not.toHaveBeenCalled()
+  })
+
+  it.each([false, true])("previews variable-width gaps on stable hit targets and animates cancellation (RTL=%s)", (rtl) => {
+    const actions = setup([tab("Pin", { state: "pinned" }), tab("A"), tab("B"), tab("C")])
+    const measured = measureTabs({ Pin: 70, A: 120, B: 80, C: 160 }, 1, rtl)
+    const source = screen.getByRole("tab", { name: "A" })
+    const data = transfer()
+    const direction = rtl ? -1 : 1
+    const row = (id: string) => measured.get(id)!.row
+    const originalLeft = measured.get("B")!.slot.getBoundingClientRect().left
+    drag(source, "dragstart", data)
+    drag(screen.getByRole("tab", { name: "C" }), "dragover", data)
+    expect(row("A")).toHaveAttribute("data-dragging", "true")
+    expect(row("A").style.transform).toBe(`translateX(${direction * 240}px)`)
+    expect(row("B").style.transform).toBe(`translateX(${direction * -120}px)`)
+    expect(row("C").style.transform).toBe(`translateX(${direction * -120}px)`)
+    expect(row("Pin").style.transform).toBe("translateX(0px)")
+    expect(measured.get("B")!.slot.getBoundingClientRect().left).toBe(originalLeft)
+    expect(measured.get("C")!.slot.querySelector("[data-drop-indicator]")).toHaveClass("end-0")
+    expect(actions.onMove).not.toHaveBeenCalled()
+    drag(source, "dragend", data)
+    expect(row("A")).not.toHaveAttribute("data-dragging")
+    expect(row("A").style.transform).toBe("translateX(0px)")
+    expect(document.querySelector("[data-drop-indicator]")).toBeNull()
+    expect(measured.get("A")!.animate).toHaveBeenCalledWith([
+      { transform: `translateX(${direction * 240}px)`, opacity: "1" },
+      { transform: "translateX(0px)", opacity: "1" },
+    ], expect.objectContaining({ duration: 180 }))
+    expect(actions.onMove).not.toHaveBeenCalled()
+    actions.unmount()
+    expect(measured.get("A")!.cancel).toHaveBeenCalledOnce()
+  })
+
+  it.each([false, true])("commits a fast drop from the current visual position without remounting (reduced motion=%s)", (reduce) => {
+    const media = window.matchMedia("(prefers-reduced-motion: reduce)")
+    vi.spyOn(window, "matchMedia").mockReturnValue({ ...media, matches: reduce })
+    const items = [tab("A"), tab("B"), tab("C")]
+    const actions = setup(items)
+    actions.onMove.mockImplementation(() => actions.setItems([items[1], items[2], items[0]]))
+    const measured = measureTabs({ A: 100, B: 140, C: 80 }, 0.5)
+    const source = screen.getByRole("tab", { name: "A" })
+    const target = screen.getByRole("tab", { name: "C" })
+    const data = transfer()
+    drag(source, "dragstart", data)
+    drag(target, "dragover", data)
+    drag(target, "drop", data)
+    expect(actions.onMove).toHaveBeenCalledExactlyOnceWith("A", "C")
+    expect(screen.getAllByRole("tab").map(node => node.getAttribute("aria-label"))).toEqual(["B", "C", "A"])
+    expect(screen.getByRole("tab", { name: "A" })).toBe(source)
+    const a = measured.get("A")!
+    expect(a.row).toHaveClass("motion-reduce:transition-none")
+    expect(a.row.style.transform).toBe("translateX(0px)")
+    if (reduce) expect(a.animate).not.toHaveBeenCalled()
+    else expect(a.animate).toHaveBeenCalledWith([
+      { transform: "translateX(-110px)", opacity: "1" },
+      { transform: "translateX(0px)", opacity: "1" },
+    ], expect.objectContaining({ duration: 180 }))
+    drag(source, "dragend", data)
+    expect(a.animate).toHaveBeenCalledTimes(reduce ? 0 : 1)
+    expect(document.querySelector("[data-drop-indicator]")).toBeNull()
   })
 
   it("leaves external, stale, forged and changed-group drags untouched", () => {

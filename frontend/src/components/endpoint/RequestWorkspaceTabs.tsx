@@ -1,5 +1,5 @@
 import { Menu } from "@ark-ui/solid/menu"
-import { createEffect, createMemo, createUniqueId, For, onCleanup, Show } from "solid-js"
+import { batch, createEffect, createMemo, createSignal, createUniqueId, For, onCleanup, Show } from "solid-js"
 import { Dynamic, Portal } from "solid-js/web"
 
 import { ContextMenu, type MenuItem } from "@/components/ui/context-menu"
@@ -46,12 +46,70 @@ const TAB_MIME = "application/x-postpigeon-workspace-tab"
 /** A controlled toolbar only; the owner renders and retains request details. */
 export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
   const elements = new Map<string, HTMLButtonElement>()
+  const slots = new Map<string, HTMLDivElement>()
+  const rows = new Map<string, HTMLDivElement>()
+  const animations = new Map<string, Animation>()
   const fallbackPrefix = `workspace-${createUniqueId()}`
   const prefix = () => props.tabIdPrefix ?? fallbackPrefix
   const primaryKey = /mac/i.test(navigator.platform) ? "⌘" : "Ctrl"
   const tabsById = createMemo(() => new Map(props.tabs.map(tab => [tab.id, tab])))
   const tabIds = createMemo(() => props.tabs.map(tab => tab.id))
-  let draggingId: string | undefined
+  const [draggingId, setDraggingId] = createSignal<string>()
+  const [dropTargetId, setDropTargetId] = createSignal<string>()
+  const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches
+
+  // 只移动可见内容，命中区域保持原位，避免标签让位后反复触发相反方向的排序。
+  const dragPreview = createMemo(() => {
+    const from = props.tabs.findIndex(tab => tab.id === draggingId())
+    const to = props.tabs.findIndex(tab => tab.id === dropTargetId())
+    const offsets = new Map<string, number>()
+    if (from < 0 || to < 0 || from === to || (props.tabs[from].state === "pinned") !== (props.tabs[to].state === "pinned")) return offsets
+    const rects = new Map([...slots].map(([id, slot]) => [id, slot.getBoundingClientRect()]))
+    const ids = props.tabs.map(tab => tab.id)
+    const first = rects.get(ids[0])
+    if (!first) return offsets
+    const rtl = getComputedStyle(slots.get(ids[0])!).direction === "rtl"
+    let left = rtl ? first.right : first.left
+    ids.splice(to, 0, ids.splice(from, 1)[0])
+    for (const id of ids) {
+      const rect = rects.get(id)
+      if (!rect) continue
+      if (rtl) left -= rect.width
+      offsets.set(id, left - rect.left)
+      if (!rtl) left += rect.width
+    }
+    return offsets
+  })
+
+  // 松手或取消时从当前可见位置衔接；快速拖过多个标签也不会先闪回原位。
+  const finishDrag = (move?: () => void) => {
+    if (!draggingId()) return
+    const before = new Map([...rows].map(([id, row]) => [id, { left: row.getBoundingClientRect().left, opacity: getComputedStyle(row).opacity }]))
+    animations.forEach(animation => animation.cancel())
+    animations.clear()
+    rows.forEach(row => { row.style.transition = "none" })
+    batch(() => { setDraggingId(undefined); setDropTargetId(undefined); move?.() })
+    const after = new Map([...rows].map(([id, row]) => [id, row.getBoundingClientRect().left]))
+    const shouldAnimate = !reducedMotion()
+    for (const [id, row] of rows) {
+      const previous = before.get(id)
+      const offset = previous ? previous.left - after.get(id)! : 0
+      if (previous && (Math.abs(offset) > 0.5 || Number(previous.opacity) < 1) && shouldAnimate && row.animate) {
+        const animation = row.animate([
+          { transform: `translateX(${offset}px)`, opacity: previous.opacity },
+          { transform: "translateX(0px)", opacity: "1" },
+        ], { duration: 180, easing: "cubic-bezier(0.2, 0, 0, 1)" })
+        animations.set(id, animation)
+        animation.onfinish = () => { if (animations.get(id) === animation) animations.delete(id) }
+      }
+      row.style.removeProperty("transition")
+    }
+  }
+
+  createEffect(() => {
+    const source = draggingId()
+    if (source && !tabsById().has(source)) finishDrag()
+  })
 
   const badge = (tab: WorkspaceTab) => {
     if (tab.type === "websocket") return "WS"
@@ -114,7 +172,11 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
     props.tabs.map(tab => tab.id)
     queueMicrotask(() => reveal(id))
   })
-  onCleanup(() => elements.clear())
+  onCleanup(() => {
+    animations.forEach(animation => animation.cancel())
+    animations.clear()
+    elements.clear(); slots.clear(); rows.clear()
+  })
 
   function navigate(event: KeyboardEvent, id: string) {
     if (event.altKey || event.ctrlKey || event.metaKey || event.shiftKey) return
@@ -139,8 +201,8 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
 
   function dragSource(event: DragEvent, target: WorkspaceTab) {
     // A local drag ID is required: MIME alone must never claim an external drag.
-    if (!draggingId || !event.dataTransfer?.types.includes(TAB_MIME)) return
-    const source = props.tabs.find(tab => tab.id === draggingId)
+    if (!draggingId() || !event.dataTransfer?.types.includes(TAB_MIME)) return
+    const source = props.tabs.find(tab => tab.id === draggingId())
     const currentTarget = props.tabs.find(tab => tab.id === target.id)
     if (source && currentTarget && source.id !== target.id && canBatchClose(source) === canBatchClose(currentTarget)) return source
   }
@@ -173,26 +235,32 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
             onCleanup(() => {
               cancelTitleClick()
               if (elements.get(id) === element) elements.delete(id)
+              slots.delete(id); rows.delete(id)
+              animations.get(id)?.cancel(); animations.delete(id)
             })
             return (
               <ContextMenu items={contextItems(tab())} class="flex min-w-0 shrink-0">
                 <div
-                  class={cn(
-                    "group relative flex h-full min-w-[92px] max-w-[202px] items-center rounded-none border-r border-t-2 border-r-divider",
-                    props.value === id ? "border-t-accent bg-surface text-foreground" : "border-t-transparent text-muted-foreground hover:bg-hover",
-                  )}
+                  ref={node => slots.set(id, node)}
+                  class="relative h-full"
+                  data-workspace-tab-slot={id}
                   onDragOver={(event) => {
-                    if (!dragSource(event, tab())) return
+                    if (!dragSource(event, tab())) { setDropTargetId(undefined); return }
                     event.preventDefault()
                     event.dataTransfer!.dropEffect = "move"
+                    setDropTargetId(id)
+                  }}
+                  onDragLeave={(event) => {
+                    if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
+                      if (dropTargetId() === id) setDropTargetId(undefined)
+                    }
                   }}
                   onDrop={(event) => {
                     const source = dragSource(event, tab())
                     if (!source || event.dataTransfer?.getData(TAB_MIME) !== source.id) return
                     event.preventDefault()
                     event.stopPropagation()
-                    draggingId = undefined
-                    props.onMove(source.id, id)
+                    finishDrag(() => props.onMove(source.id, id))
                   }}
                   onAuxClick={(event) => {
                     if (event.button !== 1) return
@@ -200,62 +268,84 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
                     close()
                   }}
                 >
-                  <button
-                    ref={(node) => { element = node; elements.set(id, node) }}
-                    type="button"
-                    role="tab"
-                    id={`${prefix()}-tab-${encodeURIComponent(id)}`}
-                    aria-controls={props.tabIdPrefix ? `${prefix()}-panel-${encodeURIComponent(id)}` : undefined}
-                    aria-selected={props.value === id}
-                    aria-label={props.labelFor(tab())}
-                    tabindex={props.value === id || (!tabsById().has(props.value) && tabIds()[0] === id) ? 0 : -1}
-                    title={title(tab())}
-                    class="flex h-full min-w-0 flex-1 items-center gap-2 px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                    draggable="true"
-                    onDragStart={(event) => {
-                      if (!event.dataTransfer) return
-                      cancelTitleClick()
-                      draggingId = id
-                      event.dataTransfer.setData(TAB_MIME, id)
-                      event.dataTransfer.effectAllowed = "move"
-                    }}
-                    onDragEnd={() => { draggingId = undefined }}
-                    onMouseDown={(event) => { if (event.button === 1) event.preventDefault() }}
-                    onClick={() => props.onChange(id)}
-                    onDblClick={() => { cancelTitleClick(); props.onKeep(id) }}
-                    onKeyDown={event => navigate(event, id)}
-                  >
-                    <Dynamic component={tab().state === "preview" ? "em" : "span"} class={cn("flex min-w-0 flex-1 items-center gap-2", tab().state === "preview" && "italic")}>
-                      <span class={cn("shrink-0 text-[10px] font-semibold", METHOD_COLORS[tab().method.toUpperCase()])}>{badge(tab())}</span>
-                      <span class="min-w-0 truncate" onClick={titleClick}>{props.labelFor(tab())}</span>
-                    </Dynamic>
-                    <Show when={!tab().saved || tab().dirty}>
-                      <span role="img" aria-label={status(tab())} title={status(tab())} class="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
-                    </Show>
-                  </button>
-                  <Show
-                    when={tab().state === "pinned"}
-                    fallback={(
-                      <button
-                        type="button"
-                        aria-label={t("workspaceTabs.closeTab", { name: props.labelFor(tab()) })}
-                        title={t("workspaceTabs.close")}
-                        class="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-hover focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100"
-                        onClick={close}
-                      >
-                        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M6 18 18 6" /></svg>
-                      </button>
+                  <div
+                    ref={node => rows.set(id, node)}
+                    data-dragging={draggingId() === id ? "true" : undefined}
+                    class={cn(
+                      "group relative flex h-full min-w-[92px] max-w-[202px] items-center rounded-none border-r border-t-2 border-r-divider transition-[transform,opacity,background-color] duration-180 ease-out motion-reduce:transition-none",
+                      props.value === id ? "border-t-accent bg-surface text-foreground" : "border-t-transparent bg-surface-alt text-muted-foreground hover:bg-hover",
+                      draggingId() && "pointer-events-none",
+                      draggingId() === id && "opacity-40",
                     )}
+                    style={{ transform: `translateX(${dragPreview().get(id) ?? 0}px)` }}
                   >
                     <button
+                      ref={(node) => { element = node; elements.set(id, node) }}
                       type="button"
-                      aria-label={t("workspaceTabs.unpinTab", { name: props.labelFor(tab()) })}
-                      title={t("workspaceTabs.unpin")}
-                      class="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
-                      onClick={() => props.onTogglePin(id)}
+                      role="tab"
+                      id={`${prefix()}-tab-${encodeURIComponent(id)}`}
+                      aria-controls={props.tabIdPrefix ? `${prefix()}-panel-${encodeURIComponent(id)}` : undefined}
+                      aria-selected={props.value === id}
+                      aria-label={props.labelFor(tab())}
+                      tabindex={props.value === id || (!tabsById().has(props.value) && tabIds()[0] === id) ? 0 : -1}
+                      title={title(tab())}
+                      class="flex h-full min-w-0 flex-1 items-center gap-2 px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
+                      draggable="true"
+                      onDragStart={(event) => {
+                        if (!event.dataTransfer) return
+                        cancelTitleClick()
+                        finishDrag()
+                        animations.forEach(animation => animation.cancel())
+                        animations.clear()
+                        setDraggingId(id)
+                        event.dataTransfer.setData(TAB_MIME, id)
+                        event.dataTransfer.effectAllowed = "move"
+                      }}
+                      onDragEnd={() => finishDrag()}
+                      onMouseDown={(event) => { if (event.button === 1) event.preventDefault() }}
+                      onClick={() => props.onChange(id)}
+                      onDblClick={() => { cancelTitleClick(); props.onKeep(id) }}
+                      onKeyDown={event => navigate(event, id)}
                     >
-                      <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 9V3H8v6l-3 3v3h14v-3ZM12 15v7" /></svg>
+                      <Dynamic component={tab().state === "preview" ? "em" : "span"} class={cn("flex min-w-0 flex-1 items-center gap-2", tab().state === "preview" && "italic")}>
+                        <span class={cn("shrink-0 text-[10px] font-semibold", METHOD_COLORS[tab().method.toUpperCase()])}>{badge(tab())}</span>
+                        <span class="min-w-0 truncate" onClick={titleClick}>{props.labelFor(tab())}</span>
+                      </Dynamic>
+                      <Show when={!tab().saved || tab().dirty}>
+                        <span role="img" aria-label={status(tab())} title={status(tab())} class="h-1.5 w-1.5 shrink-0 rounded-full bg-accent" />
+                      </Show>
                     </button>
+                    <Show
+                      when={tab().state === "pinned"}
+                      fallback={(
+                        <button
+                          type="button"
+                          aria-label={t("workspaceTabs.closeTab", { name: props.labelFor(tab()) })}
+                          title={t("workspaceTabs.close")}
+                          class="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground opacity-0 hover:bg-hover focus-visible:opacity-100 focus-visible:ring-2 focus-visible:ring-ring group-hover:opacity-100 group-focus-within:opacity-100"
+                          onClick={close}
+                        >
+                          <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="m6 6 12 12M6 18 18 6" /></svg>
+                        </button>
+                      )}
+                    >
+                      <button
+                        type="button"
+                        aria-label={t("workspaceTabs.unpinTab", { name: props.labelFor(tab()) })}
+                        title={t("workspaceTabs.unpin")}
+                        class="mr-1 flex h-6 w-6 shrink-0 items-center justify-center rounded text-muted-foreground hover:bg-hover focus-visible:ring-2 focus-visible:ring-ring"
+                        onClick={() => props.onTogglePin(id)}
+                      >
+                        <svg aria-hidden="true" width="12" height="12" viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2"><path d="M16 9V3H8v6l-3 3v3h14v-3ZM12 15v7" /></svg>
+                      </button>
+                    </Show>
+                  </div>
+                  <Show when={dropTargetId() === id && dragPreview().size > 0}>
+                    <div
+                      aria-hidden="true"
+                      data-drop-indicator="true"
+                      class={cn("pointer-events-none absolute inset-y-1 z-10 w-0.5 rounded-full bg-accent", props.tabs.findIndex(tab => tab.id === draggingId()) < props.tabs.findIndex(tab => tab.id === id) ? "end-0" : "start-0")}
+                    />
                   </Show>
                 </div>
               </ContextMenu>
