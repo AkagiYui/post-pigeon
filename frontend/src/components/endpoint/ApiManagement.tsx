@@ -918,7 +918,7 @@ export function ApiManagement(props: ApiManagementProps) {
     const key = session.key
     // 每次发送生成唯一 ID，后端据此登记进行中的请求，用户可随时取消
     const requestId = crypto.randomUUID()
-    updateSession(tabId, { requestId })
+    updateSession(tabId, { requestId, requestCancelled: false })
     const commitResponse = (response: ResponseData) => {
       const id = sessionIdForKey(key)
       if (id && sessions()[id]?.requestId === requestId) setResponseData(response, id)
@@ -933,9 +933,9 @@ export function ApiManagement(props: ApiManagementProps) {
         await HTTPService.StopStream(previousStreamId)
         clearStream(previousStreamId)
       }
-      // 停止旧流期间可能关闭标签，不能在取消已完成后再发起新的网络请求。
+      // 停止旧流期间可能关闭标签或取消；此时新请求尚未登记到后端，需检查本地意图。
       const currentId = sessionIdForKey(key)
-      if (!currentId || sessions()[currentId]?.requestId !== requestId) return
+      if (!currentId || sessions()[currentId]?.requestId !== requestId || sessions()[currentId]?.requestCancelled) return
       const resp = await HTTPService.SendRequest(sendData)
       if (resp) {
         if (resp.streaming) {
@@ -1047,6 +1047,7 @@ export function ApiManagement(props: ApiManagementProps) {
   const handleCancelSend = async (tabId = activeTabId() || "") => {
     const id = sessions()[tabId]?.requestId
     if (!id) return
+    updateSession(tabId, { requestCancelled: true })
     try {
       await HTTPService.CancelRequest(id)
     } catch (e) {

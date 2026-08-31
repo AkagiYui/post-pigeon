@@ -363,6 +363,26 @@ describe("request workspace data safety", () => {
     expect(screen.queryByTestId("tab-A")).not.toBeInTheDocument()
   })
 
+  it("honors cancellation while preparing a new send even before backend request registration", async () => {
+    mocks.send.mockResolvedValueOnce({ ...response(""), streaming: true, streamId: "old-stream" })
+    await start(); const editor = await open("A")
+    fireEvent.click(within(editor).getByText("send"))
+    await waitFor(() => expect(within(editor).getByTestId("sending")).toHaveTextContent("false"))
+    const stop = deferred<void>()
+    mocks.stop.mockReturnValueOnce(stop.promise)
+    fireEvent.click(within(editor).getByText("send"))
+    fireEvent.click(within(editor).getByText("cancel-send"))
+    expect(mocks.cancel).toHaveBeenCalledOnce()
+    stop.resolve()
+    await waitFor(() => expect(within(editor).getByTestId("sending")).toHaveTextContent("false"))
+    expect(mocks.send).toHaveBeenCalledTimes(1)
+    expect(screen.getByTestId("tab-A")).toBeInTheDocument()
+    mocks.send.mockResolvedValueOnce(response("retry"))
+    fireEvent.click(within(editor).getByText("send"))
+    await waitFor(() => expect(within(editor).getByTestId("response")).toHaveTextContent("retry"))
+    expect(mocks.send).toHaveBeenCalledTimes(2)
+  })
+
   it("routes late WebSocket handshakes to their stable connection session", async () => {
     const connect = deferred<ReturnType<typeof response>>()
     mocks.connect.mockReturnValueOnce(connect.promise)

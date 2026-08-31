@@ -35,6 +35,7 @@ export interface RequestSession {
   loading: boolean
   loadError: boolean
   requestId: string
+  requestCancelled: boolean
   saving: boolean
 }
 
@@ -78,7 +79,7 @@ export function createRequestSession(draft: EndpointData, key = crypto.randomUUI
   return {
     key, draft: snapshotEndpoint(draft), baseline: endpointFingerprint(draft), response: null,
     moduleId: "", environmentBaseUrls: [], globalQueryParams: [], inheritedOpCounts: { pre: 0, post: 0 },
-    contextId: "", inheritanceId: "", loadId: "", loading: false, loadError: false, requestId: "", saving: false,
+    contextId: "", inheritanceId: "", loadId: "", loading: false, loadError: false, requestId: "", requestCancelled: false, saving: false,
   }
 }
 
