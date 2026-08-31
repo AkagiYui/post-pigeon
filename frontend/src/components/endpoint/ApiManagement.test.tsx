@@ -347,6 +347,22 @@ describe("request workspace data safety", () => {
     await waitFor(() => expect(within(editorB).getByTestId("response")).toHaveTextContent("B done"))
   })
 
+  it("does not send again if the tab closes while the previous stream is stopping", async () => {
+    mocks.send.mockResolvedValueOnce({ ...response(""), streaming: true, streamId: "old-stream" })
+    await start(); const editor = await open("A")
+    fireEvent.click(within(editor).getByText("send"))
+    await waitFor(() => expect(within(editor).getByTestId("sending")).toHaveTextContent("false"))
+    const stop = deferred<void>()
+    mocks.stop.mockReturnValueOnce(stop.promise)
+    fireEvent.click(within(editor).getByText("send"))
+    await waitFor(() => expect(mocks.stop).toHaveBeenCalledWith("old-stream"))
+    close("A")
+    stop.resolve()
+    await Promise.resolve(); await Promise.resolve()
+    expect(mocks.send).toHaveBeenCalledTimes(1)
+    expect(screen.queryByTestId("tab-A")).not.toBeInTheDocument()
+  })
+
   it("routes late WebSocket handshakes to their stable connection session", async () => {
     const connect = deferred<ReturnType<typeof response>>()
     mocks.connect.mockReturnValueOnce(connect.promise)

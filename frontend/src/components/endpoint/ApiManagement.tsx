@@ -933,6 +933,9 @@ export function ApiManagement(props: ApiManagementProps) {
         await HTTPService.StopStream(previousStreamId)
         clearStream(previousStreamId)
       }
+      // 停止旧流期间可能关闭标签，不能在取消已完成后再发起新的网络请求。
+      const currentId = sessionIdForKey(key)
+      if (!currentId || sessions()[currentId]?.requestId !== requestId) return
       const resp = await HTTPService.SendRequest(sendData)
       if (resp) {
         if (resp.streaming) {
