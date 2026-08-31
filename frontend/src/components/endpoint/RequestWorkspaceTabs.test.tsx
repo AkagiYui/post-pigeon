@@ -45,27 +45,23 @@ async function selectItem(menu: HTMLElement, name: string | RegExp) {
   await waitFor(() => expect(menu).not.toBeVisible())
 }
 
-// jsdom has no DataTransfer/DragEvent; use a browser-shaped data store and dispatch
-// bubbling DOM events through the actual tab UI (no component handler imports).
-function transfer(initial: Record<string, string> = {}) {
-  const data = new Map(Object.entries(initial))
-  return {
-    get types() { return [...data.keys()] },
-    setData: (key: string, value: string) => { data.set(key, value) },
-    getData: (key: string) => data.get(key) ?? "",
-    effectAllowed: "uninitialized", dropEffect: "none",
-  }
-}
-function drag(element: Element, type: string, dataTransfer: ReturnType<typeof transfer>) {
+// 通过实际指针事件路径测试拖动，不手动派发浏览器未必会产生的 dragstart/drop。
+function pointer(target: Element | Document, type: string, x: number, y = 20, extra: Partial<PointerEvent> = {}) {
   const event = new Event(type, { bubbles: true, cancelable: true })
-  Object.defineProperty(event, "dataTransfer", { value: dataTransfer })
-  fireEvent(element, event)
+  for (const [key, value] of Object.entries({ pointerId: 1, button: 0, clientX: x, clientY: y, isPrimary: true, ...extra })) {
+    Object.defineProperty(event, key, { value })
+  }
+  fireEvent(target, event)
   return event
 }
 
 // jsdom 没有布局或 Web Animations；提供实际宽度和当前过渡进度，验证 DOM 重排的衔接。
 function measureTabs(widths: Record<string, number>, progress = 1, rtl = false) {
   const records = new Map<string, { slot: HTMLElement; row: HTMLElement; animate: ReturnType<typeof vi.fn>; cancel: ReturnType<typeof vi.fn> }>()
+  for (const list of document.querySelectorAll<HTMLElement>('[role="tablist"]')) {
+    const width = Object.values(widths).reduce((sum, item) => sum + item, 0)
+    vi.spyOn(list, "getBoundingClientRect").mockReturnValue({ left: 0, right: width, top: 0, bottom: 44, width, height: 44 } as DOMRect)
+  }
   for (const slot of document.querySelectorAll<HTMLElement>("[data-workspace-tab-slot]")) {
     const id = slot.dataset.workspaceTabSlot!
     const row = slot.firstElementChild as HTMLElement
@@ -435,54 +431,41 @@ describe("RequestWorkspaceTabs", () => {
     expect(actions.onKeep).toHaveBeenCalledExactlyOnceWith("说明")
   })
 
-  it("groups preview/resident together and pinned separately when reordering with a private drag type", () => {
-    const actions = setup([
-      tab("Pin A", { state: "pinned" }), tab("Pin B", { state: "pinned" }),
-      tab("Resident A"), tab("Resident B"), tab("Preview", { state: "preview" }),
-    ])
-    const resident = screen.getByRole("tab", { name: "Resident A" })
-    const other = screen.getByRole("tab", { name: "Resident B" })
-    const pinned = screen.getByRole("tab", { name: "Pin A" })
-    const preview = screen.getByRole("tab", { name: "Preview" })
-    const data = transfer()
-    expect(resident.draggable).toBe(true)
-    drag(resident, "dragstart", data)
-    expect(data.types).toHaveLength(1)
-    expect(data.types[0]).toMatch(/^application\/x-/)
-    expect(data.getData(data.types[0])).toBe("Resident A")
-    expect(data.effectAllowed).toBe("move")
-    for (const invalid of [resident, pinned]) {
-      expect(drag(invalid, "dragover", data).defaultPrevented).toBe(false)
-      expect(drag(invalid, "drop", data).defaultPrevented).toBe(false)
-    }
-    expect(drag(other, "dragover", data).defaultPrevented).toBe(true)
-    expect(data.dropEffect).toBe("move")
-    expect(drag(other, "drop", data).defaultPrevented).toBe(true)
-    expect(actions.onMove).toHaveBeenCalledExactlyOnceWith("Resident A", "Resident B")
-    drag(resident, "dragstart", data)
-    expect(drag(preview, "dragover", data).defaultPrevented).toBe(true)
-    expect(drag(preview, "drop", data).defaultPrevented).toBe(true)
-    expect(actions.onMove).toHaveBeenLastCalledWith("Resident A", "Preview")
-    drag(preview, "dragstart", data)
-    expect(drag(resident, "drop", data).defaultPrevented).toBe(true)
-    expect(actions.onMove).toHaveBeenLastCalledWith("Preview", "Resident A")
-    drag(pinned, "dragstart", data)
-    drag(screen.getByRole("tab", { name: "Pin B" }), "drop", data)
-    expect(actions.onMove).toHaveBeenLastCalledWith("Pin A", "Pin B")
+  it("starts only after the movement threshold and commits within the same pin group", () => {
+    const actions = setup([tab("Pin A", { state: "pinned" }), tab("Pin B", { state: "pinned" }), tab("A"), tab("B", { state: "preview" })])
+    measureTabs({ "Pin A": 100, "Pin B": 100, A: 100, B: 100 })
+    const source = screen.getByRole("tab", { name: "A" })
+    pointer(source, "pointerdown", 220)
+    expect(pointer(document, "pointermove", 223).defaultPrevented).toBe(false)
+    expect(source.parentElement).not.toHaveAttribute("data-dragging")
+    expect(pointer(document, "pointermove", 350).defaultPrevented).toBe(true)
+    expect(actions.onMove).not.toHaveBeenCalled()
+    pointer(document, "pointerup", 350)
+    expect(actions.onMove).toHaveBeenCalledExactlyOnceWith("A", "B")
+    fireEvent.click(source, { detail: 1 })
     expect(actions.onChange).not.toHaveBeenCalled()
-    expect(actions.onClose).not.toHaveBeenCalled()
+    pointer(source, "pointerdown", 220)
+    pointer(document, "pointermove", 50)
+    pointer(document, "pointerup", 50)
+    expect(actions.onMove).toHaveBeenCalledTimes(1)
+    const pinned = screen.getByRole("tab", { name: "Pin A" })
+    pointer(pinned, "pointerdown", 20)
+    pointer(document, "pointermove", 150)
+    pointer(document, "pointerup", 150)
+    expect(actions.onMove).toHaveBeenLastCalledWith("Pin A", "Pin B")
   })
 
   it.each([false, true])("previews variable-width gaps on stable hit targets and animates cancellation (RTL=%s)", (rtl) => {
     const actions = setup([tab("Pin", { state: "pinned" }), tab("A"), tab("B"), tab("C")])
     const measured = measureTabs({ Pin: 70, A: 120, B: 80, C: 160 }, 1, rtl)
     const source = screen.getByRole("tab", { name: "A" })
-    const data = transfer()
     const direction = rtl ? -1 : 1
     const row = (id: string) => measured.get(id)!.row
     const originalLeft = measured.get("B")!.slot.getBoundingClientRect().left
-    drag(source, "dragstart", data)
-    drag(screen.getByRole("tab", { name: "C" }), "dragover", data)
+    const sourceX = measured.get("A")!.slot.getBoundingClientRect().left + 20
+    const targetX = measured.get("C")!.slot.getBoundingClientRect().left + 20
+    pointer(source, "pointerdown", sourceX)
+    pointer(document, "pointermove", targetX)
     expect(row("A")).toHaveAttribute("data-dragging", "true")
     expect(row("A").style.transform).toBe(`translateX(${direction * 240}px)`)
     expect(row("B").style.transform).toBe(`translateX(${direction * -120}px)`)
@@ -491,7 +474,7 @@ describe("RequestWorkspaceTabs", () => {
     expect(measured.get("B")!.slot.getBoundingClientRect().left).toBe(originalLeft)
     expect(measured.get("C")!.slot.querySelector("[data-drop-indicator]")).toHaveClass("end-0")
     expect(actions.onMove).not.toHaveBeenCalled()
-    drag(source, "dragend", data)
+    fireEvent.keyDown(document, { key: "Escape" })
     expect(row("A")).not.toHaveAttribute("data-dragging")
     expect(row("A").style.transform).toBe("translateX(0px)")
     expect(document.querySelector("[data-drop-indicator]")).toBeNull()
@@ -499,6 +482,7 @@ describe("RequestWorkspaceTabs", () => {
       { transform: `translateX(${direction * 240}px)`, opacity: "1" },
       { transform: "translateX(0px)", opacity: "1" },
     ], expect.objectContaining({ duration: 180 }))
+    pointer(document, "pointerup", targetX)
     expect(actions.onMove).not.toHaveBeenCalled()
     actions.unmount()
     expect(measured.get("A")!.cancel).toHaveBeenCalledOnce()
@@ -512,11 +496,9 @@ describe("RequestWorkspaceTabs", () => {
     actions.onMove.mockImplementation(() => actions.setItems([items[1], items[2], items[0]]))
     const measured = measureTabs({ A: 100, B: 140, C: 80 }, 0.5)
     const source = screen.getByRole("tab", { name: "A" })
-    const target = screen.getByRole("tab", { name: "C" })
-    const data = transfer()
-    drag(source, "dragstart", data)
-    drag(target, "dragover", data)
-    drag(target, "drop", data)
+    pointer(source, "pointerdown", 20)
+    pointer(document, "pointermove", 270)
+    pointer(document, "pointerup", 270)
     expect(actions.onMove).toHaveBeenCalledExactlyOnceWith("A", "C")
     expect(screen.getAllByRole("tab").map(node => node.getAttribute("aria-label"))).toEqual(["B", "C", "A"])
     expect(screen.getByRole("tab", { name: "A" })).toBe(source)
@@ -528,48 +510,85 @@ describe("RequestWorkspaceTabs", () => {
       { transform: "translateX(-110px)", opacity: "1" },
       { transform: "translateX(0px)", opacity: "1" },
     ], expect.objectContaining({ duration: 180 }))
-    drag(source, "dragend", data)
+    pointer(document, "pointerup", 270)
     expect(a.animate).toHaveBeenCalledTimes(reduce ? 0 : 1)
     expect(document.querySelector("[data-drop-indicator]")).toBeNull()
   })
 
-  it("leaves external, stale, forged and changed-group drags untouched", () => {
+  it("captures a stable outer element and releases it even though visual contents ignore pointer hits", () => {
     const actions = setup([tab("A"), tab("B")])
+    const measured = measureTabs({ A: 100, B: 140 })
     const source = screen.getByRole("tab", { name: "A" })
-    const target = () => screen.getByRole("tab", { name: "B" })
-    const external = transfer({ "text/plain": "A", "text/uri-list": "https://example.com" })
-    expect(drag(target(), "dragover", external).defaultPrevented).toBe(false)
-    expect(drag(target(), "drop", external).defaultPrevented).toBe(false)
-    const data = transfer()
-    drag(source, "dragstart", data)
-    data.setData(data.types[0], "forged")
-    expect(drag(target(), "drop", data).defaultPrevented).toBe(false)
-    data.setData(data.types[0], "A")
-    actions.setItems([tab("A"), tab("B", { state: "pinned" })])
-    expect(drag(target(), "dragover", data).defaultPrevented).toBe(false)
-    expect(drag(target(), "drop", data).defaultPrevented).toBe(false)
-    actions.setItems([tab("A"), tab("B")])
-    drag(screen.getByRole("tab", { name: "A" }), "dragend", data)
-    expect(drag(target(), "dragover", data).defaultPrevented).toBe(false)
-    expect(drag(target(), "drop", data).defaultPrevented).toBe(false)
-    drag(screen.getByRole("tab", { name: "A" }), "dragstart", data)
-    actions.setItems([tab("B")])
-    expect(drag(target(), "drop", data).defaultPrevented).toBe(false)
+    const { slot, row } = measured.get("A")!
+    const capture = vi.fn()
+    const release = vi.fn()
+    Object.defineProperties(slot, {
+      setPointerCapture: { value: capture, configurable: true },
+      hasPointerCapture: { value: () => true, configurable: true },
+      releasePointerCapture: { value: release, configurable: true },
+    })
+    pointer(source, "pointerdown", 20)
+    expect(capture).not.toHaveBeenCalled()
+    pointer(document, "pointermove", 150)
+    expect(capture).toHaveBeenCalledWith(1)
+    expect(row).toHaveClass("pointer-events-none")
+    expect(slot.closest(".pointer-events-none")).toBeNull()
+    expect(slot.style.transform).toBe("")
+    // 捕获后 pointerup 的目标仍是原槽位，必须用坐标而不是 event.target 决定落点。
+    pointer(slot, "pointerup", 150)
+    expect(actions.onMove).toHaveBeenCalledExactlyOnceWith("A", "B")
+    expect(release).toHaveBeenCalledWith(1)
+  })
+
+  it("preserves clicks, middle/right buttons and controls; ignores other pointers and external drops", () => {
+    const actions = setup([tab("A"), tab("B", { state: "pinned" })])
+    measureTabs({ A: 100, B: 100 })
+    const source = screen.getByRole("tab", { name: "A" })
+    for (const control of [screen.getByRole("button", { name: "Close A" }), screen.getByRole("button", { name: "Unpin B" })]) {
+      pointer(control, "pointerdown", 20)
+      expect(pointer(document, "pointermove", 150).defaultPrevented).toBe(false)
+    }
+    for (const button of [1, 2]) {
+      pointer(source, "pointerdown", 20, 20, { button })
+      expect(pointer(document, "pointermove", 150).defaultPrevented).toBe(false)
+    }
+    pointer(source, "pointerdown", 20)
+    expect(pointer(document, "pointermove", 150, 20, { pointerId: 2 }).defaultPrevented).toBe(false)
+    pointer(document, "pointerup", 22)
+    fireEvent.click(source, { detail: 1 })
+    expect(actions.onChange).toHaveBeenCalledExactlyOnceWith("A")
+    const external = new Event("drop", { bubbles: true, cancelable: true })
+    fireEvent(source, external)
+    expect(external.defaultPrevented).toBe(false)
     expect(actions.onMove).not.toHaveBeenCalled()
   })
 
-  it("does not consume the same MIME drag from another workspace toolbar", () => {
-    const first = setup([tab("A"), tab("B")])
-    const second = setup([tab("C"), tab("D")])
-    const data = transfer()
-    drag(screen.getByRole("tab", { name: "A" }), "dragstart", data)
-    const target = screen.getByRole("tab", { name: "D" })
-    const onExternalDrop = vi.fn()
-    second.container.addEventListener("drop", onExternalDrop)
-    expect(drag(target, "dragover", data).defaultPrevented).toBe(false)
-    expect(drag(target, "drop", data).defaultPrevented).toBe(false)
-    expect(onExternalDrop).toHaveBeenCalledOnce()
-    expect(first.onMove).not.toHaveBeenCalled()
-    expect(second.onMove).not.toHaveBeenCalled()
+  it.each(["outside", "cancel", "blur", "removed", "regrouped", "unmount"])("cancels safely when the gesture ends via %s", (reason) => {
+    const actions = setup([tab("A"), tab("B")])
+    measureTabs({ A: 100, B: 100 })
+    const source = screen.getByRole("tab", { name: "A" })
+    pointer(source, "pointerdown", 20)
+    pointer(document, "pointermove", 150)
+    if (reason === "outside") pointer(document, "pointerup", 250)
+    if (reason === "cancel") pointer(document, "pointercancel", 150)
+    if (reason === "blur") fireEvent(window, new Event("blur"))
+    if (reason === "removed") actions.setItems([tab("B")])
+    if (reason === "regrouped") actions.setItems([tab("A"), tab("B", { state: "pinned" })])
+    if (reason === "unmount") actions.unmount()
+    pointer(document, "pointerup", 150)
+    expect(actions.onMove).not.toHaveBeenCalled()
+    expect(document.querySelector("[data-dragging]")).toBeNull()
+    expect(document.querySelector("[data-drop-indicator]")).toBeNull()
+    expect(pointer(document, "pointermove", 150).defaultPrevented).toBe(false)
+  })
+
+  it("does not start a stale gesture after its source is removed before the threshold", () => {
+    const actions = setup([tab("A"), tab("B")])
+    measureTabs({ A: 100, B: 100 })
+    pointer(screen.getByRole("tab", { name: "A" }), "pointerdown", 20)
+    actions.setItems([tab("B")])
+    pointer(document, "pointermove", 150)
+    pointer(document, "pointerup", 150)
+    expect(actions.onMove).not.toHaveBeenCalled()
   })
 })

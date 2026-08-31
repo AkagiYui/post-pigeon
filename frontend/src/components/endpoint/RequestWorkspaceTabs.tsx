@@ -41,8 +41,6 @@ export interface RequestWorkspaceTabsProps {
   tabIdPrefix?: string
 }
 
-const TAB_MIME = "application/x-postpigeon-workspace-tab"
-
 /** A controlled toolbar only; the owner renders and retains request details. */
 export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
   const elements = new Map<string, HTMLButtonElement>()
@@ -56,6 +54,8 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
   const tabIds = createMemo(() => props.tabs.map(tab => tab.id))
   const [draggingId, setDraggingId] = createSignal<string>()
   const [dropTargetId, setDropTargetId] = createSignal<string>()
+  let pointer: { id: string; pointerId: number; x: number; y: number } | undefined
+  let suppressPointerClick = false
   const reducedMotion = () => window.matchMedia("(prefers-reduced-motion: reduce)").matches
 
   // 只移动可见内容，命中区域保持原位，避免标签让位后反复触发相反方向的排序。
@@ -83,6 +83,15 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
 
   // 松手或取消时从当前可见位置衔接；快速拖过多个标签也不会先闪回原位。
   const finishDrag = (move?: () => void) => {
+    const previousPointer = pointer
+    pointer = undefined
+    document.removeEventListener("pointermove", movePointer)
+    document.removeEventListener("pointerup", endPointer)
+    document.removeEventListener("pointercancel", cancelPointer)
+    document.removeEventListener("keydown", escapePointer)
+    window.removeEventListener("blur", cancelGesture)
+    const slot = previousPointer && slots.get(previousPointer.id)
+    if (previousPointer && slot?.hasPointerCapture?.(previousPointer.pointerId)) slot.releasePointerCapture(previousPointer.pointerId)
     if (!draggingId()) return
     const before = new Map([...rows].map(([id, row]) => [id, { left: row.getBoundingClientRect().left, opacity: getComputedStyle(row).opacity }]))
     animations.forEach(animation => animation.cancel())
@@ -173,6 +182,7 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
     queueMicrotask(() => reveal(id))
   })
   onCleanup(() => {
+    finishDrag()
     animations.forEach(animation => animation.cancel())
     animations.clear()
     elements.clear(); slots.clear(); rows.clear()
@@ -199,12 +209,53 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
     reveal(target.id)
   }
 
-  function dragSource(event: DragEvent, target: WorkspaceTab) {
-    // A local drag ID is required: MIME alone must never claim an external drag.
-    if (!draggingId() || !event.dataTransfer?.types.includes(TAB_MIME)) return
-    const source = props.tabs.find(tab => tab.id === draggingId())
-    const currentTarget = props.tabs.find(tab => tab.id === target.id)
-    if (source && currentTarget && source.id !== target.id && canBatchClose(source) === canBatchClose(currentTarget)) return source
+  // 由稳定外层捕获指针，使用未变换的槽位命中检测；不依赖 WebView 原生 dragstart。
+  function pointerTarget(event: PointerEvent, sourceId: string) {
+    const source = tabsById().get(sourceId)
+    const viewport = slots.get(sourceId)?.closest('[role="tablist"]')?.getBoundingClientRect()
+    if (!source || !viewport || event.clientX < viewport.left || event.clientX >= viewport.right || event.clientY < viewport.top || event.clientY >= viewport.bottom) return
+    for (const [id, slot] of slots) {
+      const rect = slot.getBoundingClientRect()
+      const target = tabsById().get(id)
+      if (event.clientX >= rect.left && event.clientX < rect.right && target && id !== sourceId && canBatchClose(source) === canBatchClose(target)) return id
+    }
+  }
+  function movePointer(event: PointerEvent) {
+    if (!pointer || event.pointerId !== pointer.pointerId) return
+    if (!tabsById().has(pointer.id)) { finishDrag(); return }
+    if (!draggingId()) {
+      if (Math.hypot(event.clientX - pointer.x, event.clientY - pointer.y) < 5) return
+      animations.forEach(animation => animation.cancel())
+      animations.clear()
+      slots.get(pointer.id)?.setPointerCapture?.(event.pointerId)
+      suppressPointerClick = true
+      setDraggingId(pointer.id)
+    }
+    event.preventDefault()
+    setDropTargetId(pointerTarget(event, pointer.id))
+  }
+  function endPointer(event: PointerEvent) {
+    if (!pointer || event.pointerId !== pointer.pointerId) return
+    const source = draggingId()
+    const target = source && pointerTarget(event, source)
+    finishDrag(source && target ? () => props.onMove(source, target) : undefined)
+  }
+  function cancelPointer(event: PointerEvent) {
+    if (event.pointerId === pointer?.pointerId) finishDrag()
+  }
+  function cancelGesture() { finishDrag() }
+  function escapePointer(event: KeyboardEvent) {
+    if (event.key === "Escape") { event.preventDefault(); finishDrag() }
+  }
+  function beginPointer(event: PointerEvent, id: string) {
+    if (pointer || event.button !== 0 || event.isPrimary === false || event.ctrlKey || !(event.target instanceof Element) || !event.target.closest('[role="tab"]')) return
+    suppressPointerClick = false
+    pointer = { id, pointerId: event.pointerId, x: event.clientX, y: event.clientY }
+    document.addEventListener("pointermove", movePointer, { passive: false })
+    document.addEventListener("pointerup", endPointer)
+    document.addEventListener("pointercancel", cancelPointer)
+    document.addEventListener("keydown", escapePointer)
+    window.addEventListener("blur", cancelGesture)
   }
 
   return (
@@ -224,6 +275,7 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
             const close = () => { cancelTitleClick(); props.onClose(id) }
             const titleClick = (event: MouseEvent) => {
               cancelTitleClick()
+              if (suppressPointerClick && event.detail > 0) return
               // Read selection before this click bubbles to the tab's onChange.
               if (event.detail >= 2 || props.value !== id || !props.onTitleClick) return
               titleClickTimer = setTimeout(() => {
@@ -242,25 +294,11 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
               <ContextMenu items={contextItems(tab())} class="flex min-w-0 shrink-0">
                 <div
                   ref={node => slots.set(id, node)}
-                  class="relative h-full"
+                  class={cn("relative h-full select-none touch-none", draggingId() && "cursor-grabbing")}
                   data-workspace-tab-slot={id}
-                  onDragOver={(event) => {
-                    if (!dragSource(event, tab())) { setDropTargetId(undefined); return }
-                    event.preventDefault()
-                    event.dataTransfer!.dropEffect = "move"
-                    setDropTargetId(id)
-                  }}
-                  onDragLeave={(event) => {
-                    if (!(event.relatedTarget instanceof Node) || !event.currentTarget.contains(event.relatedTarget)) {
-                      if (dropTargetId() === id) setDropTargetId(undefined)
-                    }
-                  }}
-                  onDrop={(event) => {
-                    const source = dragSource(event, tab())
-                    if (!source || event.dataTransfer?.getData(TAB_MIME) !== source.id) return
-                    event.preventDefault()
-                    event.stopPropagation()
-                    finishDrag(() => props.onMove(source.id, id))
+                  onPointerDown={(event) => {
+                    cancelTitleClick()
+                    beginPointer(event, id)
                   }}
                   onAuxClick={(event) => {
                     if (event.button !== 1) return
@@ -290,20 +328,11 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
                       tabindex={props.value === id || (!tabsById().has(props.value) && tabIds()[0] === id) ? 0 : -1}
                       title={title(tab())}
                       class="flex h-full min-w-0 flex-1 items-center gap-2 px-3 text-xs outline-none focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring"
-                      draggable="true"
-                      onDragStart={(event) => {
-                        if (!event.dataTransfer) return
-                        cancelTitleClick()
-                        finishDrag()
-                        animations.forEach(animation => animation.cancel())
-                        animations.clear()
-                        setDraggingId(id)
-                        event.dataTransfer.setData(TAB_MIME, id)
-                        event.dataTransfer.effectAllowed = "move"
-                      }}
-                      onDragEnd={() => finishDrag()}
                       onMouseDown={(event) => { if (event.button === 1) event.preventDefault() }}
-                      onClick={() => props.onChange(id)}
+                      onClick={(event) => {
+                        if (suppressPointerClick && event.detail > 0) { event.preventDefault(); return }
+                        props.onChange(id)
+                      }}
                       onDblClick={() => { cancelTitleClick(); props.onKeep(id) }}
                       onKeyDown={event => navigate(event, id)}
                     >
