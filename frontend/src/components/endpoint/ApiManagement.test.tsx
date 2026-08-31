@@ -4,6 +4,7 @@ import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
 import type { EndpointDetailProps } from "./EndpointDetail"
 import type { EndpointTreeProps } from "./EndpointTree"
+import type { RequestWorkspaceTabsProps } from "./RequestWorkspaceTabs"
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(), save: vi.fn(), create: vi.fn(), send: vi.fn(), cancel: vi.fn(), stop: vi.fn(), connect: vi.fn(), closeWS: vi.fn(), tree: vi.fn(), error: vi.fn(), mounts: vi.fn(),
@@ -55,13 +56,16 @@ vi.mock("@/components/endpoint/EndpointDetail", async () => {
     </div>
   } }
 })
-vi.mock("@/components/ui/tabs", () => ({
-  Tabs: (props: { tabs: { key: string; label: JSX.Element }[]; value: string; onChange: (id: string) => void; onClose: (id: string) => void; children: (id: string) => JSX.Element }) => <>
-    <For each={props.tabs}>{tab => <div data-testid={`tab-${tab.key}`}>
-      <button data-testid={`switch-${tab.key}`} onClick={() => props.onChange(tab.key)}>{tab.label}</button>
-      <button data-testid={`close-${tab.key}`} onClick={() => props.onClose(tab.key)}>close</button>
+vi.mock("@/components/endpoint/RequestWorkspaceTabs", () => ({
+  RequestWorkspaceTabs: (props: RequestWorkspaceTabsProps) => <>
+    <For each={props.tabs}>{tab => <div data-testid={`tab-${tab.id}`} data-state={tab.state} data-dirty={tab.dirty}>
+      <button data-testid={`switch-${tab.id}`} onClick={() => props.onChange(tab.id)}>{tab.method} {props.labelFor(tab)}</button>
+      <button data-testid={`close-${tab.id}`} onClick={() => props.onClose(tab.id)}>close</button>
+      <button data-testid={`keep-${tab.id}`} onClick={() => props.onKeep(tab.id)}>keep</button>
+      <button data-testid={`pin-${tab.id}`} onClick={() => props.onTogglePin(tab.id)}>pin</button>
+      <button data-testid={`others-${tab.id}`} onClick={() => props.onCloseOthers(tab.id)}>others</button>
     </div>}</For>
-    {props.children(props.value)}
+    <button data-testid="close-all" onClick={() => props.onCloseAll()}>close-all</button>
   </>,
 }))
 vi.mock("@/components/ui/dialog", () => ({ Dialog: (props: { open: boolean; children: JSX.Element }) => <Show when={props.open}><div role="dialog">{props.children}</div></Show> }))
@@ -226,4 +230,48 @@ describe("request workspace data safety", () => {
     await waitFor(() => expect(mocks.stop).toHaveBeenCalledWith("late-stream"))
     expect(screen.queryByTestId("tab-A")).not.toBeInTheDocument()
   })
+  it("replaces only the clean preview, while keeping edited and explicitly retained tabs", async () => {
+    await start(); await open("A"); await open("B")
+    expect(screen.queryByTestId("tab-A")).not.toBeInTheDocument()
+    expect(screen.getByTestId("tab-B")).toHaveAttribute("data-state", "preview")
+    fireEvent.click(screen.getByTestId("keep-B"))
+    await open("C"); edit("C", "/changed"); await open("A")
+    expect(screen.getByTestId("tab-B")).toHaveAttribute("data-state", "resident")
+    expect(screen.getByTestId("tab-C")).toHaveAttribute("data-state", "resident")
+    expect(screen.getByTestId("tab-A")).toHaveAttribute("data-state", "preview")
+  })
+
+  it("confirms batch discard once and preserves pinned tabs", async () => {
+    await start(); await open("A"); fireEvent.click(screen.getByTestId("pin-A"))
+    await open("B"); edit("B", "/changed"); await open("C")
+    fireEvent.click(screen.getByTestId("close-all"))
+    expect(screen.getAllByRole("dialog")).toHaveLength(1)
+    fireEvent.click(screen.getByText("common.cancel"))
+    expect(screen.getByTestId("tab-B")).toBeInTheDocument()
+    fireEvent.click(screen.getByTestId("close-all"))
+    fireEvent.click(screen.getByText("common.discard"))
+    expect(screen.queryByTestId("tab-B")).not.toBeInTheDocument()
+    expect(screen.queryByTestId("tab-C")).not.toBeInTheDocument()
+    expect(screen.getByTestId("tab-A")).toHaveAttribute("data-state", "pinned")
+    expect(screen.getByTestId("editor-A")).toBeVisible()
+    close("A")
+    expect(screen.queryByTestId("tab-A")).not.toBeInTheDocument()
+  })
+
+  it("uses the left neighbor after closing an active middle tab", async () => {
+    await start(); await open("A"); fireEvent.click(screen.getByTestId("keep-A"))
+    await open("B"); fireEvent.click(screen.getByTestId("keep-B"))
+    await open("C"); fireEvent.click(screen.getByTestId("switch-B")); close("B")
+    expect(screen.getByTestId("editor-A")).toBeVisible()
+    expect(screen.getByTestId("editor-C")).not.toBeVisible()
+  })
+
+  it("honors the owning module's URL display mode in tab titles", async () => {
+    mocks.tree.mockResolvedValue([{ id: "m", name: "Module", endpointDisplay: "url", endpoints: [endpoint("A")], folders: [] }])
+    await start(); await open("A")
+    expect(screen.getByTestId("switch-A")).toHaveTextContent("/saved-A")
+    edit("A", "/live-path")
+    expect(screen.getByTestId("switch-A")).toHaveTextContent("/live-path")
+  })
+
 })

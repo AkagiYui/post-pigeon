@@ -62,6 +62,16 @@ describe("EndpointTree modifier clicks", () => {
 
     expect(onSelect).toHaveBeenCalledWith(tree[0].children?.[1], { requestTab: "settings" })
   })
+  it("双击接口保留为常驻，Option 双击不触发普通保留", () => {
+    const onSelect = vi.fn()
+    render(() => <EndpointTree data={tree} expandedIds={["module-1"]} onSelect={onSelect} />)
+    fireEvent.dblClick(screen.getByText("List users"))
+    expect(onSelect).toHaveBeenCalledWith(tree[0].children?.[1], { resident: true })
+    onSelect.mockClear()
+    fireEvent.dblClick(screen.getByText("List users"), { altKey: true })
+    expect(onSelect).not.toHaveBeenCalled()
+  })
+
 })
 
 describe("EndpointTree folder counts", () => {

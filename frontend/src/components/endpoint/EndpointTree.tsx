@@ -29,6 +29,8 @@ export interface TreeNode {
 }
 
 export interface TreeSelectOptions {
+  /** 双击或显式打开时保留为常驻标签。 */
+  resident?: boolean
   /** 打开接口详情后定位到指定请求标签 */
   requestTab?: "settings"
 }
@@ -531,6 +533,11 @@ function TreeNodeItem(props: {
     <div>
       {/* 节点行 */}
       <div
+        data-endpoint-tree-id={props.node.id}
+        tabIndex={-1}
+        onDblClick={event => {
+          if (props.node.type === "endpoint" && !event.altKey) props.onSelect?.(props.node, { resident: true })
+        }}
         draggable={isEndpoint()}
         onDragStart={handleDragStart}
         onDragOver={handleDragOver}

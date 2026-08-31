@@ -2,7 +2,7 @@
 import { createStore } from "solid-js/store"
 
 import type { EndpointSaveData } from "@/../bindings/PostPigeon/internal/services"
-import type { HTTPMethod } from "@/lib/types"
+import type { EndpointType, HTTPMethod } from "@/lib/types"
 
 import type { EndpointData, EnvironmentBaseURLOption, ResponseData } from "./editor-types"
 import { toAuthModel, toBodyFieldModels, toHeaderModels, toOperationModels, toOperationOverrideModels, toParamModels } from "./endpoint-data"
@@ -12,6 +12,9 @@ export interface RequestTab {
   key: string
   name: string
   method: HTTPMethod
+  type: EndpointType
+  path: string
+  state: "preview" | "resident" | "pinned"
   saved: boolean
   dirty: boolean
 }

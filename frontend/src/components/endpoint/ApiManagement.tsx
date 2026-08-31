@@ -1,7 +1,7 @@
 // 接口管理主界面组件
 // 左侧树形面板 + 右侧多 Tab 端点详情编辑器
 // 支持未保存的请求标签页和已保存的端点标签页
-import { batch, createEffect, createSignal, For, on, onMount, Show } from "solid-js"
+import { batch, createEffect, createSignal, createUniqueId, For, on, onMount, Show } from "solid-js"
 
 import type { ActualRequestInfo, CookieInfo, Endpoint, ResponseExample, ResponseSchema } from "@/../bindings/PostPigeon/internal/models"
 import type { CurlRequest } from "@/../bindings/PostPigeon/internal/services"
@@ -52,20 +52,20 @@ import {
 import { type ImportKind, ImportWizardDialog } from "@/components/endpoint/ImportWizard"
 import type { RequestTab } from "@/components/endpoint/request-session"
 import { createRequestSession, createRequestWorkspaceState, endpointFingerprint, endpointSaveData, type RequestSession, snapshotEndpoint } from "@/components/endpoint/request-session"
+import { batchCloseTargets, keepRequestTab, moveRequestTab, togglePinnedTab } from "@/components/endpoint/request-tab-actions"
+import { RequestWorkspaceTabs, type WorkspaceTab } from "@/components/endpoint/RequestWorkspaceTabs"
 import { ScopeSettingsDialog } from "@/components/endpoint/ScopeSettingsDialog"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
-import { MethodBadge } from "@/components/ui/method-badge"
 import { SplitPane } from "@/components/ui/split-pane"
-import { Tabs } from "@/components/ui/tabs"
 import { useHotkey } from "@/hooks/useHotkey"
 import { t } from "@/hooks/useI18n"
 import { useRouteCache } from "@/hooks/useRouteCache"
 import { copyText } from "@/lib/clipboard"
 import { errorMessage } from "@/lib/errors"
 import { type BodyType, type EndpointType, type HTTPMethod, type ParamLocation } from "@/lib/types"
-import { cn, downloadTextFile } from "@/lib/utils"
+import { downloadTextFile } from "@/lib/utils"
 import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, notifyBaseUrlsChanged, projectEnvironments, setCurrentEnvironment, setProjectEnvironmentsList, setWebSocketMessageDrafts } from "@/stores/app"
 import { clearStream } from "@/stores/stream"
 import { toastError, toastSuccess, toastWarning } from "@/stores/toast"
@@ -171,6 +171,7 @@ export function ApiManagement(props: ApiManagementProps) {
   // 保存对话框中文件夹树的展开状态（用 string[] 序列化，运行时转为 Set）
   const [saveFolderExpandedIds, setSaveFolderExpandedIds] = cache.createCachedSignal<string[]>("saveFolderExpandedIds", [])
   const [saving, setSaving] = createSignal(false)
+  const [pendingBatchClose, setPendingBatchClose] = createSignal<{ ids: string[]; anchor?: string } | null>(null)
   const [closeConfirmOpen, setCloseConfirmOpen] = createSignal(false)
   const [pendingCloseTabId, setPendingCloseTabId] = createSignal<string | null>(null)
   const [deleteConfirmOpen, setDeleteConfirmOpen] = createSignal(false)
@@ -519,7 +520,7 @@ export function ApiManagement(props: ApiManagementProps) {
     }
     const session = createRequestSession({ ...emptyEndpoint, ...unsaved })
     putSession(tempId, session)
-    setRequestTabs(prev => [...prev, { id: tempId, key: session.key, name: unsaved.name, method: unsaved.method, saved: false, dirty: false }])
+    setRequestTabs(prev => [...prev, { id: tempId, key: session.key, name: unsaved.name, method: unsaved.method, type: unsaved.type, path: unsaved.path, state: "resident", saved: false, dirty: false }])
     setActiveTabId(tempId)
   }
 
@@ -669,14 +670,31 @@ export function ApiManagement(props: ApiManagementProps) {
     if (!requestTabs().some(tab => tab.id === node.id)) {
       const session = createRequestSession({ ...emptyEndpoint, id: node.id, name: node.name, method: node.method || "GET", type: node.endpointType || "http" })
       session.loading = true
-      putSession(node.id, session)
-      setRequestTabs(prev => [...prev, { id: node.id, key: session.key, name: node.name, method: node.method || "GET", saved: true, dirty: false }])
-      setActiveTabId(node.id)
+      const resident = options?.resident || !!options?.requestTab
+      const previewIndex = resident ? -1 : requestTabs().findIndex(tab => tab.state === "preview" && tab.saved && !tab.dirty && !sessions()[tab.id]?.requestId && !sessions()[tab.id]?.saving)
+      batch(() => {
+        if (previewIndex >= 0) closeTab(requestTabs()[previewIndex].id)
+        putSession(node.id, session)
+        setRequestTabs(prev => {
+          const next = [...prev]
+          next.splice(previewIndex < 0 ? next.length : previewIndex, 0, {
+            id: node.id, key: session.key, name: node.name, method: node.method || "GET", path: node.path || "", type: node.endpointType || "http",
+            state: resident ? "resident" : "preview", saved: true, dirty: false,
+          })
+          return next
+        })
+        setActiveTabId(node.id)
+      })
       await loadSavedEndpointData(node.id)
     } else {
+      if (options?.resident || options?.requestTab) keepTab(node.id)
       await handleTabChange(node.id)
     }
   }
+
+  const keepTab = (id: string) => setRequestTabs(tabs => keepRequestTab(tabs, id))
+  const togglePin = (id: string) => setRequestTabs(tabs => togglePinnedTab(tabs, id))
+  const moveTab = (fromId: string, toId: string) => setRequestTabs(tabs => moveRequestTab(tabs, fromId, toId))
 
   const loadSavedEndpointData = async (endpointId: string) => {
     const session = sessions()[endpointId]
@@ -780,8 +798,8 @@ export function ApiManagement(props: ApiManagementProps) {
     const { draft, baseline } = session
     const dirty = endpointFingerprint(draft) !== baseline
     const tab = requestTabs().find(tab => tab.id === id)
-    if (tab && (tab.name !== draft.name || tab.method !== draft.method || tab.dirty !== dirty)) {
-      setRequestTabs(tabs => tabs.map(tab => tab.id === id ? { ...tab, name: draft.name, method: draft.method, dirty } : tab))
+    if (tab && (tab.name !== draft.name || tab.method !== draft.method || tab.dirty !== dirty || tab.path !== draft.path || tab.type !== draft.type)) {
+      setRequestTabs(tabs => tabs.map(tab => tab.id === id ? { ...tab, name: draft.name, method: draft.method, path: draft.path, type: draft.type, dirty } : tab))
     }
   }
 
@@ -791,6 +809,7 @@ export function ApiManagement(props: ApiManagementProps) {
     batch(() => {
       setEndpointData(data, id)
       syncTabMetadata(id)
+      if (sessions()[id] && endpointFingerprint(sessions()[id]!.draft) !== session.baseline) keepTab(id)
     })
   }
 
@@ -832,6 +851,7 @@ export function ApiManagement(props: ApiManagementProps) {
   const handleSend = async (tabId = activeTabId() || "") => {
     const session = sessions()[tabId]
     if (!session || session.loading || session.loadError || session.requestId) return
+    keepTab(tabId)
     const ep = snapshotEndpoint(session.draft)
     const key = session.key
     // 每次发送生成唯一 ID，后端据此登记进行中的请求，用户可随时取消
@@ -901,6 +921,7 @@ export function ApiManagement(props: ApiManagementProps) {
   const handleWSConnect = async (autoConvertProtocol: boolean, tabId = activeTabId() || "") => {
     const session = sessions()[tabId]
     if (!session || session.loading || session.loadError || session.requestId) return
+    keepTab(tabId)
     const ep = snapshotEndpoint(session.draft)
     const key = session.key
     const requestId = crypto.randomUUID()
@@ -973,6 +994,7 @@ export function ApiManagement(props: ApiManagementProps) {
     const tab = requestTabs().find(t => t.id === id)
     const session = sessions()[id]
     if (!tab || !session || session.loading || session.loadError || session.saving) return
+    keepTab(id)
     if (tab.saved) {
       void handleSaveSavedEndpoint(id)
       return
@@ -1095,6 +1117,22 @@ export function ApiManagement(props: ApiManagementProps) {
       setCloseConfirmOpen(false)
       setPendingCloseTabId(null)
     }
+  }
+
+  const closeBatch = (ids: string[], anchor?: string) => {
+    batch(() => {
+      for (const id of ids) {
+        if (requestTabs().find(tab => tab.id === id)?.state !== "pinned") closeTab(id)
+      }
+      if (anchor && requestTabs().some(tab => tab.id === anchor)) setActiveTabId(anchor)
+    })
+  }
+
+  const requestBatchClose = (exceptId?: string) => {
+    const ids = batchCloseTargets(requestTabs(), exceptId)
+    if (ids.some(id => requestTabs().some(tab => tab.id === id && (!tab.saved || tab.dirty)))) {
+      setPendingBatchClose({ ids, anchor: exceptId })
+    } else closeBatch(ids, exceptId)
   }
 
   const closeTab = (id: string) => {
@@ -1259,7 +1297,7 @@ export function ApiManagement(props: ApiManagementProps) {
       const doc = await EndpointService.CreateDocument(moduleId, folderId ?? null, t("doc.untitled"))
       await loadTree()
       if (doc) {
-        await handleSelectNode({ id: doc.id, name: doc.name, type: "endpoint", endpointType: "doc", method: "GET" })
+        await handleSelectNode({ id: doc.id, name: doc.name, type: "endpoint", endpointType: "doc", method: "GET" }, { resident: true })
       }
     } catch (e) { toastError(e, "error.op.createFailed") }
   }
@@ -1275,7 +1313,7 @@ export function ApiManagement(props: ApiManagementProps) {
       const ep = await EndpointService.CreateTypedEndpoint(moduleId, folderId ?? null, name, "GET", "", endpointType)
       await loadTree()
       if (ep) {
-        await handleSelectNode({ id: ep.id, name: ep.name, type: "endpoint", endpointType: "websocket", method: "GET" })
+        await handleSelectNode({ id: ep.id, name: ep.name, type: "endpoint", endpointType: "websocket", method: "GET" }, { resident: true })
       }
     } catch (e) { toastError(e, "error.op.createFailed") }
   }
@@ -1313,11 +1351,33 @@ export function ApiManagement(props: ApiManagementProps) {
     { key: "CmdOrCtrl+N", allowInInput: true, handler: () => createUnsavedTab() },
   ])
 
+  const tabLabel = (tab: WorkspaceTab) => {
+    if (tab.type === "doc") return tab.name
+    const moduleId = findModuleIdByNodeId(treeData(), tab.id)
+    const module = treeData().find(node => node.id === moduleId)
+    return module?.endpointDisplay === "url" ? tab.path || tab.name : tab.name
+  }
+  let treeContainer: HTMLDivElement | undefined
+  const locateTabInTree = (id: string) => {
+    if (id !== activeTabId()) return
+    const ancestors = findAncestorIds(treeData(), id)
+    if (!ancestors) return
+    setSidebarCollapsed(false)
+    setExpandedIds(ids => [...new Set([...ids, ...ancestors])])
+    queueMicrotask(() => {
+      const row = Array.from(treeContainer?.querySelectorAll<HTMLElement>("[data-endpoint-tree-id]") || [])
+        .find(row => row.dataset.endpointTreeId === id)
+      row?.scrollIntoView?.({ block: "nearest" })
+      row?.focus({ preventScroll: true })
+    })
+  }
+
   // 只创建一次，切换 active key 时不重建所有已打开的详情组件。
+  const tabIdPrefix = `requests-${createUniqueId()}`
   const requestPanels = <For each={requestTabs().map(tab => tab.key)}>{key => {
     const tab = () => requestTabs().find(tab => tab.key === key)!
     const session = () => sessions()[tab()?.id]
-    return <div class="h-full" hidden={activeTabId() !== tab()?.id}>
+    return <div class="h-full" id={`${tabIdPrefix}-panel-${encodeURIComponent(tab()?.id || "")}`} role="tabpanel" aria-labelledby={`${tabIdPrefix}-tab-${encodeURIComponent(tab()?.id || "")}`} hidden={activeTabId() !== tab()?.id}>
       <Show when={session() && !session()!.loading && !session()!.loadError}
         fallback={<div class="p-6 text-muted-foreground">
           <Show when={session()?.loadError} fallback={t("common.loading")}>
@@ -1348,7 +1408,7 @@ export function ApiManagement(props: ApiManagementProps) {
       <SplitPane
         defaultSize={280} minSize={150} maxSize={500}
         collapsed={sidebarCollapsed()} onCollapsedChange={setSidebarCollapsed}
-        left={<div class="flex flex-col h-full border-r border-border">
+        left={<div ref={treeContainer} class="flex flex-col h-full border-r border-border">
           <EndpointTree
             data={treeData()} selectedId={activeTabId() || undefined}
             onSelect={handleSelectNode} onCollapse={() => setSidebarCollapsed(true)}
@@ -1378,23 +1438,15 @@ export function ApiManagement(props: ApiManagementProps) {
               <Button onClick={() => createUnsavedTab()} variant="outline">+ {t("endpoint.newRequest")}</Button>
             </div>}
           >
-            <Tabs
-              tabs={requestTabs().map(tab => ({
-                key: tab.id,
-                // 有未保存改动（新建未保存 或 已保存但有改动）：方法与标题整体斜体，不显示任何圆点
-                label: (
-                  <span class={cn("inline-flex items-center gap-1", (!tab.saved || tab.dirty) && "italic")}>
-                    <MethodBadge method={tab.method} />
-                    <span>{tab.name}</span>
-                  </span>
-                ),
-                closable: true,
-              }))}
-              value={activeTabId() || ""} onChange={handleTabChange} onClose={handleCloseTab}
-            >
-              {() => requestPanels}
-
-            </Tabs>
+            <div class="flex h-full min-w-0 flex-col">
+              <RequestWorkspaceTabs
+                tabs={requestTabs()} value={activeTabId() || ""} labelFor={tabLabel} tabIdPrefix={tabIdPrefix}
+                onChange={handleTabChange} onKeep={keepTab} onTogglePin={togglePin}
+                onClose={handleCloseTab} onCloseOthers={requestBatchClose} onCloseAll={() => requestBatchClose()}
+                onMove={moveTab} onNew={() => createUnsavedTab()} onTitleClick={locateTabInTree}
+              />
+              <div class="flex-1 min-h-0 overflow-auto bg-surface">{requestPanels}</div>
+            </div>
           </Show>
         </div>}
       />
@@ -1431,6 +1483,21 @@ export function ApiManagement(props: ApiManagementProps) {
             <Button variant="ghost" onClick={() => { setCloseConfirmOpen(false); setPendingCloseTabId(null) }}>{t("common.cancel")}</Button>
             <Button variant="outline" onClick={handleConfirmDiscard}>{t("common.discard")}</Button>
             <Button onClick={handleSaveAndClose}>{t("common.saveAndClose")}</Button>
+          </div>
+        </div>
+      </Dialog>
+
+      <Dialog open={!!pendingBatchClose()} onClose={() => setPendingBatchClose(null)} title={t("endpoint.unsavedChanges")} closeOnEsc closeOnOverlayClick>
+        <div class="p-6 space-y-4">
+          <p>{t("workspaceTabs.confirmCloseMany")}</p>
+          <ul class="max-h-60 overflow-auto text-sm">
+            <For each={requestTabs().filter(tab => pendingBatchClose()?.ids.includes(tab.id) && (!tab.saved || tab.dirty))}>
+              {tab => <li>{tabLabel(tab)}</li>}
+            </For>
+          </ul>
+          <div class="flex justify-end gap-2">
+            <Button variant="ghost" onClick={() => setPendingBatchClose(null)}>{t("common.cancel")}</Button>
+            <Button onClick={() => { const pending = pendingBatchClose(); if (pending) closeBatch(pending.ids, pending.anchor); setPendingBatchClose(null) }}>{t("common.discard")}</Button>
           </div>
         </div>
       </Dialog>
