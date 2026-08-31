@@ -52,7 +52,7 @@ import {
 import { type ImportKind, ImportWizardDialog } from "@/components/endpoint/ImportWizard"
 import type { RequestTab } from "@/components/endpoint/request-session"
 import { createRequestSession, createRequestWorkspaceState, endpointFingerprint, endpointSaveData, type RequestSession, snapshotEndpoint } from "@/components/endpoint/request-session"
-import { batchCloseTargets, keepRequestTab, moveRequestTab, switchRequestTab, togglePinnedTab } from "@/components/endpoint/request-tab-actions"
+import { batchCloseTargets, canCloseSavedTab, keepRequestTab, moveRequestTab, switchRequestTab, togglePinnedTab } from "@/components/endpoint/request-tab-actions"
 import { loadRequestTabLayout, saveRequestTabLayout } from "@/components/endpoint/request-tab-layout"
 import { RequestWorkspaceTabs, type WorkspaceTab } from "@/components/endpoint/RequestWorkspaceTabs"
 import { ScopeSettingsDialog } from "@/components/endpoint/ScopeSettingsDialog"
@@ -1517,6 +1517,7 @@ export function ApiManagement(props: ApiManagementProps) {
                 tabs={requestTabs()} value={activeTabId() || ""} labelFor={tabLabel} tabIdPrefix={tabIdPrefix}
                 onChange={handleTabChange} onKeep={keepTab} onTogglePin={togglePin}
                 onClose={handleCloseTab} onCloseOthers={requestBatchClose} onCloseAll={() => requestBatchClose()}
+                onCloseSaved={() => closeBatch(requestTabs().filter(canCloseSavedTab).map(tab => tab.id))}
                 onMove={moveTab} onNew={() => createUnsavedTab()} onTitleClick={locateTabInTree}
               />
               <div class="flex-1 min-h-0 overflow-auto bg-surface">{requestPanels}</div>

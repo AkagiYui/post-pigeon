@@ -29,6 +29,11 @@ export function batchCloseTargets(tabs: RequestTab[], exceptId?: string): string
   return tabs.filter(tab => tab.state !== "pinned" && tab.id !== exceptId).map(tab => tab.id)
 }
 
+/** “已保存”要求当前编辑内容也已保存，并遵守批量关闭保留固定项的规则。 */
+export function canCloseSavedTab(tab: Pick<RequestTab, "state" | "saved" | "dirty">): boolean {
+  return tab.saved && !tab.dirty && tab.state !== "pinned"
+}
+
 export function switchRequestTab(tabs: RequestTab[], activeId: string | null, command: "next" | "previous" | number): string | undefined {
   if (!tabs.length) return
   if (typeof command === "number") return tabs[command === 9 ? tabs.length - 1 : command - 1]?.id

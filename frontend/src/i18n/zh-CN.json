@@ -14,6 +14,7 @@
   "workspaceTabs.unpinTab": "取消固定 {name}",
   "workspaceTabs.closeOthers": "关闭其他未固定标签",
   "workspaceTabs.closeAll": "关闭所有未固定标签",
+  "workspaceTabs.closeSaved": "关闭已保存",
   "workspaceTabs.new": "新建请求",
   "workspaceTabs.more": "全部标签及标签操作",
   "app.name": "PostPigeon",

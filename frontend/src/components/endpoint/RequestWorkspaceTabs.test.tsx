@@ -23,7 +23,7 @@ function setup(tabs = initialTabs(), overrides: Partial<RequestWorkspaceTabsProp
   const callbacks = {
     onChange: vi.fn((id: string) => setValue(id)),
     onKeep: vi.fn(), onTogglePin: vi.fn(), onClose: vi.fn(), onCloseOthers: vi.fn(),
-    onCloseAll: vi.fn(), onMove: vi.fn(), onNew: vi.fn(), onTitleClick: vi.fn(),
+    onCloseAll: vi.fn(), onCloseSaved: vi.fn(), onMove: vi.fn(), onNew: vi.fn(), onTitleClick: vi.fn(),
   }
   const rendered = render(() => (
     <div style={{ width: "120px" }}>
@@ -305,11 +305,13 @@ describe("RequestWorkspaceTabs", () => {
     expect(actions.onCloseOthers).toHaveBeenCalledExactlyOnceWith("Users")
     await selectItem(await openContext("Users"), "Close all unpinned tabs")
     expect(actions.onCloseAll).toHaveBeenCalledOnce()
+    await selectItem(await openContext("Users"), "Close saved tabs")
+    expect(actions.onCloseSaved).toHaveBeenCalledOnce()
     await selectItem(await openContext("Users"), "Pin tab")
     expect(actions.onTogglePin).toHaveBeenCalledExactlyOnceWith("Users")
     const menu = await openContext("Events")
     expect(within(menu).getAllByRole("menuitem").map(item => item.textContent)).toEqual([
-      "Pin tab", `Close tab${/mac/i.test(navigator.platform) ? "⌘" : "Ctrl"}+W`, "Close other unpinned tabs", "Close all unpinned tabs",
+      "Pin tab", `Close tab${/mac/i.test(navigator.platform) ? "⌘" : "Ctrl"}+W`, "Close saved tabs", "Close other unpinned tabs", "Close all unpinned tabs",
     ])
     expect(actions.onChange).not.toHaveBeenCalled()
   })
@@ -317,7 +319,7 @@ describe("RequestWorkspaceTabs", () => {
   it("allows explicit context close of a pinned tab but disables batches without unpinned candidates", async () => {
     const actions = setup([tab("Pinned", { state: "pinned" }), tab("Other pin", { state: "pinned" })])
     const menu = await openContext("Pinned")
-    for (const name of ["Close other unpinned tabs", "Close all unpinned tabs"]) {
+    for (const name of ["Close saved tabs", "Close other unpinned tabs", "Close all unpinned tabs"]) {
       const item = within(menu).getByRole("menuitem", { name })
       expect(item).toHaveAttribute("aria-disabled", "true")
       fireEvent.click(item)
@@ -325,6 +327,7 @@ describe("RequestWorkspaceTabs", () => {
     expect(actions.onClose).not.toHaveBeenCalled()
     expect(actions.onCloseOthers).not.toHaveBeenCalled()
     expect(actions.onCloseAll).not.toHaveBeenCalled()
+    expect(actions.onCloseSaved).not.toHaveBeenCalled()
     await selectItem(menu, /^Close tab/)
     expect(actions.onClose).toHaveBeenCalledExactlyOnceWith("Pinned")
     await selectItem(await openContext("Pinned"), "Unpin tab")
@@ -350,6 +353,24 @@ describe("RequestWorkspaceTabs", () => {
     fireEvent.click(more)
     await selectItem(await screen.findByRole("menu"), "Close all unpinned tabs")
     expect(actions.onCloseAll).toHaveBeenCalledOnce()
+    fireEvent.click(more)
+    await selectItem(await screen.findByRole("menu"), "Close saved tabs")
+    expect(actions.onCloseSaved).toHaveBeenCalledOnce()
+  })
+
+  it("disables close-saved for drafts and dirty saved tabs, then enables it when changes are saved", async () => {
+    const actions = setup([tab("Dirty", { dirty: true }), tab("Draft", { saved: false })])
+    const more = screen.getByRole("button", { name: "All tabs and tab actions" })
+    fireEvent.click(more)
+    const menu = await screen.findByRole("menu")
+    const item = within(menu).getByRole("menuitem", { name: "Close saved tabs" })
+    expect(item).toHaveAttribute("aria-disabled", "true")
+    fireEvent.click(item)
+    expect(actions.onCloseSaved).not.toHaveBeenCalled()
+    actions.setItems([tab("Dirty"), tab("Draft", { saved: false })])
+    await waitFor(() => expect(within(menu).getByRole("menuitem", { name: "Close saved tabs" })).not.toHaveAttribute("aria-disabled", "true"))
+    await selectItem(menu, "Close saved tabs")
+    expect(actions.onCloseSaved).toHaveBeenCalledOnce()
   })
 
   it("opens and navigates overflow with the keyboard and returns focus to its native trigger", async () => {

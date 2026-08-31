@@ -14,6 +14,7 @@
   "workspaceTabs.unpinTab": "Unpin {name}",
   "workspaceTabs.closeOthers": "Close other unpinned tabs",
   "workspaceTabs.closeAll": "Close all unpinned tabs",
+  "workspaceTabs.closeSaved": "Close saved tabs",
   "workspaceTabs.new": "New request",
   "workspaceTabs.more": "All tabs and tab actions",
   "app.name": "PostPigeon",

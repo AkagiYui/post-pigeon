@@ -66,6 +66,7 @@ vi.mock("@/components/endpoint/RequestWorkspaceTabs", () => ({
       <button data-testid={`others-${tab.id}`} onClick={() => props.onCloseOthers(tab.id)}>others</button>
     </div>}</For>
     <button data-testid="close-all" onClick={() => props.onCloseAll()}>close-all</button>
+    <button data-testid="close-saved" onClick={() => props.onCloseSaved()}>close-saved</button>
   </>,
 }))
 vi.mock("@/components/ui/dialog", () => ({ Dialog: (props: { open: boolean; children: JSX.Element }) => <Show when={props.open}><div role="dialog">{props.children}</div></Show> }))
@@ -257,6 +258,29 @@ describe("request workspace data safety", () => {
     expect(screen.getByTestId("editor-A")).toBeVisible()
     close("A")
     expect(screen.queryByTestId("tab-A")).not.toBeInTheDocument()
+  })
+
+  it("closes only clean saved tabs and preserves modified, new, and pinned tabs without confirmation", async () => {
+    await start(); await open("A"); fireEvent.click(screen.getByTestId("keep-A"))
+    await open("B"); edit("B", "/unsaved-edit")
+    await open("C"); fireEvent.click(screen.getByTestId("pin-C"))
+    fireEvent.click(screen.getByTestId("new"))
+    const draft = screen.getAllByTestId(/^tab-/).find(tab => !["tab-A", "tab-B", "tab-C"].includes(tab.dataset.testid!))!
+    fireEvent.click(screen.getByTestId("switch-A"))
+    fireEvent.click(screen.getByTestId("close-saved"))
+    expect(screen.queryByTestId("tab-A")).not.toBeInTheDocument()
+    expect(screen.getByTestId("tab-B")).toBeInTheDocument()
+    expect(within(screen.getByTestId("editor-B")).getByLabelText("path")).toHaveValue("/unsaved-edit")
+    expect(screen.getByTestId("tab-C")).toHaveAttribute("data-state", "pinned")
+    expect(draft).toBeInTheDocument()
+    expect(screen.queryByRole("dialog")).not.toBeInTheDocument()
+    // 保存过但又修改的接口不能被关闭；恢复到保存基线后才成为可关闭项。
+    edit("B", "/saved-B")
+    fireEvent.click(screen.getByTestId("close-saved"))
+    expect(screen.queryByTestId("tab-B")).not.toBeInTheDocument()
+    expect(screen.getByTestId("tab-C")).toBeInTheDocument()
+    expect(draft).toBeInTheDocument()
+    expect(mocks.save).not.toHaveBeenCalled()
   })
 
   it("uses the left neighbor after closing an active middle tab", async () => {

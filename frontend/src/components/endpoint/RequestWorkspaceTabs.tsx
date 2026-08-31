@@ -7,6 +7,8 @@ import { t } from "@/hooks/useI18n"
 import { type EndpointType, type HTTPMethod, METHOD_COLORS } from "@/lib/types"
 import { cn } from "@/lib/utils"
 
+import { canCloseSavedTab } from "./request-tab-actions"
+
 export interface WorkspaceTab {
   id: string
   name: string
@@ -30,6 +32,8 @@ export interface RequestWorkspaceTabsProps {
   onCloseOthers: (id: string) => void
   /** The owner must preserve pinned tabs and handle unsaved-change confirmation. */
   onCloseAll: () => void
+  /** Close saved, unchanged, unpinned tabs without discarding drafts. */
+  onCloseSaved: () => void
   onMove: (fromId: string, toId: string) => void
   onNew: () => void
   onTitleClick?: (id: string) => void
@@ -68,6 +72,11 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
   const canBatchClose = (tab: WorkspaceTab) => tab.state !== "pinned"
   const canCloseOthers = (id: string) => props.tabs.some(tab => tab.id !== id && canBatchClose(tab))
   const batchItems = (id: string): MenuItem[] => [
+    {
+      key: "close-saved", label: t("workspaceTabs.closeSaved"),
+      disabled: !props.tabs.some(canCloseSavedTab),
+      onClick: () => { if (props.tabs.some(canCloseSavedTab)) props.onCloseSaved() },
+    },
     {
       key: "close-others", label: t("workspaceTabs.closeOthers"),
       disabled: !id || !canCloseOthers(id),
