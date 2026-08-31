@@ -350,7 +350,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 
 	// 变量替换是前置操作列表中的显式分界线。先把此刻的请求快照替换完成，
 	// 再执行分界线后的操作；后续构建请求时 resolveVars 再跑一次是幂等的。
-	reqCtx.URL = resolveVars(reqCtx.URL, vars)
+	reqCtx.URL = resolveScriptRequestURL(data, reqCtx, vars)
 	reqCtx.Body = resolveVars(reqCtx.Body, vars)
 	for i := range reqCtx.Headers {
 		reqCtx.Headers[i].Value = resolveVars(reqCtx.Headers[i].Value, vars)
@@ -388,9 +388,15 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 	}
 
 	// 组合 URL（前置脚本可能已改写整条 URL）
-	fullURL := resolveVars(reqCtx.URL, vars)
+	fullURL := resolveRequestURL(reqCtx.BaseURL, reqCtx.URL, stores.Environment.ToMap())
+	if err := validateResolvedRequestURL(fullURL); err != nil {
+		return nil, err
+	}
 	// 路径参数：替换 URL 中的 {name} 占位符
 	fullURL = applyPathParams(fullURL, data.Params, vars)
+	if err := validateResolvedRequestURL(fullURL); err != nil {
+		return nil, err
+	}
 
 	// 解析 URL 中的查询参数
 	parsedURL, err := url.Parse(fullURL)

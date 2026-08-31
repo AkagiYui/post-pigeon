@@ -10,16 +10,17 @@ const (
 	CodeSerialization = "common.serialization"
 
 	// ---- HTTP 请求 ----
-	CodeInvalidURL        = "http.invalid_url"
-	CodeBuildRequest      = "http.build_request"
-	CodeSendRequest       = "http.send_request"
-	CodeReadResponse      = "http.read_response"
-	CodeRequestTimeout    = "http.timeout"
-	CodeRequestCanceled   = "http.canceled"
-	CodeResponseTooLarge  = "http.response_too_large"
-	CodeBuildBody         = "http.build_body"
-	CodeAuthConfigInvalid = "http.auth_config_invalid"
-	CodeTLSConfigInvalid  = "http.tls_config_invalid"
+	CodeInvalidURL            = "http.invalid_url"
+	CodeUnresolvedURLVariable = "http.unresolved_url_variable"
+	CodeBuildRequest          = "http.build_request"
+	CodeSendRequest           = "http.send_request"
+	CodeReadResponse          = "http.read_response"
+	CodeRequestTimeout        = "http.timeout"
+	CodeRequestCanceled       = "http.canceled"
+	CodeResponseTooLarge      = "http.response_too_large"
+	CodeBuildBody             = "http.build_body"
+	CodeAuthConfigInvalid     = "http.auth_config_invalid"
+	CodeTLSConfigInvalid      = "http.tls_config_invalid"
 	// CodeRequestFileMissing 请求体引用的本地文件读不到（被移走、删掉或换了台机器）
 	CodeRequestFileMissing = "http.file_missing"
 

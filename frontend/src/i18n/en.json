@@ -606,6 +606,7 @@
   "error.common.database": "Database operation failed",
   "error.common.serialization": "Failed to parse data",
   "error.http.invalid_url": "Invalid URL: {url}",
+  "error.http.unresolved_url_variable": "The request URL contains unresolved variables. Check the current environment variables and pre-request scripts.",
   "error.http.build_request": "Failed to build the request",
   "error.http.send_request": "Request failed — check the network, address and proxy settings",
   "error.http.read_response": "Failed to read the response",

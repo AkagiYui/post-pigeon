@@ -41,7 +41,7 @@ import {
 } from "@/components/endpoint/endpoint-data"
 import { type AuthState, type BodyFieldRow, clearEndpointSessionState, emptyAuth, type EndpointData, EndpointDetail, type EndpointRequestTabIntent, type HeaderRow, type OperationRow, type ParamRow, type ResponseData, type TimingData } from "@/components/endpoint/EndpointDetail"
 import { EndpointTree, type TreeNode, type TreeSelectOptions } from "@/components/endpoint/EndpointTree"
-import { resolveEnvironmentBaseURLs } from "@/components/endpoint/environment-base-urls"
+import { resolveEnvironmentBaseURLs, resolveRequestEnvironment } from "@/components/endpoint/environment-base-urls"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
 import {
   ApifoxImportDialog,
@@ -881,13 +881,13 @@ export function ApiManagement(props: ApiManagementProps) {
    * 把当前编辑态组装成后端所需的请求数据。
    * 发送与「复制为 cURL」共用同一份组装逻辑，避免两处逐渐走偏。
    */
-  const buildSendRequestData = (ep: EndpointData, requestId = "") => {
+  const buildSendRequestData = async (ep: EndpointData, requestId = "") => {
     const sendData = new SendRequestData()
     sendData.requestId = requestId
     const ct = requestTabs().find(t => t.id === ep.id)
     sendData.endpointId = ct?.saved ? ep.id : ""
     // 已保存端点：带上所属模块 ID，后端据此记录请求历史
-    sendData.moduleId = ct?.saved ? (findModuleIdByNodeId(treeData(), ep.id) || "") : ""
+    sendData.moduleId = ct?.saved ? (findModuleIdByNodeId(treeData(), ep.id) || sessions()[ep.id]?.moduleId || "") : ""
     sendData.environmentId = getCurrentEnvironmentId(props.projectId)
     sendData.method = ep.method; sendData.baseUrl = ep.baseUrl; sendData.path = ep.path
     sendData.headers = toHeaderModels(ep.headers); sendData.params = toParamModels(ep.params)
@@ -907,6 +907,12 @@ export function ApiManagement(props: ApiManagementProps) {
     sendData.preRequestScript = deriveScriptFromOps(ep.operations, "pre", ep.preRequestScript, "beforeVariables")
     sendData.preSendScript = deriveScriptFromOps(ep.operations, "pre", "", "afterVariables")
     sendData.postResponseScript = deriveScriptFromOps(ep.operations, "post", ep.postResponseScript)
+    // 环境 ID 已在 await 前固定；模块地址独立于会话内的异步展示缓存。
+    const environment = await resolveRequestEnvironment(
+      sendData.moduleId, sendData.environmentId, ep.baseUrl,
+      moduleId => ModuleService.GetModuleBaseURLs(moduleId),
+    )
+    sendData.baseUrl = environment.baseUrl
     return sendData
   }
 
@@ -925,7 +931,7 @@ export function ApiManagement(props: ApiManagementProps) {
       else if (response.streamId) void HTTPService.StopStream(response.streamId).catch(toastError)
     }
     try {
-      const sendData = buildSendRequestData(ep, requestId)
+      const sendData = await buildSendRequestData(ep, requestId)
 
       // 流 ID 由后端生成且全局唯一，发送前清掉上一条流的缓冲，避免 store 无限增长
       const previousStreamId = session.response?.streamId
@@ -992,7 +998,10 @@ export function ApiManagement(props: ApiManagementProps) {
     const requestId = crypto.randomUUID()
     updateSession(tabId, { requestId })
     try {
-      const resp = await WebSocketService.Connect(key, buildSendRequestData(ep), autoConvertProtocol)
+      const sendData = await buildSendRequestData(ep)
+      const currentId = sessionIdForKey(key)
+      if (!currentId || sessions()[currentId]?.requestId !== requestId) return
+      const resp = await WebSocketService.Connect(key, sendData, autoConvertProtocol)
       if (resp) {
       // WebSocket 的 101 Upgrade（以及 4xx/5xx 握手拒绝）仍是一条标准 HTTP 响应。
       // 正文页签由消息流接管，其余响应页签继续复用普通请求的数据模型。
@@ -1035,7 +1044,7 @@ export function ApiManagement(props: ApiManagementProps) {
     if (!session || session.loading || session.loadError) return
     const ep = snapshotEndpoint(session.draft)
     try {
-      const command = await CurlService.ToCurl(buildSendRequestData(ep))
+      const command = await CurlService.ToCurl(await buildSendRequestData(ep))
       await copyText(command)
       toastSuccess(t("curl.copied"))
     } catch (e) {

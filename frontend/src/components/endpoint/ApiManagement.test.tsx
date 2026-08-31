@@ -2,28 +2,37 @@ import { cleanup, fireEvent, render, screen, waitFor, within } from "@solidjs/te
 import { createSignal, For, type JSX, Show } from "solid-js"
 import { afterEach, beforeEach, describe, expect, it, vi } from "vitest"
 
+import { setCurrentEnvironment } from "@/stores/app"
+
 import type { EndpointDetailProps } from "./EndpointDetail"
 import type { EndpointTreeProps } from "./EndpointTree"
 import type { RequestWorkspaceTabsProps } from "./RequestWorkspaceTabs"
 
 const mocks = vi.hoisted(() => ({
   get: vi.fn(), save: vi.fn(), create: vi.fn(), send: vi.fn(), cancel: vi.fn(), stop: vi.fn(), connect: vi.fn(), closeWS: vi.fn(), tree: vi.fn(), error: vi.fn(), mounts: vi.fn(),
+  urls: vi.fn(), curl: vi.fn(),
 }))
 vi.mock("@/../bindings/PostPigeon/internal/services", () => ({
   EndpointService: { GetEndpoint: mocks.get, SaveEndpointData: mocks.save, CreateFullEndpoint: mocks.create, GetInheritedOperationCounts: async () => ({ pre: 0, post: 0 }) },
   HTTPService: { SendRequest: mocks.send, CancelRequest: mocks.cancel, StopStream: mocks.stop },
   WebSocketService: { Connect: mocks.connect, Close: mocks.closeWS },
-  ModuleService: { GetModuleBaseURLs: async () => [], GetModuleParams: async () => [] },
+  ModuleService: { GetModuleBaseURLs: mocks.urls, GetModuleParams: async () => [] },
   ProjectService: { GetProjectTree: mocks.tree },
-  CurlService: {}, EnvironmentService: {}, FolderService: {}, ImportExportService: {},
+  CurlService: { ToCurl: mocks.curl }, EnvironmentService: {}, FolderService: {}, ImportExportService: {},
   SendRequestData: class {},
 }))
 vi.mock("@/hooks/useI18n", () => ({ t: (key: string) => key }))
 vi.mock("@/stores/toast", () => ({ toastError: mocks.error, toastSuccess: vi.fn(), toastWarning: vi.fn() }))
-vi.mock("@/stores/app", () => ({
-  baseUrlVersion: () => 0, currentEnvironmentIds: () => ({}), getCurrentEnvironmentId: () => "", getProjectEnvironments: () => [],
-  notifyBaseUrlsChanged: vi.fn(), projectEnvironments: () => ({}), setCurrentEnvironment: vi.fn(), setProjectEnvironmentsList: vi.fn(), setWebSocketMessageDrafts: vi.fn(),
-}))
+vi.mock("@/stores/app", async () => {
+  const { createSignal } = await import("solid-js")
+  const [environment, setEnvironment] = createSignal("dev")
+  const environments = [{ id: "dev", name: "Dev" }, { id: "prod", name: "Prod" }, { id: "stage", name: "Stage" }]
+  return {
+    baseUrlVersion: () => 0, currentEnvironmentIds: () => ({ p: environment() }), getCurrentEnvironmentId: environment, getProjectEnvironments: () => environments,
+    notifyBaseUrlsChanged: vi.fn(), projectEnvironments: () => ({}), setCurrentEnvironment: (_project: string, id: string) => setEnvironment(id), setProjectEnvironmentsList: vi.fn(), setWebSocketMessageDrafts: vi.fn(),
+  }
+})
+vi.mock("@/lib/clipboard", () => ({ copyText: vi.fn() }))
 vi.mock("@/stores/stream", () => ({ clearStream: vi.fn() }))
 vi.mock("@/hooks/useRouteCache", () => ({
   useRouteCache: () => ({
@@ -49,7 +58,10 @@ vi.mock("@/components/endpoint/EndpointDetail", async () => {
       <button onClick={() => props.onSave?.()}>save</button>
       <button onClick={() => props.onSend?.()}>send</button>
       <button onClick={() => props.onCancelSend?.()}>cancel-send</button>
-      <button onClick={() => props.onWSConnect?.(true)}>connect</button>
+      <button onClick={() => props.onWSConnect?.(true).catch(mocks.error)}>connect</button>
+      <button onClick={() => props.onCopyAsCurl?.()}>curl</button>
+      <button onClick={() => props.onEnvironmentChange?.("prod")}>prod</button>
+      <output data-testid="base-url">{props.endpoint.baseUrl}</output>
       <output data-testid="response">{props.response?.body || "empty"}</output>
       <output data-testid="sending">{String(props.sending)}</output>
       <output data-testid="key">{props.sessionKey}</output>
@@ -115,6 +127,15 @@ beforeEach(() => {
   mocks.cancel.mockResolvedValue(true)
   mocks.stop.mockResolvedValue(undefined)
   mocks.closeWS.mockResolvedValue(undefined)
+  mocks.urls.mockReset().mockResolvedValue([
+    { environmentId: "dev", baseUrl: "https://dev.example" },
+    { environmentId: "prod", baseUrl: "https://prod.example" },
+    { environmentId: "stage", baseUrl: "https://stage.example" },
+  ])
+  mocks.send.mockReset().mockResolvedValue(response("sent"))
+  mocks.connect.mockReset().mockResolvedValue(response("connected"))
+  mocks.curl.mockReset().mockResolvedValue("curl https://example.com")
+  setCurrentEnvironment("p", "dev")
 })
 afterEach(cleanup)
 
@@ -226,7 +247,9 @@ describe("request workspace data safety", () => {
     const send = deferred<ReturnType<typeof response> & { streaming: boolean; streamId: string }>()
     mocks.send.mockReturnValueOnce(send.promise)
     await start(); const a = await open("A")
-    fireEvent.click(within(a).getByText("send")); close("A")
+    fireEvent.click(within(a).getByText("send"))
+    await waitFor(() => expect(mocks.send).toHaveBeenCalled())
+    close("A")
     expect(mocks.cancel).toHaveBeenCalledWith(expect.any(String))
     send.resolve({ ...response(""), streaming: true, streamId: "late-stream" })
     await waitFor(() => expect(mocks.stop).toHaveBeenCalledWith("late-stream"))
@@ -361,6 +384,7 @@ describe("request workspace data safety", () => {
     await start(); const editorA = await open("A")
     fireEvent.click(within(editorA).getByText("send"))
     const editorB = await open("B"); fireEvent.click(within(editorB).getByText("send"))
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledTimes(2))
     const requestB = mocks.send.mock.calls[1][0].requestId
     fireEvent.click(within(editorB).getByText("cancel-send"))
     expect(mocks.cancel).toHaveBeenCalledWith(requestB)
@@ -423,4 +447,62 @@ describe("request workspace data safety", () => {
     expect(mocks.closeWS).toHaveBeenCalledWith(connectionId)
   })
 
+})
+
+describe("request environment snapshots", () => {
+  it.each(["send", "connect", "curl"])("%s pins environment and URL while display refresh is pending", async action => {
+    await start(); const editor = await open("A")
+    await waitFor(() => expect(within(editor).getByTestId("base-url")).toHaveTextContent("https://dev.example"))
+    const load = deferred<{ environmentId: string; baseUrl: string }[]>()
+    mocks.urls.mockReturnValue(load.promise)
+    fireEvent.click(within(editor).getByText("prod"))
+    fireEvent.click(within(editor).getByText(action))
+    expect(within(editor).getByTestId("base-url")).toHaveTextContent("https://dev.example")
+    expect(mocks.send).not.toHaveBeenCalled()
+    expect(mocks.connect).not.toHaveBeenCalled()
+    expect(mocks.curl).not.toHaveBeenCalled()
+    // 再次切换不应改变已经点击的操作；仍使用 prod 环境及 prod 地址。
+    setCurrentEnvironment("p", "stage")
+    load.resolve([
+      { environmentId: "prod", baseUrl: "https://prod.example" },
+      { environmentId: "stage", baseUrl: "https://stage.example" },
+    ])
+    const service = action === "send" ? mocks.send : action === "connect" ? mocks.connect : mocks.curl
+    await waitFor(() => expect(service).toHaveBeenCalledOnce())
+    const data = service.mock.calls[0][action === "connect" ? 1 : 0]
+    expect(data).toMatchObject({ environmentId: "prod", baseUrl: "https://prod.example" })
+  })
+
+  it.each(["send", "connect", "curl"])("%s never falls back to a stale URL if the current environment lookup fails", async action => {
+    await start(); const editor = await open("A")
+    const load = deferred<[]>()
+    mocks.urls.mockReturnValue(load.promise)
+    fireEvent.click(within(editor).getByText("prod"))
+    fireEvent.click(within(editor).getByText(action))
+    load.reject(new Error("database unavailable"))
+    await waitFor(() => expect(mocks.error).toHaveBeenCalled())
+    expect(mocks.send).not.toHaveBeenCalled()
+    expect(mocks.connect).not.toHaveBeenCalled()
+    expect(mocks.curl).not.toHaveBeenCalled()
+  })
+
+  it("uses an empty URL when the selected environment has no module URL", async () => {
+    await start(); const editor = await open("A")
+    mocks.urls.mockResolvedValue([{ environmentId: "dev", baseUrl: "https://dev.example" }])
+    fireEvent.click(within(editor).getByText("prod"))
+    fireEvent.click(within(editor).getByText("send"))
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ environmentId: "prod", baseUrl: "" })))
+  })
+
+  it.each(["send", "connect"])("does not start %s after the tab closes during URL lookup", async action => {
+    await start(); const editor = await open("A")
+    const load = deferred<[]>()
+    mocks.urls.mockReturnValue(load.promise)
+    fireEvent.click(within(editor).getByText(action))
+    close("A")
+    load.resolve([])
+    await new Promise(resolve => setTimeout(resolve, 0))
+    expect(mocks.send).not.toHaveBeenCalled()
+    expect(mocks.connect).not.toHaveBeenCalled()
+  })
 })

@@ -10,6 +10,22 @@ interface ModuleBaseURLLike {
   baseUrl: string
 }
 
+/**
+ * 一次发送/连接/导出固定一个环境 ID，并直接读取该环境的模块地址。
+ * 不使用异步刷新的界面缓存；读取失败向上传播，不能带着新环境回退到旧地址。
+ * 等待期间继续切换环境，也不会改变已经发起操作的环境快照。
+ */
+export async function resolveRequestEnvironment(
+  moduleId: string,
+  environmentId: string,
+  standaloneBaseUrl: string,
+  loadBaseUrls: (moduleId: string) => Promise<readonly ModuleBaseURLLike[]>,
+): Promise<{ environmentId: string; baseUrl: string }> {
+  if (!moduleId) return { environmentId, baseUrl: standaloneBaseUrl }
+  const baseUrls = await loadBaseUrls(moduleId)
+  return { environmentId, baseUrl: baseUrls.find(item => item.environmentId === environmentId)?.baseUrl ?? "" }
+}
+
 export interface EnvironmentBaseURLState {
   currentBaseUrl: string
   options: EnvironmentBaseURLOption[]

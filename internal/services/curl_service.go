@@ -54,8 +54,14 @@ func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
 	requestEndpoint := endpointForRequest(s.db, data.EndpointID, data.ModuleID)
 	requestPath := loadRequestScopePath(s.db, requestEndpoint)
 
-	fullURL := resolveVars(combineURL(data.BaseURL, data.Path), vars)
+	fullURL := resolveRequestURL(data.BaseURL, data.Path, vars)
+	if err := validateResolvedRequestURL(fullURL); err != nil {
+		return "", err
+	}
 	fullURL = applyPathParams(fullURL, data.Params, vars)
+	if err := validateResolvedRequestURL(fullURL); err != nil {
+		return "", err
+	}
 
 	parsed, err := url.Parse(fullURL)
 	if err != nil {

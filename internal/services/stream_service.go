@@ -153,8 +153,37 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 	}
 
 	vars := stores.Environment.ToMap()
-	urlStr := resolveVars(reqCtx.URL, vars)
+	reqCtx.URL = resolveScriptRequestURL(data, reqCtx, vars)
+	for i := range reqCtx.Headers {
+		reqCtx.Headers[i].Value = resolveVars(reqCtx.Headers[i].Value, vars)
+	}
+	data.Headers = headersToModel(reqCtx.Headers)
+	if strings.TrimSpace(data.PreSendScript) != "" {
+		result := s.http.engine.Run(data.PreSendScript, scripting.Options{
+			Phase: scripting.PhasePreRequest, Request: reqCtx, Stores: stores,
+			DatabaseExec: s.http.executeDatabaseOperation,
+		})
+		scriptResults.OperationResults = append(scriptResults.OperationResults, extractOperationResults(result)...)
+		scriptResults.PreRequest = mergeScriptResult(scriptResults.PreRequest, result)
+		data.Headers = headersToModel(reqCtx.Headers)
+		if result.SkipRequest {
+			s.persistVariableChanges(data, prepared)
+			emitStream(WSEventName, StreamEvent{
+				ConnID: connID, Kind: "close", Data: "request skipped by pre-request script", Timestamp: nowMillis(),
+			})
+			out := skippedRequestResponse(data, reqCtx, scriptResults, &configuredSnapshot)
+			s.http.enqueuePersist(persistJob{data: data, resp: out})
+			return out, nil
+		}
+	}
+	urlStr := resolveRequestURL(reqCtx.BaseURL, reqCtx.URL, stores.Environment.ToMap())
+	if err := validateResolvedRequestURL(urlStr); err != nil {
+		return nil, err
+	}
 	urlStr = applyPathParams(urlStr, data.Params, vars)
+	if err := validateResolvedRequestURL(urlStr); err != nil {
+		return nil, err
+	}
 	urlStr = convertHTTPToWSProtocol(urlStr, autoConvertWSProtocol)
 	parsedURL, err := url.Parse(urlStr)
 	if err != nil {
