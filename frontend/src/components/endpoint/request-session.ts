@@ -29,6 +29,8 @@ export interface RequestSession {
   environmentBaseUrls: EnvironmentBaseURLOption[]
   globalQueryParams: { name: string; value: string }[]
   inheritedOpCounts: { pre: number; post: number }
+  contextId: string
+  inheritanceId: string
   loadId: string
   loading: boolean
   loadError: boolean
@@ -76,7 +78,7 @@ export function createRequestSession(draft: EndpointData, key = crypto.randomUUI
   return {
     key, draft: snapshotEndpoint(draft), baseline: endpointFingerprint(draft), response: null,
     moduleId: "", environmentBaseUrls: [], globalQueryParams: [], inheritedOpCounts: { pre: 0, post: 0 },
-    loadId: "", loading: false, loadError: false, requestId: "", saving: false,
+    contextId: "", inheritanceId: "", loadId: "", loading: false, loadError: false, requestId: "", saving: false,
   }
 }
 

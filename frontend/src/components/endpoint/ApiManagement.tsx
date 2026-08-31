@@ -52,7 +52,8 @@ import {
 import { type ImportKind, ImportWizardDialog } from "@/components/endpoint/ImportWizard"
 import type { RequestTab } from "@/components/endpoint/request-session"
 import { createRequestSession, createRequestWorkspaceState, endpointFingerprint, endpointSaveData, type RequestSession, snapshotEndpoint } from "@/components/endpoint/request-session"
-import { batchCloseTargets, keepRequestTab, moveRequestTab, togglePinnedTab } from "@/components/endpoint/request-tab-actions"
+import { batchCloseTargets, keepRequestTab, moveRequestTab, switchRequestTab, togglePinnedTab } from "@/components/endpoint/request-tab-actions"
+import { loadRequestTabLayout, saveRequestTabLayout } from "@/components/endpoint/request-tab-layout"
 import { RequestWorkspaceTabs, type WorkspaceTab } from "@/components/endpoint/RequestWorkspaceTabs"
 import { ScopeSettingsDialog } from "@/components/endpoint/ScopeSettingsDialog"
 import { Button } from "@/components/ui/button"
@@ -138,6 +139,7 @@ export function ApiManagement(props: ApiManagementProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false)
   // 以下使用 createCachedSignal 的信号会自动缓存，新增状态只需改声明处
   const [treeData, setTreeData] = cache.createCachedSignal<TreeNode[]>("treeData", [])
+  const [layoutReady, setLayoutReady] = createSignal(false)
   const [workspace] = cache.createCachedSignal("requestWorkspace", createRequestWorkspaceState())
   const requestTabs = () => workspace().state.tabs
   const setRequestTabs = (value: RequestTab[] | ((tabs: RequestTab[]) => RequestTab[])) => workspace().setTabs(value)
@@ -224,16 +226,49 @@ export function ApiManagement(props: ApiManagementProps) {
     try {
       const tree = await ProjectService.GetProjectTree(props.projectId)
       setTreeData((tree || []).map(mapModule))
+      return true
     } catch (e) {
       toastError(e, "error.op.loadFailed")
+      return false
     }
   }
 
   // ---- 初始化：优先恢复缓存，否则加载树数据 ----
   onMount(async () => {
-    if (!cache.loadAll()) {
+    if (cache.loadAll()) {
+      setLayoutReady(true)
       await loadTree()
+      return
     }
+    if (!await loadTree()) return
+    // 重启只恢复布局；详情按首次激活惰性读取，未保存草稿仍仅属于内存会话。
+    const nodes = new Map<string, TreeNode>()
+    const visit = (items: TreeNode[]) => items.forEach(node => {
+      if (node.type === "endpoint") nodes.set(node.id, node)
+      if (node.children) visit(node.children)
+    })
+    visit(treeData())
+    const layout = loadRequestTabLayout(props.projectId, new Set(nodes.keys()))
+    batch(() => {
+      // 初次加载期间用户可能已新建请求，此时不能用恢复流程覆盖当前工作。
+      if (!requestTabs().length) {
+        const tabs = layout.tabs.map(({ id, state }): RequestTab => {
+          const node = nodes.get(id)!
+          const session = createRequestSession({ ...emptyEndpoint, id, name: node.name, method: node.method || "GET", path: node.path || "", type: node.endpointType || "http" })
+          session.loading = true
+          putSession(id, session)
+          return { id, key: session.key, name: node.name, method: node.method || "GET", path: node.path || "", type: node.endpointType || "http", state, saved: true, dirty: false }
+        })
+        setRequestTabs(tabs)
+        setActiveTabId(layout.activeId)
+      }
+      setLayoutReady(true)
+    })
+    const active = activeTabId()
+    if (active && sessions()[active]?.loading && !sessions()[active]?.loadId) await loadSavedEndpointData(active)
+  })
+  createEffect(() => {
+    if (layoutReady()) saveRequestTabLayout(props.projectId, requestTabs(), activeTabId())
   })
   // 组件卸载时自动保存所有注册的缓存状态
   cache.autoSaveAll()
@@ -248,22 +283,21 @@ export function ApiManagement(props: ApiManagementProps) {
   }
 
   // 派生上下文可刷新，但绝不以服务端详情覆盖标签草稿。
-  const contextTokens = new Map<string, number>()
   const refreshSessionContext = async (id: string) => {
     const session = sessions()[id]
     if (!session || session.loading) return
     const moduleId = findModuleIdByNodeId(treeData(), id) || session.moduleId
     if (!moduleId) return
     const key = session.key
-    const token = (contextTokens.get(key) || 0) + 1
-    contextTokens.set(key, token)
+    const token = crypto.randomUUID()
+    updateSession(id, { contextId: token })
     const environmentId = getCurrentEnvironmentId(props.projectId)
     try {
       const [environment, params, counts] = await Promise.all([
         loadModuleEnvironmentState(moduleId), ModuleService.GetModuleParams(moduleId),
         EndpointService.GetInheritedOperationCounts(id),
       ])
-      if (sessions()[id]?.key !== key || contextTokens.get(key) !== token || environmentId !== getCurrentEnvironmentId(props.projectId)) return
+      if (sessions()[id]?.key !== key || sessions()[id]?.contextId !== token || environmentId !== getCurrentEnvironmentId(props.projectId)) return
       batch(() => {
         updateSession(id, {
           moduleId, environmentBaseUrls: environment.options,
@@ -278,6 +312,29 @@ export function ApiManagement(props: ApiManagementProps) {
     () => [currentEnvironmentIds()[props.projectId], baseUrlVersion(), projectEnvironments()[props.projectId], treeData()] as const,
     () => { for (const tab of requestTabs()) void refreshSessionContext(tab.id) },
   ))
+
+  const refreshSessionInheritance = async (id: string) => {
+    const session = sessions()[id]
+    if (!session || session.loading || !requestTabs().some(tab => tab.id === id && tab.saved)) return
+    const key = session.key
+    const token = crypto.randomUUID()
+    updateSession(id, { inheritanceId: token })
+    try {
+      const detail = await EndpointService.GetEndpoint(id)
+      if (detail && sessions()[id]?.key === key && sessions()[id]?.inheritanceId === token) setEndpointData({
+        inheritedOperations: fromInheritedOperationModels(detail.inheritedOperations),
+        inheritedWsProtocolConversion: detail.inheritedWsProtocolConversion ?? true,
+        hasInheritedAuth: detail.hasInheritedAuth ?? false,
+      }, id)
+    } catch { /* 派生信息刷新失败不会改变已保存结果，也不会清除草稿。 */ }
+  }
+  const closeScopeSettings = () => {
+    setScopeSettingsOpen(false)
+    for (const tab of requestTabs()) {
+      void refreshSessionContext(tab.id)
+      void refreshSessionInheritance(tab.id)
+    }
+  }
 
   // ---- 环境切换回调（从 EndpointDetail 的 Badge 下拉触发） ----
   const handleEnvironmentChange = (environmentId: string) => {
@@ -698,7 +755,7 @@ export function ApiManagement(props: ApiManagementProps) {
 
   const loadSavedEndpointData = async (endpointId: string) => {
     const session = sessions()[endpointId]
-    if (!session) return
+    if (!session || (session.loading && session.loadId)) return
     const key = session.key
     const loadId = crypto.randomUUID()
     updateSession(endpointId, { loadId, loading: true, loadError: false })
@@ -784,11 +841,16 @@ export function ApiManagement(props: ApiManagementProps) {
   }
 
   // ---- 切换与编辑：每个标签的草稿、基线、响应和组件身份独立 ----
+  // 关闭相邻标签、批量关闭等也会改变活动项，恢复标签的惰性加载不能只依赖点击。
+  createEffect(on(activeTabId, id => {
+    if (id && sessions()[id]?.loading && !sessions()[id]?.loadId) void loadSavedEndpointData(id)
+  }))
+
   const handleTabChange = async (tabId: string) => {
     const tab = requestTabs().find(t => t.id === tabId)
     if (!tab) return
     setActiveTabId(tabId)
-    if (sessions()[tabId]?.loadError) await loadSavedEndpointData(tabId)
+    if (sessions()[tabId]?.loadError || (sessions()[tabId]?.loading && !sessions()[tabId]?.loadId)) await loadSavedEndpointData(tabId)
     else await refreshSessionContext(tabId)
   }
 
@@ -1073,15 +1135,7 @@ export function ApiManagement(props: ApiManagementProps) {
       }
       await loadTree()
       await refreshSessionContext(created.id)
-      // 新归属位置的继承数据更新，但不重新加载草稿和响应。
-      if (sessions()[created.id]?.key === key) {
-        const detail = await EndpointService.GetEndpoint(created.id)
-        if (detail && sessions()[created.id]?.key === key) setEndpointData({
-          inheritedOperations: fromInheritedOperationModels(detail.inheritedOperations),
-          inheritedWsProtocolConversion: detail.inheritedWsProtocolConversion ?? true,
-          hasInheritedAuth: detail.hasInheritedAuth ?? false,
-        }, created.id)
-      }
+      await refreshSessionInheritance(created.id)
     } catch (e) { toastError(e, "error.op.saveFailed") } finally {
       if (sessions()[id]?.key === key) updateSession(id, { saving: false })
       setSaving(false)
@@ -1113,6 +1167,7 @@ export function ApiManagement(props: ApiManagementProps) {
       setCloseConfirmOpen(false)
       handleSave(id)
     } else if (await handleSaveSavedEndpoint(id)) {
+      if (pendingCloseTabId() !== id || !closeConfirmOpen()) return
       closeTab(id)
       setCloseConfirmOpen(false)
       setPendingCloseTabId(null)
@@ -1141,13 +1196,14 @@ export function ApiManagement(props: ApiManagementProps) {
     const session = sessions()[id]
     if (index < 0 || session?.saving) return
     const next = tabs[index - 1] ?? tabs[index + 1]
+    const wasActive = activeTabId() === id
     batch(() => {
       setRequestTabs(tabs.filter(tab => tab.id !== id))
       if (activeTabId() === id) setActiveTabId(next?.id ?? null)
       putSession(id, undefined)
     })
+    if (wasActive) focusActiveTab()
     if (session) {
-      contextTokens.delete(session.key)
       clearEndpointSessionState(session.key)
       if (!tabs[index].saved) setWebSocketMessageDrafts(drafts => {
         const next = { ...drafts }
@@ -1341,15 +1397,29 @@ export function ApiManagement(props: ApiManagementProps) {
     setScopeSettingsOpen(true)
   }
 
-  // ---- 全局快捷键（跨平台，自动适配 Cmd/Ctrl） ----
+  // 模态框和菜单打开时，不能让全局快捷键操作其背后的请求。
+  const workspaceHotkeysEnabled = () => !Array.from(document.querySelectorAll<HTMLElement>('[role="dialog"], [role="alertdialog"], [role="menu"]'))
+    .some(element => !element.hidden && element.dataset.state !== "closed" && getComputedStyle(element).display !== "none")
+  const focusActiveTab = () => queueMicrotask(() => {
+    const id = activeTabId()
+    if (id) document.getElementById(`${tabIdPrefix}-tab-${encodeURIComponent(id)}`)?.focus({ preventScroll: true })
+  })
+  const switchTab = (command: "next" | "previous" | number) => {
+    const id = switchRequestTab(requestTabs(), activeTabId(), command)
+    if (id) { void handleTabChange(id); focusActiveTab() }
+  }
   useHotkey([
-    // 发送请求
-    { key: "CmdOrCtrl+Enter", allowInInput: true, handler: () => { if (endpointData().id && !sending()) handleSend() } },
-    // 保存当前接口
+    { key: "CmdOrCtrl+Enter", allowInInput: true, handler: () => { if (endpointData().id && !sending() && endpointData().type !== "doc") void handleSend() } },
     { key: "CmdOrCtrl+S", allowInInput: true, handler: () => { if (activeTabId()) handleSave() } },
-    // 新建请求
     { key: "CmdOrCtrl+N", allowInInput: true, handler: () => createUnsavedTab() },
-  ])
+    { key: "CmdOrCtrl+W", allowInInput: true, handler: () => { const id = activeTabId(); if (id) handleCloseTab(id) } },
+    { key: "CmdOrCtrl+Shift+W", allowInInput: true, handler: () => { const id = activeTabId(); if (id) closeTab(id) } },
+    { key: "Ctrl+Tab", allowInInput: true, handler: () => switchTab("next") },
+    { key: "Ctrl+Shift+Tab", allowInInput: true, handler: () => switchTab("previous") },
+    { key: "CmdOrCtrl+PageDown", allowInInput: true, handler: () => switchTab("next") },
+    { key: "CmdOrCtrl+PageUp", allowInInput: true, handler: () => switchTab("previous") },
+    ...Array.from({ length: 9 }, (_, i) => ({ key: `CmdOrCtrl+${i + 1}`, allowInInput: true, handler: () => switchTab(i + 1) })),
+  ], { enabled: workspaceHotkeysEnabled })
 
   const tabLabel = (tab: WorkspaceTab) => {
     if (tab.type === "doc") return tab.name
@@ -1481,8 +1551,8 @@ export function ApiManagement(props: ApiManagementProps) {
           <p class="text-sm text-muted-foreground">{t("endpoint.confirmCloseUnsaved")}</p>
           <div class="flex justify-end gap-2 pt-2">
             <Button variant="ghost" onClick={() => { setCloseConfirmOpen(false); setPendingCloseTabId(null) }}>{t("common.cancel")}</Button>
-            <Button variant="outline" onClick={handleConfirmDiscard}>{t("common.discard")}</Button>
-            <Button onClick={handleSaveAndClose}>{t("common.saveAndClose")}</Button>
+            <Button variant="outline" disabled={!!sessions()[pendingCloseTabId() || ""]?.saving} onClick={handleConfirmDiscard}>{t("common.discard")}</Button>
+            <Button disabled={!!sessions()[pendingCloseTabId() || ""]?.saving} onClick={handleSaveAndClose}>{sessions()[pendingCloseTabId() || ""]?.saving ? t("common.saving") : t("common.saveAndClose")}</Button>
           </div>
         </div>
       </Dialog>
@@ -1724,7 +1794,7 @@ export function ApiManagement(props: ApiManagementProps) {
         {(node) => (
           <ScopeSettingsDialog
             open={scopeSettingsOpen()}
-            onClose={() => setScopeSettingsOpen(false)}
+            onClose={closeScopeSettings}
             scopeType={node().type as "module" | "folder"}
             scopeId={node().id}
             scopeName={node().name}

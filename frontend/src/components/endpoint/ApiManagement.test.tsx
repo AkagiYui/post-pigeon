@@ -106,6 +106,7 @@ async function start() {
 
 beforeEach(() => {
   vi.clearAllMocks()
+  localStorage.clear()
   mocks.get.mockImplementation(async (id: string) => endpoint(id))
   mocks.tree.mockResolvedValue([{ id: "m", name: "Module", endpoints: [endpoint("A"), endpoint("B"), endpoint("C")], folders: [] }])
   mocks.save.mockResolvedValue(undefined)
@@ -272,6 +273,94 @@ describe("request workspace data safety", () => {
     expect(screen.getByTestId("switch-A")).toHaveTextContent("/saved-A")
     edit("A", "/live-path")
     expect(screen.getByTestId("switch-A")).toHaveTextContent("/live-path")
+  })
+
+  it("restores saved layout lazily, preserving order and pins", async () => {
+    const { saveRequestTabLayout } = await import("./request-tab-layout")
+    const items = ["A", "B"].map(id => ({ id, key: id, name: id, method: "GET" as const, type: "http" as const, path: "/", state: "pinned" as const, saved: true, dirty: false }))
+    saveRequestTabLayout("p", items, "B")
+    await start()
+    await screen.findByTestId("editor-B")
+    expect(screen.getByTestId("tab-A")).toHaveAttribute("data-state", "pinned")
+    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("B")
+    fireEvent.click(screen.getByTestId("switch-A"))
+    await screen.findByTestId("editor-A")
+    expect(mocks.get).toHaveBeenCalledWith("A")
+  })
+
+  it("loads a restored neighbor when the active tab closes, then loads the batch-close anchor", async () => {
+    const { saveRequestTabLayout } = await import("./request-tab-layout")
+    const items = ["A", "B", "C"].map(id => ({ id, key: id, name: id, method: "GET" as const, type: "http" as const, path: "/", state: "resident" as const, saved: true, dirty: false }))
+    saveRequestTabLayout("p", items, "C")
+    await start()
+    await screen.findByTestId("editor-C")
+    expect(mocks.get).toHaveBeenCalledExactlyOnceWith("C")
+    close("C")
+    expect(await screen.findByTestId("editor-B")).toBeVisible()
+    fireEvent.click(screen.getByTestId("others-A"))
+    expect(await screen.findByTestId("editor-A")).toBeVisible()
+    expect(screen.queryByTestId("tab-B")).not.toBeInTheDocument()
+    expect(mocks.get).toHaveBeenCalledTimes(3)
+  })
+
+  it("uses tab shortcuts from inputs but never behind an open confirmation", async () => {
+    await start(); await open("A"); edit("A", "/changed")
+    await open("B")
+    const b = screen.getByTestId("editor-B")
+    const modifier = /Mac/i.test(navigator.platform) ? { metaKey: true } : { ctrlKey: true }
+    fireEvent.keyDown(within(b).getByLabelText("path"), { key: "1", ...modifier })
+    expect(screen.getByTestId("editor-A")).toBeVisible()
+    fireEvent.keyDown(document.body, { key: "w", ...modifier })
+    expect(screen.getByRole("dialog")).toBeInTheDocument()
+    fireEvent.keyDown(document.body, { key: "w", shiftKey: true, ...modifier })
+    expect(screen.getByTestId("tab-A")).toBeInTheDocument()
+    fireEvent.click(screen.getByText("common.cancel"))
+    fireEvent.keyDown(document.body, { key: "w", shiftKey: true, ...modifier })
+    expect(screen.queryByTestId("tab-A")).not.toBeInTheDocument()
+    expect(b).toBeVisible()
+  })
+
+  it("cancelling a pending save-close keeps the tab open even if the save later succeeds", async () => {
+    const save = deferred<void>(); mocks.save.mockReturnValueOnce(save.promise)
+    await start(); await open("A"); edit("A", "/changed"); close("A"); saveAndClose()
+    fireEvent.click(screen.getByText("common.cancel"))
+    save.resolve()
+    await waitFor(() => expect(mocks.tree).toHaveBeenCalledTimes(2))
+    expect(screen.getByTestId("tab-A")).toBeInTheDocument()
+    expect(screen.getByTestId("tab-A")).toHaveAttribute("data-dirty", "false")
+  })
+
+  it("runs two tabs independently and cancels only the active request", async () => {
+    const a = deferred<ReturnType<typeof response>>()
+    const b = deferred<ReturnType<typeof response>>()
+    mocks.send.mockReturnValueOnce(a.promise).mockReturnValueOnce(b.promise)
+    await start(); const editorA = await open("A")
+    fireEvent.click(within(editorA).getByText("send"))
+    const editorB = await open("B"); fireEvent.click(within(editorB).getByText("send"))
+    const requestB = mocks.send.mock.calls[1][0].requestId
+    fireEvent.click(within(editorB).getByText("cancel-send"))
+    expect(mocks.cancel).toHaveBeenCalledWith(requestB)
+    a.resolve(response("A done"))
+    await waitFor(() => expect(within(editorA).getByTestId("sending")).toHaveTextContent("false"))
+    expect(within(editorB).getByTestId("sending")).toHaveTextContent("true")
+    b.resolve(response("B done"))
+    await waitFor(() => expect(within(editorB).getByTestId("response")).toHaveTextContent("B done"))
+  })
+
+  it("routes late WebSocket handshakes to their stable connection session", async () => {
+    const connect = deferred<ReturnType<typeof response>>()
+    mocks.connect.mockReturnValueOnce(connect.promise)
+    mocks.get.mockImplementation(async (id: string) => ({ ...endpoint(id), type: id === "A" ? "websocket" : "http" }))
+    await start(); const a = await open("A")
+    const connectionId = within(a).getByTestId("key").textContent
+    fireEvent.click(within(a).getByText("connect"))
+    const b = await open("B")
+    connect.resolve(response("handshake-A"))
+    await waitFor(() => expect(within(a).getByTestId("response")).toHaveTextContent("handshake-A"))
+    expect(within(b).getByTestId("response")).toHaveTextContent("empty")
+    expect(mocks.connect).toHaveBeenCalledWith(connectionId, expect.objectContaining({ endpointId: "A" }), true)
+    close("A")
+    expect(mocks.closeWS).toHaveBeenCalledWith(connectionId)
   })
 
 })

@@ -44,6 +44,7 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
   const elements = new Map<string, HTMLButtonElement>()
   const fallbackPrefix = `workspace-${createUniqueId()}`
   const prefix = () => props.tabIdPrefix ?? fallbackPrefix
+  const primaryKey = /mac/i.test(navigator.platform) ? "⌘" : "Ctrl"
   const tabsById = createMemo(() => new Map(props.tabs.map(tab => [tab.id, tab])))
   const tabIds = createMemo(() => props.tabs.map(tab => tab.id))
   let draggingId: string | undefined
@@ -84,7 +85,7 @@ export function RequestWorkspaceTabs(props: RequestWorkspaceTabsProps) {
       onClick: () => props.onTogglePin(tab.id),
     },
     { key: "separator", label: "", separator: true },
-    { key: "close", label: t("workspaceTabs.close"), onClick: () => props.onClose(tab.id) },
+    { key: "close", label: t("workspaceTabs.close"), accelerator: `${primaryKey}+W`, onClick: () => props.onClose(tab.id) },
     ...batchItems(tab.id),
   ]
   const moreItems = (): MenuItem[] => [

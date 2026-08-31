@@ -299,7 +299,7 @@ describe("RequestWorkspaceTabs", () => {
 
   it("routes right-click actions to the clicked inactive tab, not the active tab", async () => {
     const actions = setup()
-    await selectItem(await openContext("Users"), "Close tab")
+    await selectItem(await openContext("Users"), /^Close tab/)
     expect(actions.onClose).toHaveBeenCalledExactlyOnceWith("Users")
     await selectItem(await openContext("Users"), "Close other unpinned tabs")
     expect(actions.onCloseOthers).toHaveBeenCalledExactlyOnceWith("Users")
@@ -309,7 +309,7 @@ describe("RequestWorkspaceTabs", () => {
     expect(actions.onTogglePin).toHaveBeenCalledExactlyOnceWith("Users")
     const menu = await openContext("Events")
     expect(within(menu).getAllByRole("menuitem").map(item => item.textContent)).toEqual([
-      "Pin tab", "Close tab", "Close other unpinned tabs", "Close all unpinned tabs",
+      "Pin tab", `Close tab${/mac/i.test(navigator.platform) ? "⌘" : "Ctrl"}+W`, "Close other unpinned tabs", "Close all unpinned tabs",
     ])
     expect(actions.onChange).not.toHaveBeenCalled()
   })
@@ -325,7 +325,7 @@ describe("RequestWorkspaceTabs", () => {
     expect(actions.onClose).not.toHaveBeenCalled()
     expect(actions.onCloseOthers).not.toHaveBeenCalled()
     expect(actions.onCloseAll).not.toHaveBeenCalled()
-    await selectItem(menu, "Close tab")
+    await selectItem(menu, /^Close tab/)
     expect(actions.onClose).toHaveBeenCalledExactlyOnceWith("Pinned")
     await selectItem(await openContext("Pinned"), "Unpin tab")
     expect(actions.onTogglePin).toHaveBeenCalledExactlyOnceWith("Pinned")
