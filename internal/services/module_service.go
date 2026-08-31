@@ -272,13 +272,18 @@ func (s *ModuleService) ConvertFolderToModule(folderID string, newModuleName str
 	s.db.Model(&models.Module{}).Where("project_id = ?", srcModule.ProjectID).
 		Select("COALESCE(MAX(sort_order), -1)").Scan(&maxSort)
 
+	inheritedServer, err := effectiveServerID(s.db, &srcModule, folder.ID, "")
+	if err != nil {
+		return nil, err
+	}
 	newModule := &models.Module{
+		Servers: srcModule.Servers, ServerID: inheritedServer,
 		ProjectID: srcModule.ProjectID,
 		Name:      newModuleName,
 		SortOrder: maxSort + 1,
 	}
 
-	err := s.db.Transaction(func(tx *gorm.DB) error {
+	err = s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Create(newModule).Error; err != nil {
 			return err
 		}

@@ -56,6 +56,7 @@ import { batchCloseTargets, canCloseSavedTab, keepRequestTab, moveRequestTab, sw
 import { loadRequestTabLayout, saveRequestTabLayout } from "@/components/endpoint/request-tab-layout"
 import { RequestWorkspaceTabs, type WorkspaceTab } from "@/components/endpoint/RequestWorkspaceTabs"
 import { ScopeSettingsDialog } from "@/components/endpoint/ScopeSettingsDialog"
+import { EnvironmentDetailEditor } from "@/components/settings/ProjectEnvironmentSettings"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
 import { Input } from "@/components/ui/input"
@@ -273,8 +274,8 @@ export function ApiManagement(props: ApiManagementProps) {
   // 组件卸载时自动保存所有注册的缓存状态
   cache.autoSaveAll()
 
-  const loadModuleEnvironmentState = async (moduleId: string) => {
-    const urls = await ModuleService.GetModuleBaseURLs(moduleId)
+  const loadModuleEnvironmentState = async (moduleId: string, ep: { folderId?: string | null; serverId?: string; type?: string } = {}) => {
+    const urls = await ModuleService.ResolveEnvironmentBaseURLs(moduleId, ep.folderId || "", ep.serverId || "", ep.type === "websocket" ? "websocket" : "http")
     return resolveEnvironmentBaseURLs(
       getProjectEnvironments(props.projectId),
       urls,
@@ -288,14 +289,15 @@ export function ApiManagement(props: ApiManagementProps) {
     if (!session || session.loading) return
     const moduleId = findModuleIdByNodeId(treeData(), id) || session.moduleId
     if (!moduleId) return
+    const folderId = findFolderIdByNodeId(treeData(), id) ?? session.draft.folderId ?? ""
     const key = session.key
     const token = crypto.randomUUID()
     updateSession(id, { contextId: token })
     const environmentId = getCurrentEnvironmentId(props.projectId)
     try {
       const [environment, params, counts] = await Promise.all([
-        loadModuleEnvironmentState(moduleId), ModuleService.GetModuleParams(moduleId),
-        EndpointService.GetInheritedOperationCounts(id),
+        loadModuleEnvironmentState(moduleId, { ...session.draft, folderId }), ModuleService.GetModuleParams(moduleId),
+        requestTabs().some(tab => tab.id === id && tab.saved) ? EndpointService.GetInheritedOperationCounts(id) : Promise.resolve({ pre: 0, post: 0 }),
       ])
       if (sessions()[id]?.key !== key || sessions()[id]?.contextId !== token || environmentId !== getCurrentEnvironmentId(props.projectId)) return
       batch(() => {
@@ -304,7 +306,7 @@ export function ApiManagement(props: ApiManagementProps) {
           globalQueryParams: (params || []).filter(p => p.type === "query" && p.enabled).map(p => ({ name: p.name, value: p.value })),
           inheritedOpCounts: { pre: counts?.pre ?? 0, post: counts?.post ?? 0 },
         })
-        setEndpointData({ baseUrl: environment.currentBaseUrl }, id)
+        setEndpointData({ baseUrl: environment.currentBaseUrl, moduleId, folderId }, id)
       })
     } catch { /* 派生信息刷新失败时保留最后一次可用状态 */ }
   }
@@ -336,7 +338,9 @@ export function ApiManagement(props: ApiManagementProps) {
     }
   }
 
-  // ---- 环境切换回调（从 EndpointDetail 的 Badge 下拉触发） ----
+  const [editingEnvironmentId, setEditingEnvironmentId] = createSignal<string | null>(null)
+
+  // ---- 环境切换回调（从 EndpointDetail 的环境菜单触发） ----
   const handleEnvironmentChange = (environmentId: string) => {
     setCurrentEnvironment(props.projectId, environmentId)
   }
@@ -463,6 +467,18 @@ export function ApiManagement(props: ApiManagementProps) {
     return undefined
   }
 
+  // undefined 表示树中尚未加载；空串表示端点直属模块，不能退回旧目录。
+  const findFolderIdByNodeId = (nodes: TreeNode[], targetId: string, folderId = ""): string | undefined => {
+    for (const node of nodes) {
+      if (node.id === targetId) return folderId
+      if (node.children) {
+        const found = findFolderIdByNodeId(node.children, targetId, node.type === "folder" ? node.id : "")
+        if (found !== undefined) return found
+      }
+    }
+    return undefined
+  }
+
   const findInChildren = (children: TreeNode[], targetId: string): boolean => {
     for (const child of children) {
       if (child.id === targetId) return true
@@ -575,10 +591,13 @@ export function ApiManagement(props: ApiManagementProps) {
       ...override,
       id: tempId,
     }
-    const session = createRequestSession({ ...emptyEndpoint, ...unsaved })
+    const location = resolveSaveLocation(parentNodeId || getEffectiveSaveLocation())
+    const session = createRequestSession({ ...emptyEndpoint, ...unsaved, moduleId: location.moduleId, folderId: location.folderId || "" })
+    session.moduleId = location.moduleId
     putSession(tempId, session)
     setRequestTabs(prev => [...prev, { id: tempId, key: session.key, name: unsaved.name, method: unsaved.method, type: unsaved.type, path: unsaved.path, state: "resident", saved: false, dirty: false }])
     setActiveTabId(tempId)
+    void refreshSessionContext(tempId)
   }
 
 
@@ -772,7 +791,7 @@ export function ApiManagement(props: ApiManagementProps) {
         )
         if (detail.moduleId) {
           try {
-            environmentState = await loadModuleEnvironmentState(detail.moduleId)
+            environmentState = await loadModuleEnvironmentState(detail.moduleId, detail)
           } catch { /* 获取 baseUrl 失败时不阻塞加载 */ }
         }
         // 用户可能在请求期间又打开了另一个端点，只允许最后一次加载提交状态。
@@ -783,7 +802,7 @@ export function ApiManagement(props: ApiManagementProps) {
           path: detail.path, bodyType: detail.bodyType as BodyType, bodyContent: detail.bodyContent,
           contentType: detail.contentType, timeout: detail.timeout, timeoutMode: detail.timeoutMode || "inherit",
           followRedirects: detail.followRedirects, sendNoCacheHeaders: detail.sendNoCacheHeaders,
-          baseUrl: environmentState.currentBaseUrl,
+          baseUrl: environmentState.currentBaseUrl, serverId: detail.serverId, moduleId: detail.moduleId, folderId: detail.folderId || "",
           params: fromParamModels(detail.params),
           headers: fromHeaderModels(detail.headers),
           bodyFields: fromBodyFieldModels(detail.bodyFields),
@@ -871,6 +890,7 @@ export function ApiManagement(props: ApiManagementProps) {
     batch(() => {
       setEndpointData(data, id)
       syncTabMetadata(id)
+      if (data.serverId !== undefined || data.type !== undefined) void refreshSessionContext(id)
       if (sessions()[id] && endpointFingerprint(sessions()[id]!.draft) !== session.baseline) keepTab(id)
     })
   }
@@ -886,8 +906,11 @@ export function ApiManagement(props: ApiManagementProps) {
     sendData.requestId = requestId
     const ct = requestTabs().find(t => t.id === ep.id)
     sendData.endpointId = ct?.saved ? ep.id : ""
-    // 已保存端点：带上所属模块 ID，后端据此记录请求历史
-    sendData.moduleId = ct?.saved ? (findModuleIdByNodeId(treeData(), ep.id) || sessions()[ep.id]?.moduleId || "") : ""
+    // 携带本次请求的模块/目录上下文；新建请求也可解析所选服务的环境地址
+    sendData.moduleId = findModuleIdByNodeId(treeData(), ep.id) || sessions()[ep.id]?.moduleId || ep.moduleId || ""
+    sendData.folderId = findFolderIdByNodeId(treeData(), ep.id) ?? ep.folderId ?? ""
+    sendData.serverId = ep.serverId || ""
+    sendData.useEnvironmentBaseUrl = !!sendData.moduleId
     sendData.environmentId = getCurrentEnvironmentId(props.projectId)
     sendData.method = ep.method; sendData.baseUrl = ep.baseUrl; sendData.path = ep.path
     sendData.headers = toHeaderModels(ep.headers); sendData.params = toParamModels(ep.params)
@@ -910,7 +933,7 @@ export function ApiManagement(props: ApiManagementProps) {
     // 环境 ID 已在 await 前固定；模块地址独立于会话内的异步展示缓存。
     const environment = await resolveRequestEnvironment(
       sendData.moduleId, sendData.environmentId, ep.baseUrl,
-      moduleId => ModuleService.GetModuleBaseURLs(moduleId),
+      moduleId => ModuleService.ResolveEnvironmentBaseURLs(moduleId, sendData.folderId, sendData.serverId, ep.type === "websocket" ? "websocket" : "http"),
     )
     sendData.baseUrl = environment.baseUrl
     return sendData
@@ -1126,7 +1149,7 @@ export function ApiManagement(props: ApiManagementProps) {
       batch(() => {
         putSession(created.id, {
           ...current, moduleId, saving: false,
-          draft: { ...current.draft, id: created.id, name },
+          draft: { ...current.draft, id: created.id, name, moduleId, folderId: folderId || "" },
           baseline: endpointFingerprint({ ...snapshot, id: created.id }),
         })
         setRequestTabs(tabs => tabs.map(t => t.id === id ? { ...t, id: created.id, name, saved: true } : t))
@@ -1477,7 +1500,7 @@ export function ApiManagement(props: ApiManagementProps) {
           onDelete={() => handleDelete(tab().id)} onChange={data => handleDataChange(data, tab().id)}
           currentEnvironmentId={getCurrentEnvironmentId(props.projectId)}
           environmentBaseUrls={session()!.environmentBaseUrls}
-          onEnvironmentChange={handleEnvironmentChange} projectId={props.projectId}
+          onEnvironmentChange={handleEnvironmentChange} onEditEnvironment={setEditingEnvironmentId} projectId={props.projectId}
           globalQueryParams={session()!.globalQueryParams} inheritedOpCounts={session()!.inheritedOpCounts}
           requestTabIntent={activeTabId() === tab().id ? requestTabIntent() : undefined}
           onRequestTabIntentHandled={requestId => setRequestTabIntent(intent => intent?.requestId === requestId ? undefined : intent)}
@@ -1747,6 +1770,16 @@ export function ApiManagement(props: ApiManagementProps) {
           </div>
           <p class="text-xs text-amber-700 dark:text-amber-300">{t("export.module.secrets")}</p>
         </div>
+      </Dialog>
+
+      <Dialog open={!!editingEnvironmentId()} onClose={() => setEditingEnvironmentId(null)} title={t("environment.title")} closeOnEsc closeOnOverlayClick width="800px">
+        <Show when={editingEnvironmentId()} keyed>{id => (
+          <div class="p-4 max-h-[75vh] overflow-auto">
+            <EnvironmentDetailEditor projectId={props.projectId} environmentId={id} onEnvSaved={async () => {
+              setProjectEnvironmentsList(props.projectId, await EnvironmentService.ListEnvironments(props.projectId))
+            }} />
+          </div>
+        )}</Show>
       </Dialog>
 
       <CollectionRunner

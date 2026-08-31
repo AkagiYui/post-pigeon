@@ -47,7 +47,7 @@ export function snapshotEndpoint(data: EndpointData): EndpointData {
 /** 保存和 dirty 判定共享完整的可编辑字段；环境派生值/继承结果不算用户修改。 */
 export function endpointSaveData(ep: EndpointData): EndpointSaveData {
   return {
-    id: ep.id, name: ep.name, method: ep.method, path: ep.path,
+    id: ep.id, name: ep.name, method: ep.method, path: ep.path, serverId: ep.serverId || "",
     bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
     timeout: ep.timeout, timeoutMode: ep.timeoutMode, followRedirects: ep.followRedirects,
     sendNoCacheHeaders: ep.sendNoCacheHeaders,

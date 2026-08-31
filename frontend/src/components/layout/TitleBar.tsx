@@ -587,6 +587,8 @@ function EnvironmentSelect() {
   return (
     <Select
       options={envOptions()}
+      placeholder={t("environment.select")}
+      disabled={envOptions().length === 0}
       value={currentEnv()}
       onChange={handleEnvChange}
       size="xs"

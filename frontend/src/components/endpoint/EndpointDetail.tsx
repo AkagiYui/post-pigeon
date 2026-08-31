@@ -20,7 +20,7 @@ import { formatFromContentType } from "@/lib/format"
 import { getStatusInfo, statusClass } from "@/lib/http-status"
 import { formatSize, formatTiming, getStatusColor, type HTTPMethod, METHOD_COLORS } from "@/lib/types"
 import { byteLength, cn, downloadTextFile, extensionForContentType, hasURLScheme } from "@/lib/utils"
-import { convertHTTPToWSProtocol, effectiveWSProtocolConversion } from "@/lib/ws-protocol"
+import { effectiveWSProtocolConversion } from "@/lib/ws-protocol"
 import { responseLayout, setResponseLayout, setWebSocketMessageDrafts, webSocketMessageDrafts } from "@/stores/app"
 import { markConnecting, streamMessages, streamResponseBodyChunks, streamStatus } from "@/stores/stream"
 import { toastError } from "@/stores/toast"
@@ -29,6 +29,7 @@ import { AuthEditor } from "./AuthEditor"
 import { BodyEditor } from "./BodyEditor"
 import { DocumentEditor } from "./DocumentEditor"
 import { EndpointSettingsEditor } from "./EndpointSettingsEditor"
+import { EnvironmentSelector } from "./EnvironmentSelector"
 import { HeadersEditor } from "./HeadersEditor"
 import { OperationsEditor } from "./OperationsEditor"
 import { CookiesEditor, ParamsEditor } from "./ParamsEditor"
@@ -146,6 +147,7 @@ export interface EndpointDetailProps {
   environmentBaseUrls?: EnvironmentBaseURLOption[]
   /** 切换环境回调 */
   onEnvironmentChange?: (environmentId: string) => void
+  onEditEnvironment?: (environmentId: string) => void
   /** 所属项目 ID（供操作编辑器读取脚本库） */
   projectId?: string
   /** 模块级"全局" query 参数（只读展示于参数 tab） */
@@ -163,115 +165,6 @@ const tabStateStore = new Map<string, { requestTab: string; responseTab: string 
 
 export function clearEndpointSessionState(key: string) {
   tabStateStore.delete(key)
-}
-
-/**
- * EnvironmentBadge 环境切换徽章
- * 点击后弹出下拉菜单，展示所有环境的前置 URL，支持快捷切换
- */
-function EnvironmentBadge(props: {
-  baseUrl: string
-  autoConvertWSProtocol?: boolean
-  environmentBaseUrls?: EnvironmentBaseURLOption[]
-  currentEnvironmentId?: string
-  onEnvironmentChange?: (environmentId: string) => void
-}) {
-  const [open, setOpen] = createSignal(false)
-  // 菜单定位（基于 trigger 元素底部左对齐）
-  const [menuPos, setMenuPos] = createSignal({ x: 0, y: 0 })
-  let badgeRef: HTMLSpanElement | undefined
-  const displayBaseUrl = (url: string) => convertHTTPToWSProtocol(url, !!props.autoConvertWSProtocol)
-
-  // 点击 Badge 时计算 trigger 位置并弹出菜单
-  const handleBadgeClick = (e: MouseEvent) => {
-    e.stopPropagation()
-    // 如果只有一个或没有环境，不弹出菜单
-    const urls = props.environmentBaseUrls
-    if (!urls || urls.length <= 1) return
-    // 基于 trigger 元素底部左对齐计算菜单位置
-    if (badgeRef) {
-      const rect = badgeRef.getBoundingClientRect()
-      setMenuPos({ x: rect.left, y: rect.bottom + 4 })
-    }
-    setOpen(prev => !prev)
-  }
-
-  // 点击外部关闭
-  createEffect(() => {
-    if (open()) {
-      const handler = (e: MouseEvent) => {
-        if (badgeRef && !badgeRef.contains(e.target as Node)) {
-          setOpen(false)
-        }
-      }
-      document.addEventListener("click", handler)
-      onCleanup(() => document.removeEventListener("click", handler))
-    }
-  })
-
-  return (
-    <>
-      <span
-        ref={badgeRef}
-        class={cn(
-          "inline-flex items-center gap-1 h-6 px-2 text-xs rounded cursor-pointer select-none transition-colors min-w-0 shrink max-w-50",
-          props.baseUrl
-            ? "text-accent bg-accent-muted hover:bg-accent-muted/70"
-            : "text-muted-foreground hover:bg-hover",
-        )}
-        onClick={handleBadgeClick}
-        title={displayBaseUrl(props.baseUrl) || t("endpoint.baseUrl.notSet")}
-      >
-        {/* 图标始终显示；标题在空间不足时被挤压隐藏，仅剩图标 */}
-        <Icon icon="lucide:link-2" class="h-3 w-3 shrink-0" />
-        <span class="truncate min-w-0">{displayBaseUrl(props.baseUrl) || t("endpoint.baseUrl.notSet")}</span>
-      </span>
-
-      {/* 环境选择下拉菜单 */}
-      <Show when={open()}>
-        <div
-          class="fixed inset-0 z-40"
-          onClick={(e) => { e.stopPropagation(); setOpen(false) }}
-        />
-        <div
-          class="anim-pop-in fixed z-50 min-w-80 bg-popover border border-border rounded-md shadow-xl p-1 flex flex-col gap-0.5"
-          style={{ left: `${menuPos().x}px`, top: `${menuPos().y}px` }}
-          onClick={(e) => e.stopPropagation()}
-        >
-          <For each={props.environmentBaseUrls}>
-            {(item) => {
-              const isActive = item.environmentId === props.currentEnvironmentId
-              return (
-                <div
-                  class={cn(
-                    "flex items-center gap-1 px-1.5 py-1 text-sm cursor-pointer transition-colors rounded select-none",
-                    isActive
-                      ? "bg-accent-muted text-accent"
-                      : "text-foreground hover:bg-hover",
-                  )}
-                  onClick={() => {
-                    props.onEnvironmentChange?.(item.environmentId)
-                    setOpen(false)
-                  }}
-                >
-                  {/* 左侧：复选标记 - 当前环境显示勾选图标，其他留空占位 */}
-                  <span class="w-4 shrink-0 flex items-center justify-center">
-                    <Show when={isActive}>
-                      <Icon icon="lucide:check" class="w-3.5 h-3.5" />
-                    </Show>
-                  </span>
-                  {/* 中间：前置 URL（常规字体，弹性撑满） */}
-                  <span class="truncate text-sm flex-1 min-w-0">{displayBaseUrl(item.baseUrl) || "/"}</span>
-                  {/* 右侧：环境名称（低对比度） */}
-                  <span class="text-xs text-muted-foreground shrink-0">{item.environmentName}</span>
-                </div>
-              )
-            }}
-          </For>
-        </div>
-      </Show>
-    </>
-  )
 }
 
 /**
@@ -562,26 +455,30 @@ export function EndpointDetail(props: EndpointDetailProps) {
               class="h-6 shrink-0 self-center"
             />
 
-            {/* 前置 baseUrl 环境切换按钮：仅取决于接口路径是否带协议头。
+            <div class="flex items-center flex-1 min-w-0 gap-1">
+              {/* 前置 baseUrl 环境切换按钮：仅取决于接口路径是否带协议头。
               只要是相对地址（不含协议头）就显示；当前环境该模块未设置 baseUrl 时显示"未设置"。 */}
-            <Show when={!hasURLScheme(ep().path)}>
-              <EnvironmentBadge
-                baseUrl={ep().baseUrl}
-                autoConvertWSProtocol={autoConvertWSProtocol()}
-                environmentBaseUrls={props.environmentBaseUrls}
-                currentEnvironmentId={props.currentEnvironmentId}
-                onEnvironmentChange={props.onEnvironmentChange}
-              />
-            </Show>
+              <Show when={!hasURLScheme(ep().path)}>
+                <EnvironmentSelector
+                  protocol={isWs() ? "websocket" : "http"}
+                  onEditEnvironment={props.onEditEnvironment}
+                  baseUrl={ep().baseUrl}
+                  autoConvertWSProtocol={autoConvertWSProtocol()}
+                  environmentBaseUrls={props.environmentBaseUrls}
+                  currentEnvironmentId={props.currentEnvironmentId}
+                  onEnvironmentChange={props.onEnvironmentChange}
+                />
+              </Show>
 
-            {/* 端点路径（透明、加粗，与 Apifox 一致） */}
-            <Input
-              size="sm"
-              value={ep().path}
-              onInput={(e) => props.onChange?.({ path: e.currentTarget.value })}
-              placeholder={isWs() ? "wss://example.com/socket" : "/api/endpoint"}
-              class="border-0 bg-transparent rounded-none flex-1 min-w-0 font-semibold hover:border-0 focus-visible:ring-0"
-            />
+              {/* 端点路径（透明、加粗，与 Apifox 一致） */}
+              <Input
+                size="sm"
+                value={ep().path}
+                onInput={(e) => props.onChange?.({ path: e.currentTarget.value })}
+                placeholder={isWs() ? "wss://example.com/socket" : "/api/endpoint"}
+                class="border-0 bg-transparent rounded-none flex-1 min-w-0 font-semibold hover:border-0 focus-visible:ring-0"
+              />
+            </div>
           </div>
 
           {/* 主操作：HTTP 为发送；WebSocket 为连接/断开 */}
@@ -690,6 +587,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                     projectId={props.projectId}
                   />
                   case "settings": return <EndpointSettingsEditor
+                    moduleId={ep().moduleId} serverId={ep().serverId}
                     endpointType={ep().type}
                     timeout={ep().timeout}
                     timeoutMode={ep().timeoutMode}

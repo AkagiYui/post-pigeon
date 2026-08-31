@@ -201,17 +201,18 @@ func TestCollectFolderSubtree(t *testing.T) {
 	}
 }
 
-// TestRunnerUsesEndpointBaseURL 验证运行器会按环境取模块前置 URL。
-func TestRunnerUsesEndpointBaseURL(t *testing.T) {
-	runner, moduleID, envID := newRunnerFixture(t)
-	if got := runner.baseURLFor(moduleID, envID); !strings.HasPrefix(got, "http://127.0.0.1") {
-		t.Errorf("应取到测试服务器地址，实际 %q", got)
-	}
-	// 环境不匹配时回退到该模块的任意一条
-	if got := runner.baseURLFor(moduleID, "not-exist"); got == "" {
-		t.Errorf("环境不匹配时应回退到模块已有的前置 URL")
-	}
-	if got := runner.baseURLFor("no-such-module", envID); got != "" {
-		t.Errorf("模块不存在时应返回空串，实际 %q", got)
+// 未选环境或无效环境不能借用其他环境的前置 URL。
+func TestRunnerDoesNotBorrowAnotherEnvironmentURL(t *testing.T) {
+	runner, moduleID, _ := newRunnerFixture(t)
+	for _, environmentID := range []string{"", "not-exist"} {
+		report, err := runner.RunCollection(RunOptions{ModuleID: moduleID, EnvironmentID: environmentID})
+		if err != nil {
+			t.Fatal(err)
+		}
+		for _, item := range report.Items {
+			if item.Error == "" || item.StatusCode != 0 {
+				t.Fatalf("request reached a different environment: %+v", item)
+			}
+		}
 	}
 }

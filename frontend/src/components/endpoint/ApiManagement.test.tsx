@@ -16,7 +16,7 @@ vi.mock("@/../bindings/PostPigeon/internal/services", () => ({
   EndpointService: { GetEndpoint: mocks.get, SaveEndpointData: mocks.save, CreateFullEndpoint: mocks.create, GetInheritedOperationCounts: async () => ({ pre: 0, post: 0 }) },
   HTTPService: { SendRequest: mocks.send, CancelRequest: mocks.cancel, StopStream: mocks.stop },
   WebSocketService: { Connect: mocks.connect, Close: mocks.closeWS },
-  ModuleService: { GetModuleBaseURLs: mocks.urls, GetModuleParams: async () => [] },
+  ModuleService: { ResolveEnvironmentBaseURLs: mocks.urls, GetModuleParams: async () => [] },
   ProjectService: { GetProjectTree: mocks.tree },
   CurlService: { ToCurl: mocks.curl }, EnvironmentService: {}, FolderService: {}, ImportExportService: {},
   SendRequestData: class {},
@@ -55,6 +55,7 @@ vi.mock("@/components/endpoint/EndpointDetail", async () => {
       <input aria-label="path" value={props.endpoint.path} onInput={e => props.onChange?.({ path: e.currentTarget.value })} />
       <input aria-label="local" value={local()} onInput={e => setLocal(e.currentTarget.value)} />
       <button onClick={() => props.onChange?.({ method: "POST" })}>POST</button>
+      <button onClick={() => props.onChange?.({ serverId: "users" })}>users-service</button>
       <button onClick={() => props.onSave?.()}>save</button>
       <button onClick={() => props.onSend?.()}>send</button>
       <button onClick={() => props.onCancelSend?.()}>cancel-send</button>
@@ -504,5 +505,27 @@ describe("request environment snapshots", () => {
     await new Promise(resolve => setTimeout(resolve, 0))
     expect(mocks.send).not.toHaveBeenCalled()
     expect(mocks.connect).not.toHaveBeenCalled()
+  })
+})
+
+
+describe("service address context", () => {
+  it("sends using the unsaved service selection without waiting for the URL badge refresh", async () => {
+    await start(); const editor = await open("A")
+    fireEvent.click(within(editor).getByText("users-service"))
+    fireEvent.click(within(editor).getByText("send"))
+    await waitFor(() => expect(mocks.send).toHaveBeenCalled())
+    expect(mocks.urls).toHaveBeenCalledWith("m", "", "users", "http")
+    expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ moduleId: "m", folderId: "", serverId: "users", useEnvironmentBaseUrl: true }))
+    expect(mocks.save).not.toHaveBeenCalled()
+  })
+
+  it("gives new unsaved requests module environment context", async () => {
+    await start()
+    fireEvent.click(screen.getByTestId("new"))
+    const editor = await screen.findByTestId(/^editor-/)
+    await waitFor(() => expect(within(editor).getByTestId("base-url")).toHaveTextContent("https://dev.example"))
+    fireEvent.click(within(editor).getByText("send"))
+    await waitFor(() => expect(mocks.send).toHaveBeenCalledWith(expect.objectContaining({ endpointId: "", moduleId: "m", environmentId: "dev", baseUrl: "https://dev.example", useEnvironmentBaseUrl: true })))
   })
 })

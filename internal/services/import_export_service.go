@@ -510,13 +510,14 @@ func (s *ImportExportService) ImportProject(jsonStr string) (*models.Project, er
 			// 恢复模块在各环境下的前置 URL（按映射转换环境 ID）
 			for _, bu := range me.BaseURLs {
 				newEnvID, ok := envIDMap[bu.EnvironmentID]
-				if !ok || bu.BaseURL == "" {
+				if !ok {
 					continue
 				}
 				if err := tx.Create(&models.ModuleBaseURL{
-					ModuleID:      newModule.ID,
-					EnvironmentID: newEnvID,
-					BaseURL:       bu.BaseURL,
+					ModuleID:         newModule.ID,
+					EnvironmentID:    newEnvID,
+					BaseURL:          bu.BaseURL,
+					WebSocketBaseURL: bu.WebSocketBaseURL, ServerURLs: bu.ServerURLs,
 				}).Error; err != nil {
 					return err
 				}

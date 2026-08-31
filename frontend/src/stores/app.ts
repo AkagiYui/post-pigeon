@@ -200,4 +200,6 @@ export function getProjectEnvironments(projectId: string): Environment[] {
 /** 设置当前项目的环境列表 */
 export function setProjectEnvironmentsList(projectId: string, envs: Environment[]) {
   setProjectEnvironments(prev => ({ ...prev, [projectId]: envs }))
+  const selected = getCurrentEnvironmentId(projectId)
+  if (!envs.some(env => env.id === selected)) setCurrentEnvironment(projectId, envs.length === 1 ? envs[0].id : "")
 }

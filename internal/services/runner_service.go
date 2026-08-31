@@ -234,13 +234,17 @@ func (s *RunnerService) runOne(endpoint models.Endpoint, opts RunOptions, iterat
 		Tests:      []scripting.TestResult{},
 	}
 
-	baseURL := s.baseURLFor(endpoint.ModuleID, opts.EnvironmentID)
 	resp, err := s.http.SendRequest(SendRequestData{
+		UseEnvironmentBaseURL: true, ServerID: endpoint.ServerID, FolderID: func() string {
+			if endpoint.FolderID != nil {
+				return *endpoint.FolderID
+			}
+			return ""
+		}(),
 		EndpointID:    endpoint.ID,
 		ModuleID:      endpoint.ModuleID,
 		EnvironmentID: opts.EnvironmentID,
 		Method:        endpoint.Method,
-		BaseURL:       baseURL,
 		Path:          endpoint.Path,
 		BodyType:      endpoint.BodyType,
 		BodyContent:   endpoint.BodyContent,
@@ -260,6 +264,7 @@ func (s *RunnerService) runOne(endpoint models.Endpoint, opts RunOptions, iterat
 		return item
 	}
 
+	item.Error = resp.Error
 	item.StatusCode = resp.StatusCode
 	item.DurationMs = resp.Timing.Total
 	item.Size = resp.Size
@@ -285,21 +290,6 @@ func (s *RunnerService) runOne(endpoint models.Endpoint, opts RunOptions, iterat
 
 	item.Passed = item.Error == "" && item.FailedTests == 0 && (item.Skipped || resp.StatusCode < 400)
 	return item
-}
-
-// baseURLFor 取模块在指定环境下的前置 URL；没有则退回该模块的任意一条。
-func (s *RunnerService) baseURLFor(moduleID, environmentID string) string {
-	var record models.ModuleBaseURL
-	if environmentID != "" {
-		if err := s.db.Where("module_id = ? AND environment_id = ?", moduleID, environmentID).
-			First(&record).Error; err == nil && strings.TrimSpace(record.BaseURL) != "" {
-			return record.BaseURL
-		}
-	}
-	if err := s.db.Where("module_id = ? AND base_url <> ''", moduleID).First(&record).Error; err == nil {
-		return record.BaseURL
-	}
-	return ""
 }
 
 // resolveEndpoints 把运行范围展开成具体的接口列表（只含 HTTP 接口，按排序字段有序）。

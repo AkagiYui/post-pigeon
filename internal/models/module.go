@@ -7,8 +7,22 @@ import (
 	"gorm.io/gorm"
 )
 
-// Module 模块，属于项目
+// ModuleServer 的 ID 仅在所属模块内唯一；复制模块时服务配置与引用一起保留。
+type ModuleServer struct {
+	ID   string `json:"id"`
+	Name string `json:"name"`
+}
+
+type ServerBaseURL struct {
+	HTTP      string `json:"http"`
+	WebSocket string `json:"websocket"`
+}
+
+// Module 模块，属于项目。服务 ID 在模块内唯一，空 ServerID 使用默认服务。
 type Module struct {
+	ServerID string         `gorm:"type:text;not null;default:''" json:"serverId"`
+	Servers  []ModuleServer `gorm:"serializer:json;type:text" json:"servers"`
+
 	ID        string `gorm:"primaryKey" json:"id"`
 	ProjectID string `gorm:"not null;index" json:"projectId"`
 	Name      string `gorm:"not null" json:"name"`
@@ -98,6 +112,10 @@ func (m *Module) AfterCreate(tx *gorm.DB) error {
 
 // ModuleBaseURL 模块在各环境下的前置 URL
 type ModuleBaseURL struct {
+	// nil 延续旧版 HTTP/WS 共用地址的行为；空字符串明确表示 WS 未配置。
+	WebSocketBaseURL *string                  `gorm:"column:websocket_base_url;type:text" json:"websocketBaseUrl"`
+	ServerURLs       map[string]ServerBaseURL `gorm:"serializer:json;type:text" json:"serverUrls"`
+
 	ID            string `gorm:"primaryKey" json:"id"`
 	ModuleID      string `gorm:"not null;index" json:"moduleId"`
 	EnvironmentID string `gorm:"not null;index" json:"environmentId"`

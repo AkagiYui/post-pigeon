@@ -180,6 +180,7 @@ func (s *EndpointService) SaveEndpointData(data EndpointSaveData) error {
 			"proxy_config":           data.ProxyConfig,
 			"tls_config":             data.TLSConfig,
 			"url_encoding":           data.URLEncoding,
+			"server_id":              data.ServerID,
 			"ws_protocol_conversion": persistedWSProtocolConversion(data.WSProtocolConversion),
 		}
 		// 新字段发布后，旧版前端的 SaveEndpointData 调用不会携带它们。空载荷在
@@ -379,6 +380,7 @@ func (s *EndpointService) SearchEndpoints(moduleID string, query string) ([]mode
 
 // EndpointSaveData 端点保存数据
 type EndpointSaveData struct {
+	ServerID    string `json:"serverId"`
 	ID          string `json:"id"`
 	Name        string `json:"name"`
 	Method      string `json:"method"`
@@ -513,6 +515,7 @@ func (s *EndpointService) CreateFullEndpoint(moduleID string, folderID *string, 
 		StreamViewMode:         persistedStreamViewMode(data.StreamViewMode),
 		StreamCompletionFormat: persistedStreamCompletionFormat(data.StreamCompletionFormat),
 		StreamJSONPath:         data.StreamJSONPath,
+		ServerID:               data.ServerID,
 		StreamRenderMarkdown:   data.StreamRenderMarkdown,
 		SortOrder:              maxSort + 1,
 	}

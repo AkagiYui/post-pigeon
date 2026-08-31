@@ -123,7 +123,7 @@
   "endpoint.param.pathParams": "Path 参数",
   "endpoint.param.globalQueryParams": "全局 Query 参数",
   "endpoint.param.globalQueryParamsHint": "继承自模块的全局参数，此处开关仅对本接口生效，不影响模块（项目全局）设置。",
-  "endpoint.baseUrl.notSet": "未设置",
+  "endpoint.baseUrl.notSet": "未设置前置 URL",
   "response.body": "响应体",
   "response.headers": "响应头",
   "response.cookies": "Cookies",
@@ -985,5 +985,18 @@
   "project.delete.nameMismatch": "名称不一致",
   "project.deleted": "项目「{name}」已删除",
   "project.openTabWillClose": "删除后会自动关闭它的标签页并离开这个项目",
-  "project.dangerZone": "危险操作"
+  "project.dangerZone": "危险操作",
+  "environment.none": "无环境",
+  "environment.select": "选择环境",
+  "environment.editNamed": "编辑环境 {name}",
+  "endpoint.baseUrl.hint": "相对路径会拼接当前服务在所选环境下的前置 URL；绝对地址忽略前置 URL。变量先解析，再判断是否需要拼接。",
+  "endpoint.baseUrl.hintWS": "相对路径会拼接当前服务在所选环境下的 WebSocket 前置 URL；绝对地址忽略前置 URL。变量先解析，再判断是否需要拼接。",
+  "server.title": "服务",
+  "server.default": "默认服务",
+  "server.moduleDefault": "模块默认服务",
+  "server.manage": "模块服务",
+  "server.new": "新服务",
+  "server.name": "服务名称",
+  "server.manageHint": "在环境设置中分别配置各服务的 HTTP 和 WebSocket 前置 URL。目录和接口可以继承上级服务或单独选择；服务未配置地址时保持为空。",
+  "server.shareHTTP": "沿用 HTTP 前置 URL（兼容旧配置）"
 }

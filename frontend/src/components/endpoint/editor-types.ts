@@ -10,6 +10,9 @@ export type StreamViewMode = "timeline" | "completion"
 export type StreamCompletionFormat = "auto" | "openai" | "gemini" | "claude" | "ollama-generate" | "ollama-chat" | "custom"
 
 export interface EndpointData {
+  serverId?: string
+  moduleId?: string
+  folderId?: string
   id: string
   name: string
   /** 端点类型：http / doc / websocket / sse */

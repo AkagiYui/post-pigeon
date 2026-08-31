@@ -7,7 +7,7 @@ import type { Project } from "@/../bindings/PostPigeon/internal/models"
 import { EnvironmentService, ProjectService } from "@/../bindings/PostPigeon/internal/services"
 import { ApiManagement } from "@/components/endpoint/ApiManagement"
 import { t } from "@/hooks/useI18n"
-import { getCurrentEnvironmentId, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
+import { setProjectEnvironmentsList } from "@/stores/app"
 import { toastError } from "@/stores/toast"
 
 export const Route = createFileRoute("/project/$id/")({
@@ -37,17 +37,6 @@ function ProjectWorkspacePage() {
 
       // 将环境列表存储到全局 store
       setProjectEnvironmentsList(currentParams.id, envList || [])
-
-      // 选择当前环境：优先沿用已持久化且仍存在的选择，否则回退默认（正式环境 > 第一个）
-      if (envList && envList.length > 0) {
-        const persisted = getCurrentEnvironmentId(currentParams.id)
-        const persistedValid = persisted && envList.some((env) => env.id === persisted)
-        if (!persistedValid) {
-          const productionEnv = envList.find((env) => env.name === "正式环境")
-          const defaultEnv = productionEnv || envList[0]
-          setCurrentEnvironment(currentParams.id, defaultEnv.id)
-        }
-      }
     } catch (e) {
       toastError(e, "error.op.loadFailed")
     } finally {

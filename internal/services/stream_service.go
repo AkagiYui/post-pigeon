@@ -114,6 +114,9 @@ func (s *WebSocketService) ServiceShutdown() error {
 // 返回值沿用普通 HTTP 响应模型，供前端展示握手状态、响应头/Cookie、实际请求与脚本输出。
 func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConvertWSProtocol bool) (out *HTTPResponseData, retErr error) {
 	lifecycle := newRequestLifecycleTiming()
+	if err := resolveEnvironmentRequestBaseURL(s.db, &data, "websocket"); err != nil {
+		return nil, err
+	}
 	configuredSnapshot := configuredRequestSnapshot(data)
 	s.close(connID, false) // 若已存在同 ID 连接，先关闭；新一轮连接自行发送后续状态
 	defer func() {

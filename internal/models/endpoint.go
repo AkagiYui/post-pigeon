@@ -56,6 +56,7 @@ const (
 
 // Endpoint 端点，属于模块或文件夹。通过 Type 区分 HTTP 接口 / 文档 / WebSocket / SSE。
 type Endpoint struct {
+	ServerID    string  `gorm:"type:text;not null;default:''" json:"serverId"`
 	ID          string  `gorm:"primaryKey" json:"id"`
 	ModuleID    string  `gorm:"not null;index" json:"moduleId"`
 	FolderID    *string `gorm:"index" json:"folderId"`

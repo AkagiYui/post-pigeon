@@ -50,6 +50,9 @@ type CurlRequest struct {
 // 变量占位符会按当前环境解析成实际值——导出的命令就是为了「拿到别处直接跑」，
 // 留着 {{token}} 反而不可用。
 func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
+	if err := resolveEnvironmentRequestBaseURL(s.db, &data, "http"); err != nil {
+		return "", err
+	}
 	vars := s.requestVars(data)
 	requestEndpoint := endpointForRequest(s.db, data.EndpointID, data.ModuleID)
 	requestPath := loadRequestScopePath(s.db, requestEndpoint)

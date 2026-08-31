@@ -21,6 +21,8 @@ func NewScopeSettingsService(db *gorm.DB) *ScopeSettingsService {
 
 // ModuleSettings 模块级设置
 type ModuleSettings struct {
+	ServerID             string                  `json:"serverId"`
+	Servers              []models.ModuleServer   `json:"servers"`
 	AuthType             string                  `json:"authType"`
 	AuthData             string                  `json:"authData"`
 	WSProtocolConversion string                  `json:"wsProtocolConversion"`
@@ -38,6 +40,8 @@ type ModuleSettings struct {
 
 // FolderSettings 文件夹级设置
 type FolderSettings struct {
+	ModuleID string `json:"moduleId"`
+	ServerID string `json:"serverId"`
 	AuthType string `json:"authType"`
 	AuthData string `json:"authData"`
 	// HasInheritedAuth 表示不考虑当前文件夹覆盖时，父文件夹/模块链上是否存在有效认证。
@@ -62,6 +66,7 @@ func (s *ScopeSettingsService) GetModuleSettings(moduleID string) (*ModuleSettin
 		return nil, fmt.Errorf("模块不存在: %w", err)
 	}
 	settings := &ModuleSettings{
+		ServerID: m.ServerID, Servers: m.Servers,
 		AuthType:             defaultAuthType(m.AuthType, "none"),
 		AuthData:             m.AuthData,
 		WSProtocolConversion: string(models.NormalizeWSProtocolConversion(m.WSProtocolConversion)),
@@ -83,7 +88,32 @@ func (s *ScopeSettingsService) GetModuleSettings(moduleID string) (*ModuleSettin
 // SaveModuleSettings 保存模块设置
 func (s *ScopeSettingsService) SaveModuleSettings(moduleID string, settings ModuleSettings) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
+		if err := validateModuleServers(settings.Servers, settings.ServerID); err != nil {
+			return err
+		}
+		// 删除服务时一并清除各环境中其地址，不残留不可见的旧配置。
+		var rows []models.ModuleBaseURL
+		if err := tx.Where("module_id = ?", moduleID).Find(&rows).Error; err != nil {
+			return err
+		}
+		configured := models.Module{Servers: settings.Servers}
+		for _, row := range rows {
+			changed := false
+			for id := range row.ServerURLs {
+				if !validModuleServer(&configured, id) {
+					delete(row.ServerURLs, id)
+					changed = true
+				}
+			}
+			if changed {
+				if err := tx.Model(&row).Update("server_urls", models.ToJSON(row.ServerURLs)).Error; err != nil {
+					return err
+				}
+			}
+		}
+
 		if err := tx.Model(&models.Module{}).Where("id = ?", moduleID).Updates(map[string]any{
+			"server_id": settings.ServerID, "servers": models.ToJSON(settings.Servers),
 			"auth_type": defaultAuthType(settings.AuthType, "none"), "auth_data": settings.AuthData,
 			"ws_protocol_conversion": persistedWSProtocolConversion(settings.WSProtocolConversion),
 			"proxy_config":           persistedProxySelection(settings.ProxyConfig),
@@ -180,6 +210,8 @@ func (s *ScopeSettingsService) GetFolderSettings(folderID string) (*FolderSettin
 		FolderID: f.ParentID,
 	}, nil)
 	settings := &FolderSettings{
+		ModuleID:             f.ModuleID,
+		ServerID:             f.ServerID,
 		AuthType:             defaultAuthType(f.AuthType, "inherit"),
 		AuthData:             f.AuthData,
 		HasInheritedAuth:     inheritedAuth != nil && isConcreteAuth(inheritedAuth.Type),
@@ -204,6 +236,7 @@ func (s *ScopeSettingsService) GetFolderSettings(folderID string) (*FolderSettin
 func (s *ScopeSettingsService) SaveFolderSettings(folderID string, settings FolderSettings) error {
 	return s.db.Transaction(func(tx *gorm.DB) error {
 		if err := tx.Model(&models.Folder{}).Where("id = ?", folderID).Updates(map[string]any{
+			"server_id": settings.ServerID,
 			"auth_type": defaultAuthType(settings.AuthType, "inherit"), "auth_data": settings.AuthData,
 			"ws_protocol_conversion": persistedWSProtocolConversion(settings.WSProtocolConversion),
 			"proxy_config":           persistedProxySelection(settings.ProxyConfig),

@@ -1,9 +1,9 @@
 // 模块 / 文件夹级设置对话框：默认认证、自动参数与模块变量（仅模块）、前置/后置操作。
 // 认证与操作对该级别下所有接口（递归）继承生效。
 import { Icon } from "@iconify-icon/solid"
-import { createEffect, createSignal, Show } from "solid-js"
+import { createEffect, createSignal, Index, Show } from "solid-js"
 
-import { ModuleParam, ModuleVariable, OperationOverride, SelectableProxy } from "@/../bindings/PostPigeon/internal/models"
+import { ModuleParam, ModuleServer, ModuleVariable, OperationOverride, SelectableProxy } from "@/../bindings/PostPigeon/internal/models"
 import { FolderSettings, ModuleSettings, ProxyService, ScopeSettingsService } from "@/../bindings/PostPigeon/internal/services"
 import { AuthEditor } from "@/components/endpoint/AuthEditor"
 import { authDataToState, authStateToData, fromInheritedOperationModels, fromOperationModels, hasEffectiveAuth, toOperationModels } from "@/components/endpoint/endpoint-data"
@@ -19,7 +19,10 @@ import { Table } from "@/components/ui/table"
 import { Tabs } from "@/components/ui/tabs"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
+import { notifyBaseUrlsChanged } from "@/stores/app"
 import { toastError } from "@/stores/toast"
+
+import { ServerSelect } from "./ServerSelect"
 
 // 认证与操作的转换直接复用 endpoint-data 里的实现：
 // 模块/文件夹级与接口级本就是同一套语义，各写一份的结果是新增认证类型时只改了一边
@@ -47,6 +50,9 @@ export interface ScopeSettingsDialogProps {
 }
 
 export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
+  const [serverId, setServerId] = createSignal("")
+  const [servers, setServers] = createSignal<ModuleServer[]>([])
+  const [moduleId, setModuleId] = createSignal("")
   const [tab, setTab] = createSignal("auth")
   const [auth, setAuth] = createSignal<AuthState>(emptyAuth())
   const [hasInheritedAuth, setHasInheritedAuth] = createSignal(false)
@@ -76,6 +82,9 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
       setSelectableProxies((await ProxyService.ListSelectableProxies(props.projectId)) || [])
       if (props.scopeType === "module") {
         const s = await ScopeSettingsService.GetModuleSettings(props.scopeId)
+        setModuleId(props.scopeId)
+        setServerId(s?.serverId || "")
+        setServers(s?.servers || [])
         setAuth(authDataToState(s?.authType || "none", s?.authData || ""))
         setHasInheritedAuth(false)
         setWSProtocolConversion(s?.wsProtocolConversion || "inherit")
@@ -93,6 +102,8 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
         setVars((s?.variables || []).map(v => ({ id: crypto.randomUUID(), key: v.key, value: v.value, description: v.description, enabled: v.enabled, isSecret: v.isSecret })))
       } else {
         const s = await ScopeSettingsService.GetFolderSettings(props.scopeId)
+        setServerId(s?.serverId || "")
+        setModuleId(s?.moduleId || "")
         setAuth(authDataToState(s?.authType || "inherit", s?.authData || ""))
         setHasInheritedAuth(s?.hasInheritedAuth ?? false)
         setWSProtocolConversion(s?.wsProtocolConversion || "inherit")
@@ -121,10 +132,11 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
       if (props.scopeType === "module") {
         const mp = params().filter(p => p.name.trim()).map(p => new ModuleParam({ type: p.type, name: p.name, value: p.value, enabled: p.enabled }))
         const mv = vars().filter(v => v.key.trim()).map(v => new ModuleVariable({ key: v.key.trim(), value: v.value, description: v.description, enabled: v.enabled, isSecret: v.isSecret }))
-        await ScopeSettingsService.SaveModuleSettings(props.scopeId, new ModuleSettings({ authType, authData, wsProtocolConversion: wsProtocolConversion(), proxyConfig: proxyConfig(), tlsConfig: tlsConfig(), urlEncoding: urlEncoding(), timeoutMode: timeoutMode(), timeout: timeout(), followRedirects: followRedirects(), sendNoCacheHeaders: sendNoCacheHeaders(), params: mp, variables: mv, operations: ops }))
+        await ScopeSettingsService.SaveModuleSettings(props.scopeId, new ModuleSettings({ serverId: serverId(), servers: servers(), authType, authData, wsProtocolConversion: wsProtocolConversion(), proxyConfig: proxyConfig(), tlsConfig: tlsConfig(), urlEncoding: urlEncoding(), timeoutMode: timeoutMode(), timeout: timeout(), followRedirects: followRedirects(), sendNoCacheHeaders: sendNoCacheHeaders(), params: mp, variables: mv, operations: ops }))
       } else {
-        await ScopeSettingsService.SaveFolderSettings(props.scopeId, new FolderSettings({ authType, authData, wsProtocolConversion: wsProtocolConversion(), proxyConfig: proxyConfig(), tlsConfig: tlsConfig(), urlEncoding: urlEncoding(), timeoutMode: timeoutMode(), timeout: timeout(), followRedirects: followRedirects(), sendNoCacheHeaders: sendNoCacheHeaders(), operations: ops, inheritedOperations: [], operationOverrides: operationOverrides().map(item => new OperationOverride({ operationId: item.operationId, enabled: item.enabled })) }))
+        await ScopeSettingsService.SaveFolderSettings(props.scopeId, new FolderSettings({ serverId: serverId(), authType, authData, wsProtocolConversion: wsProtocolConversion(), proxyConfig: proxyConfig(), tlsConfig: tlsConfig(), urlEncoding: urlEncoding(), timeoutMode: timeoutMode(), timeout: timeout(), followRedirects: followRedirects(), sendNoCacheHeaders: sendNoCacheHeaders(), operations: ops, inheritedOperations: [], operationOverrides: operationOverrides().map(item => new OperationOverride({ operationId: item.operationId, enabled: item.enabled })) }))
       }
+      notifyBaseUrlsChanged()
       setLoadedFor("")
       props.onClose()
     } catch (e) { toastError(e, "error.op.saveFailed") } finally { setSaving(false) }
@@ -182,6 +194,22 @@ export function ScopeSettingsDialog(props: ScopeSettingsDialogProps) {
             {(key) => {
               if (key === "general") return (
                 <div class="p-3 space-y-4 overflow-auto h-full">
+                  <Show when={props.scopeType === "module"} fallback={<ServerSelect moduleId={moduleId()} value={serverId()} onChange={setServerId} />}>
+                    <ScopeSelect label={t("server.moduleDefault")} value={serverId() || "default"} onChange={setServerId} options={[
+                      { value: "default", label: t("server.default") }, ...servers().map(server => ({ value: server.id, label: server.name })),
+                    ]} />
+                    <div class="space-y-2">
+                      <div class="flex justify-between items-center"><span class="text-sm font-medium">{t("server.manage")}</span>
+                        <Button size="sm" variant="outline" onClick={() => setServers(prev => [...prev, new ModuleServer({ id: crypto.randomUUID(), name: t("server.new") })])}>{t("common.add")}</Button>
+                      </div>
+                      <Index each={servers()}>{server => <div class="flex gap-2">
+                        <Input value={server().name} aria-label={t("server.name")} onInput={e => { const name = e.currentTarget.value; setServers(prev => prev.map(item => item.id === server().id ? new ModuleServer({ ...item, name }) : item)) }} />
+                        <Button size="sm" variant="ghost" onClick={() => { const id = server().id; setServers(prev => prev.filter(item => item.id !== id)); if (serverId() === id) setServerId("") }}>{t("common.delete")}</Button>
+                      </div>}</Index>
+                      <p class="text-xs text-muted-foreground">{t("server.manageHint")}</p>
+                    </div>
+                  </Show>
+
                   <ScopeSelect label={t("request.timeout")} value={timeoutMode()} options={[
                     { value: "inherit", label: t("inherit.parent") },
                     { value: "value", label: t("request.timeout.value") },

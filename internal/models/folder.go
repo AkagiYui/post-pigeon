@@ -9,6 +9,7 @@ import (
 
 // Folder 文件夹，支持递归嵌套
 type Folder struct {
+	ServerID  string  `gorm:"type:text;not null;default:''" json:"serverId"`
 	ID        string  `gorm:"primaryKey" json:"id"`
 	ModuleID  string  `gorm:"not null;index" json:"moduleId"`
 	ParentID  *string `gorm:"index" json:"parentId"`

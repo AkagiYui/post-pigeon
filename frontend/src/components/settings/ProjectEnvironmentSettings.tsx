@@ -3,6 +3,7 @@
 import { Icon } from "@iconify-icon/solid"
 import { createEffect, createSignal, For, on, onCleanup, Show } from "solid-js"
 
+import { ModuleBaseURL, ServerBaseURL } from "@/../bindings/PostPigeon/internal/models"
 import type { Environment, Module } from "@/../bindings/PostPigeon/internal/models/models"
 import { EnvironmentService, ModuleService } from "@/../bindings/PostPigeon/internal/services"
 import { Button } from "@/components/ui/button"
@@ -206,17 +207,18 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
       <div class="flex-1 overflow-y-auto overflow-x-hidden px-1">
         <Show
           when={selectedEnvId()}
+          keyed
           fallback={
             <div class="flex items-center justify-center h-full text-sm text-muted-foreground">
               {t("environment.selectToEdit")}
             </div>
           }
         >
-          <EnvironmentDetailEditor
+          {environmentId => <EnvironmentDetailEditor
             projectId={props.projectId!}
-            environmentId={selectedEnvId()!}
+            environmentId={environmentId}
             onEnvSaved={loadEnvironments}
-          />
+          />}
         </Show>
       </div>
     </div>
@@ -229,7 +231,7 @@ export function ProjectEnvironmentSettings(props: ProjectEnvironmentSettingsProp
  * 包含环境名称、模块前置 URL 和环境变量三个部分
  * 使用统一保存按钮，只保存有脏数据的部分
  */
-function EnvironmentDetailEditor(props: { projectId: string; environmentId: string; onEnvSaved?: () => Promise<void> }) {
+export function EnvironmentDetailEditor(props: { projectId: string; environmentId: string; onEnvSaved?: () => Promise<void> }) {
   const [envName, setEnvName] = createSignal("")
   const [originalEnvName, setOriginalEnvName] = createSignal("")
   const [saving, setSaving] = createSignal(false)
@@ -324,114 +326,93 @@ function EnvironmentDetailEditor(props: { projectId: string; environmentId: stri
  */
 function ModuleBaseUrlsEditor(props: { ref: EditorSaveRef; projectId: string; environmentId: string }) {
   const [modules, setModules] = createSignal<Module[]>([])
-  // 存储每个模块在当前环境下的 base URL，key 为 moduleId
-  const [baseUrls, setBaseUrls] = createSignal<Record<string, string>>({})
-  // 保存加载时的原始数据，用于判断是否有未保存的更改
-  const [originalBaseUrls, setOriginalBaseUrls] = createSignal<Record<string, string>>({})
+  const [rows, setRows] = createSignal<Record<string, ModuleBaseURL>>({})
+  const [original, setOriginal] = createSignal("{}")
   const [loading, setLoading] = createSignal(false)
+  let loadToken = 0
+  onCleanup(() => { loadToken++ })
 
-  // 判断是否有未保存的更改
-  const hasUnsavedChanges = () => {
-    const current = baseUrls()
-    const original = originalBaseUrls()
-    const allKeys = new Set([...Object.keys(current), ...Object.keys(original)])
-    for (const key of allKeys) {
-      if ((current[key] || "") !== (original[key] || "")) return true
-    }
-    return false
-  }
-
-  // 保存所有前置 URL
-  const handleSave = async () => {
-    const urlMap = baseUrls()
-    await Promise.all(
-      Object.entries(urlMap).map(([moduleId, url]) =>
-        ModuleService.SetModuleBaseURL(moduleId, props.environmentId, url),
-      ),
-    )
-    // 保存成功后更新原始快照
-    setOriginalBaseUrls({ ...urlMap })
-    // 通知其他组件 baseUrl 已变更
+  const hasUnsavedChanges = () => !loading() && JSON.stringify(rows()) !== original()
+  props.ref.hasUnsavedChanges = hasUnsavedChanges
+  props.ref.save = async () => {
+    const environmentId = props.environmentId
+    const snapshot = rows()
+    await ModuleService.SaveEnvironmentBaseURLs(environmentId, Object.values(snapshot))
+    if (environmentId === props.environmentId) setOriginal(JSON.stringify(snapshot))
     notifyBaseUrlsChanged()
   }
 
-  // 将接口暴露给父级
-  props.ref.save = handleSave
-  props.ref.hasUnsavedChanges = hasUnsavedChanges
-
-  // 加载所有模块及其在当前环境下的前置 URL
-  const loadData = async () => {
+  createEffect(on(() => [props.projectId, props.environmentId] as const, async ([projectId, environmentId]) => {
+    const token = ++loadToken
+    setLoading(true)
+    setModules([])
+    setRows({})
+    setOriginal("{}")
     try {
-      setLoading(true)
-      // 先获取项目下所有模块
-      const moduleList = await ModuleService.ListModules(props.projectId)
-      setModules(moduleList || [])
-
-      if (!moduleList || moduleList.length === 0) {
-        setBaseUrls({})
-        setOriginalBaseUrls({})
-        return
-      }
-
-      // 并行查询每个模块在当前环境下的前置 URL
-      const resultPairs = await Promise.all(
-        moduleList.map(async (m) => {
-          const urls = await ModuleService.GetModuleBaseURLs(m.id)
-          const matched = urls.find(u => u.environmentId === props.environmentId)
-          return { moduleId: m.id, baseUrl: matched?.baseUrl ?? "" }
-        }),
-      )
-
-      // 构建 moduleId -> baseUrl 映射
-      const urlMap: Record<string, string> = {}
-      for (const { moduleId, baseUrl } of resultPairs) {
-        urlMap[moduleId] = baseUrl
-      }
-      setBaseUrls(urlMap)
-      setOriginalBaseUrls({ ...urlMap })
-    } catch (e) {
-      toastError(e, "error.op.loadFailed")
+      const moduleList = await ModuleService.ListModules(projectId) || []
+      const entries = await Promise.all(moduleList.map(async mod => {
+        const urls = await ModuleService.GetModuleBaseURLs(mod.id)
+        return [mod.id, new ModuleBaseURL(urls.find(url => url.environmentId === environmentId) || { moduleId: mod.id, environmentId })] as const
+      }))
+      if (token !== loadToken) return
+      const next = Object.fromEntries(entries)
+      setRows(next)
+      setOriginal(JSON.stringify(next))
+      setModules(moduleList)
+    } catch (error) {
+      if (token === loadToken) toastError(error, "error.op.loadFailed")
     } finally {
-      setLoading(false)
+      if (token === loadToken) setLoading(false)
     }
-  }
+  }))
 
-  // 环境切换时重新加载
-  createEffect(on(
-    () => props.environmentId,
-    () => { loadData() },
-  ))
+  const update = (moduleId: string, patch: Partial<ModuleBaseURL>) => {
+    setRows(prev => ({ ...prev, [moduleId]: new ModuleBaseURL({ ...prev[moduleId], ...patch }) }))
+  }
+  const updateServer = (moduleId: string, serverId: string, patch: Partial<ServerBaseURL>) => {
+    const urls = rows()[moduleId]?.serverUrls || {}
+    update(moduleId, { serverUrls: { ...urls, [serverId]: new ServerBaseURL({ ...urls[serverId], ...patch }) } })
+  }
 
   return (
     <div>
       <div class="flex items-center gap-1.5 mb-2">
         <Icon icon="lucide:link-2" class="h-4 w-4 text-muted-foreground" />
         <label class="text-sm font-medium text-foreground">{t("environment.baseUrl")}</label>
-        {loading() && <span class="text-xs text-muted-foreground ml-1">{t("common.loading")}</span>}
+        <Show when={loading()}><span class="text-xs text-muted-foreground ml-1">{t("common.loading")}</span></Show>
       </div>
-      <div class="space-y-1.5">
-        <For each={modules()}>
-          {(mod) => (
-            <div class="flex items-center gap-2">
-              <span class="text-sm text-foreground w-28 shrink-0 truncate" title={mod.name}>
-                {mod.name}
-              </span>
-              <div class="flex-1">
-                <Input
-                  size="sm"
-                  value={baseUrls()[mod.id] || ""}
-                  onInput={(e) => setBaseUrls(prev => ({ ...prev, [mod.id]: e.currentTarget.value }))}
-                  placeholder="https://api.example.com"
-                />
-              </div>
+      <div class="space-y-4">
+        <For each={modules()}>{mod => (
+          <div class="rounded border border-border p-3 space-y-3">
+            <div class="text-sm font-medium truncate" title={mod.name}>{mod.name}</div>
+            <div class="space-y-2">
+              <div class="text-xs text-muted-foreground">{t("server.default")}</div>
+              <label class="flex items-center gap-2 text-xs"><span class="w-20 shrink-0">HTTP</span>
+                <Input size="sm" value={rows()[mod.id]?.baseUrl || ""} onInput={e => update(mod.id, { baseUrl: e.currentTarget.value })} placeholder="https://api.example.com" />
+              </label>
+              <label class="flex items-center gap-2 text-xs"><span class="w-20 shrink-0">WebSocket</span>
+                <Input size="sm" disabled={rows()[mod.id]?.websocketBaseUrl == null} value={rows()[mod.id]?.websocketBaseUrl ?? rows()[mod.id]?.baseUrl ?? ""} onInput={e => update(mod.id, { websocketBaseUrl: e.currentTarget.value })} placeholder="wss://api.example.com" />
+              </label>
+              <label class="flex items-center gap-2 text-xs text-muted-foreground ml-22">
+                <input type="checkbox" checked={rows()[mod.id]?.websocketBaseUrl == null} onChange={e => update(mod.id, { websocketBaseUrl: e.currentTarget.checked ? null : rows()[mod.id]?.baseUrl || "" })} />
+                {t("server.shareHTTP")}
+              </label>
             </div>
-          )}
-        </For>
-        <Show when={modules().length === 0 && !loading()}>
-          <p class="text-xs text-muted-foreground pl-1">{t("common.noData")}</p>
-        </Show>
+            <For each={mod.servers || []}>{server => (
+              <div class="space-y-2 border-t border-border pt-3">
+                <div class="text-xs text-muted-foreground truncate" title={server.name}>{server.name}</div>
+                <label class="flex items-center gap-2 text-xs"><span class="w-20 shrink-0">HTTP</span>
+                  <Input size="sm" value={rows()[mod.id]?.serverUrls?.[server.id]?.http || ""} onInput={e => updateServer(mod.id, server.id, { http: e.currentTarget.value })} placeholder="https://api.example.com" />
+                </label>
+                <label class="flex items-center gap-2 text-xs"><span class="w-20 shrink-0">WebSocket</span>
+                  <Input size="sm" value={rows()[mod.id]?.serverUrls?.[server.id]?.websocket || ""} onInput={e => updateServer(mod.id, server.id, { websocket: e.currentTarget.value })} placeholder="wss://api.example.com" />
+                </label>
+              </div>
+            )}</For>
+          </div>
+        )}</For>
+        <Show when={modules().length === 0 && !loading()}><p class="text-xs text-muted-foreground">{t("common.noData")}</p></Show>
       </div>
     </div>
   )
 }
-

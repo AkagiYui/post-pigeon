@@ -182,6 +182,11 @@ func (s *HTTPService) runPersist(job persistJob) {
 
 // SendRequestData 发送请求的参数
 type SendRequestData struct {
+	// UI/批量运行显式使用当前环境地址；独立请求仍可传入自定义 BaseURL。
+	UseEnvironmentBaseURL bool   `json:"useEnvironmentBaseUrl"`
+	FolderID              string `json:"folderId"`
+	ServerID              string `json:"serverId"`
+
 	EndpointID    string                     `json:"endpointId"`
 	ModuleID      string                     `json:"moduleId"`
 	EnvironmentID string                     `json:"environmentId"`
@@ -300,6 +305,9 @@ func (s *HTTPService) ListScriptLibraries() ([]scripting.LibraryInfo, error) {
 // SendRequest 发送 HTTP 请求
 func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, error) {
 	lifecycle := newRequestLifecycleTiming()
+	if err := resolveEnvironmentRequestBaseURL(s.db, &data, "http"); err != nil {
+		return nil, err
+	}
 	configuredSnapshot := configuredRequestSnapshot(data)
 	prepared := s.prepareRequestData(&data)
 	envService := prepared.environmentService

@@ -8,7 +8,11 @@ import { Select } from "@/components/ui/select"
 import { t } from "@/hooks/useI18n"
 import { toastError } from "@/stores/toast"
 
+import { ServerSelect } from "./ServerSelect"
+
 export interface EndpointSettingsEditorProps {
+  moduleId?: string
+  serverId?: string
   endpointType?: string
   timeout: number
   timeoutMode: string
@@ -32,6 +36,7 @@ export interface EndpointSettingsEditorProps {
   /** 所属项目 ID，用于拉取可选代理列表 */
   projectId?: string
   onChange?: (data: {
+    serverId?: string
     timeout?: number
     timeoutMode?: string
     followRedirects?: boolean | null
@@ -180,6 +185,7 @@ export function EndpointSettingsEditor(props: EndpointSettingsEditorProps) {
 
   return (
     <div class="p-3 space-y-4 overflow-auto h-full">
+      <ServerSelect moduleId={props.moduleId} value={props.serverId} onChange={serverId => props.onChange?.({ serverId })} />
       {/* 接口元数据 */}
       <div class="flex items-center gap-3">
         <label class="text-sm font-medium w-28 shrink-0">{t("endpoint.statusLabel")}</label>

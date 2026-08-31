@@ -180,3 +180,39 @@ func TestOldBinaryOpensNewerDB(t *testing.T) {
 		t.Fatalf("旧版本写入失败: %v", err)
 	}
 }
+
+// 旧版没有独立 WS 列；升级后 NULL 保留沿用 HTTP 的含义，不能迁成显式空地址。
+func TestEnvironmentServersMigrationPreservesLegacyURLs(t *testing.T) {
+	db := openMigrationDB(t, filepath.Join(t.TempDir(), "legacy-servers.db"))
+	migrateUpTo(t, db, 19)
+	for _, statement := range []string{
+		`INSERT INTO projects(id,name) VALUES ('p','legacy')`,
+		`INSERT INTO modules(id,project_id,name) VALUES ('m','p','module')`,
+		`INSERT INTO environments(id,project_id,name) VALUES ('e','p','env')`,
+		`INSERT INTO module_base_urls(id,module_id,environment_id,base_url) VALUES ('url','m','e','https://legacy.example')`,
+	} {
+		if err := db.Exec(statement).Error; err != nil {
+			t.Fatal(err)
+		}
+	}
+	migrateUpTo(t, db, 20)
+	var result struct {
+		BaseURL          string
+		WebsocketBaseURL *string
+		ServerURLs       *string
+	}
+	if err := db.Table("module_base_urls").Where("id = ?", "url").First(&result).Error; err != nil {
+		t.Fatal(err)
+	}
+	if result.BaseURL != "https://legacy.example" || result.WebsocketBaseURL != nil || result.ServerURLs != nil {
+		t.Fatalf("legacy URL semantics changed: %+v", result)
+	}
+	// 旧二进制仍能插入不携带新字段的记录。
+	if err := db.Exec(`INSERT INTO modules(id,project_id,name) VALUES ('old-client','p','old client')`).Error; err != nil {
+		t.Fatal(err)
+	}
+	var selected string
+	if err := db.Table("modules").Select("server_id").Where("id = ?", "old-client").Scan(&selected).Error; err != nil || selected != "" {
+		t.Fatalf("inherit default=%q err=%v", selected, err)
+	}
+}

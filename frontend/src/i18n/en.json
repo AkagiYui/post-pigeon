@@ -123,7 +123,7 @@
   "endpoint.param.pathParams": "Path Params",
   "endpoint.param.globalQueryParams": "Global Query Params",
   "endpoint.param.globalQueryParamsHint": "Global params inherited from the module. This toggle affects only this endpoint, not the module (project-wide) settings.",
-  "endpoint.baseUrl.notSet": "Not set",
+  "endpoint.baseUrl.notSet": "Base URL not set",
   "response.body": "Body",
   "response.headers": "Headers",
   "response.cookies": "Cookies",
@@ -985,5 +985,18 @@
   "project.delete.nameMismatch": "Name does not match",
   "project.deleted": "Project \"{name}\" deleted",
   "project.openTabWillClose": "Its tab will be closed and you will be taken out of this project.",
-  "project.dangerZone": "Danger Zone"
+  "project.dangerZone": "Danger Zone",
+  "environment.none": "No environment",
+  "environment.select": "Select environment",
+  "environment.editNamed": "Edit environment {name}",
+  "endpoint.baseUrl.hint": "Relative paths use the current service’s base URL in the selected environment. Absolute URLs ignore the base URL. Variables are resolved before deciding whether to prepend it.",
+  "endpoint.baseUrl.hintWS": "Relative paths use the current service’s WebSocket base URL in the selected environment. Absolute URLs ignore the base URL. Variables are resolved before deciding whether to prepend it.",
+  "server.title": "Service",
+  "server.default": "Default service",
+  "server.moduleDefault": "Module default service",
+  "server.manage": "Module services",
+  "server.new": "New service",
+  "server.name": "Service name",
+  "server.manageHint": "Configure each service’s HTTP and WebSocket base URLs in environment settings. Folders and endpoints can inherit or override their parent’s service. An unconfigured service address stays empty.",
+  "server.shareHTTP": "Use HTTP base URL (legacy compatibility)"
 }
