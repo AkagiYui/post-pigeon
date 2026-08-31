@@ -1,7 +1,7 @@
 // 接口管理主界面组件
 // 左侧树形面板 + 右侧多 Tab 端点详情编辑器
 // 支持未保存的请求标签页和已保存的端点标签页
-import { createEffect, createSignal, For, on, onMount, Show } from "solid-js"
+import { batch, createEffect, createSignal, For, on, onMount, Show } from "solid-js"
 
 import type { ActualRequestInfo, CookieInfo, Endpoint, ResponseExample, ResponseSchema } from "@/../bindings/PostPigeon/internal/models"
 import type { CurlRequest } from "@/../bindings/PostPigeon/internal/services"
@@ -39,7 +39,7 @@ import {
   toParamModels,
   toTimingData,
 } from "@/components/endpoint/endpoint-data"
-import { type AuthState, type BodyFieldRow, emptyAuth, type EndpointData, EndpointDetail, type EndpointRequestTabIntent, type EnvironmentBaseURLOption, type HeaderRow, type OperationRow, type ParamRow, type ResponseData, type TimingData } from "@/components/endpoint/EndpointDetail"
+import { type AuthState, type BodyFieldRow, clearEndpointSessionState, emptyAuth, type EndpointData, EndpointDetail, type EndpointRequestTabIntent, type HeaderRow, type OperationRow, type ParamRow, type ResponseData, type TimingData } from "@/components/endpoint/EndpointDetail"
 import { EndpointTree, type TreeNode, type TreeSelectOptions } from "@/components/endpoint/EndpointTree"
 import { resolveEnvironmentBaseURLs } from "@/components/endpoint/environment-base-urls"
 import { FolderTreeSelector } from "@/components/endpoint/FolderTreeSelector"
@@ -50,7 +50,8 @@ import {
   PostmanImportDialog,
 } from "@/components/endpoint/ImportDialogs"
 import { type ImportKind, ImportWizardDialog } from "@/components/endpoint/ImportWizard"
-import { restoreCachedWebSocketResponse } from "@/components/endpoint/response-visibility"
+import type { RequestTab } from "@/components/endpoint/request-session"
+import { createRequestSession, createRequestWorkspaceState, endpointFingerprint, endpointSaveData, type RequestSession, snapshotEndpoint } from "@/components/endpoint/request-session"
 import { ScopeSettingsDialog } from "@/components/endpoint/ScopeSettingsDialog"
 import { Button } from "@/components/ui/button"
 import { Dialog } from "@/components/ui/dialog"
@@ -65,20 +66,13 @@ import { copyText } from "@/lib/clipboard"
 import { errorMessage } from "@/lib/errors"
 import { type BodyType, type EndpointType, type HTTPMethod, type ParamLocation } from "@/lib/types"
 import { cn, downloadTextFile } from "@/lib/utils"
-import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, notifyBaseUrlsChanged, projectEnvironments, setCurrentEnvironment, setProjectEnvironmentsList } from "@/stores/app"
+import { baseUrlVersion, currentEnvironmentIds, getCurrentEnvironmentId, getProjectEnvironments, notifyBaseUrlsChanged, projectEnvironments, setCurrentEnvironment, setProjectEnvironmentsList, setWebSocketMessageDrafts } from "@/stores/app"
 import { clearStream } from "@/stores/stream"
 import { toastError, toastSuccess, toastWarning } from "@/stores/toast"
 
 // ---- 类型定义 ----
 
-/** 请求标签页：可以是未保存的请求或已保存的端点 */
-export interface RequestTab {
-  id: string
-  name: string
-  method: HTTPMethod
-  saved: boolean
-  dirty: boolean
-}
+export type { RequestTab } from "@/components/endpoint/request-session"
 
 interface UnsavedRequestData {
   id: string
@@ -144,14 +138,16 @@ export function ApiManagement(props: ApiManagementProps) {
   const [sidebarCollapsed, setSidebarCollapsed] = createSignal(false)
   // 以下使用 createCachedSignal 的信号会自动缓存，新增状态只需改声明处
   const [treeData, setTreeData] = cache.createCachedSignal<TreeNode[]>("treeData", [])
-  const [requestTabs, setRequestTabs] = cache.createCachedSignal<RequestTab[]>("requestTabs", [])
-  const [activeTabId, setActiveTabId] = cache.createCachedSignal<string | null>("activeTabId", null)
-  const [responseData, setResponseData] = cache.createCachedSignal<ResponseData | null>("responseData", null)
-  // WS 连接存活于后端，消息存活于全局 stream store；握手响应也必须按接口保留，
-  // 否则切换接口会被另一个接口的 responseData 覆盖，切回来只能恢复正文消息，无法恢复响应 Tabs。
-  const webSocketResponseCache = new Map<string, ResponseData>()
+  const [workspace] = cache.createCachedSignal("requestWorkspace", createRequestWorkspaceState())
+  const requestTabs = () => workspace().state.tabs
+  const setRequestTabs = (value: RequestTab[] | ((tabs: RequestTab[]) => RequestTab[])) => workspace().setTabs(value)
+  const activeTabId = () => workspace().state.activeTabId
+  const setActiveTabId = (id: string | null) => workspace().setActive(id)
+  const sessions = () => workspace().state.sessions
+  const putSession = (id: string, session: RequestSession | undefined) => workspace().setSession(id, session)
+  const updateSession = (id: string, patch: Partial<RequestSession>) => workspace().patchSession(id, patch)
+  const sessionIdForKey = (key: string) => requestTabs().find(tab => tab.key === key)?.id
   const [expandedIds, setExpandedIds] = cache.createCachedSignal<string[]>("expandedIds", [])
-  const [unsavedRequests, setUnsavedRequests] = cache.createCachedSignal<Record<string, UnsavedRequestData>>("unsavedRequests", {})
   // 空的端点数据默认值
   const emptyEndpoint: EndpointData = {
     id: "", name: "", method: "GET" as HTTPMethod, path: "",
@@ -161,11 +157,14 @@ export function ApiManagement(props: ApiManagementProps) {
     preRequestScript: "", postResponseScript: "",
     ...endpointDefaults,
   }
-  // 使用 createCachedStore 替代 createStore，自动缓存且保持细粒度响应式
-  const [endpointData, setEndpointData] = cache.createCachedStore<EndpointData>("endpointData", { ...emptyEndpoint })
-  const [sending, setSending] = createSignal(false)
-  // 进行中请求的 ID：后端据此可中途取消；空表示当前没有进行中的请求
-  const [activeRequestId, setActiveRequestId] = createSignal("")
+  const endpointData = () => sessions()[activeTabId() || ""]?.draft ?? emptyEndpoint
+  const setEndpointData = (data: Partial<EndpointData>, id = activeTabId() || "") => {
+    const session = sessions()[id]
+    if (session) updateSession(id, { draft: { ...session.draft, ...data } })
+  }
+  const setResponseData = (response: ResponseData | null, id: string) => updateSession(id, { response })
+  const sending = () => !!sessions()[activeTabId() || ""]?.requestId
+  const [saveTargetId, setSaveTargetId] = createSignal<string | null>(null)
   const [saveDialogOpen, setSaveDialogOpen] = createSignal(false)
   const [saveName, setSaveName] = createSignal("")
   const [selectedSaveLocation, setSelectedSaveLocation] = cache.createCachedSignal<string>("selectedSaveLocation", "")
@@ -213,11 +212,6 @@ export function ApiManagement(props: ApiManagementProps) {
   const [curlOpen, setCurlOpen] = createSignal(false)
   const [postmanOpen, setPostmanOpen] = createSignal(false)
   const [postmanJson, setPostmanJson] = createSignal("")
-  // 当前端点相关的派生数据
-  const [environmentBaseUrls, setEnvironmentBaseUrls] = createSignal<EnvironmentBaseURLOption[]>([])
-  let savedEndpointLoadToken = 0
-  const [globalQueryParams, setGlobalQueryParams] = createSignal<{ name: string; value: string }[]>([])
-  const [inheritedOpCounts, setInheritedOpCounts] = createSignal<{ pre: number; post: number }>({ pre: 0, post: 0 })
   // 模块/文件夹设置对话框
   const [scopeSettingsOpen, setScopeSettingsOpen] = createSignal(false)
   const [scopeSettingsNode, setScopeSettingsNode] = createSignal<TreeNode | null>(null)
@@ -252,57 +246,36 @@ export function ApiManagement(props: ApiManagementProps) {
     )
   }
 
-  // ---- 环境、环境列表或 baseUrl 设置变更时，刷新当前端点的环境状态 ----
-  // 首次打开端点由 loadSavedEndpointData 使用 detail.moduleId 直接加载，避免依赖
-  // activeTabId 早于异步端点详情返回而触发的竞态。
-  let environmentRefreshToken = 0
+  // 派生上下文可刷新，但绝不以服务端详情覆盖标签草稿。
+  const contextTokens = new Map<string, number>()
+  const refreshSessionContext = async (id: string) => {
+    const session = sessions()[id]
+    if (!session || session.loading) return
+    const moduleId = findModuleIdByNodeId(treeData(), id) || session.moduleId
+    if (!moduleId) return
+    const key = session.key
+    const token = (contextTokens.get(key) || 0) + 1
+    contextTokens.set(key, token)
+    const environmentId = getCurrentEnvironmentId(props.projectId)
+    try {
+      const [environment, params, counts] = await Promise.all([
+        loadModuleEnvironmentState(moduleId), ModuleService.GetModuleParams(moduleId),
+        EndpointService.GetInheritedOperationCounts(id),
+      ])
+      if (sessions()[id]?.key !== key || contextTokens.get(key) !== token || environmentId !== getCurrentEnvironmentId(props.projectId)) return
+      batch(() => {
+        updateSession(id, {
+          moduleId, environmentBaseUrls: environment.options,
+          globalQueryParams: (params || []).filter(p => p.type === "query" && p.enabled).map(p => ({ name: p.name, value: p.value })),
+          inheritedOpCounts: { pre: counts?.pre ?? 0, post: counts?.post ?? 0 },
+        })
+        setEndpointData({ baseUrl: environment.currentBaseUrl }, id)
+      })
+    } catch { /* 派生信息刷新失败时保留最后一次可用状态 */ }
+  }
   createEffect(on(
-    () => [
-      currentEnvironmentIds()[props.projectId],
-      baseUrlVersion(),
-      projectEnvironments()[props.projectId],
-    ] as const,
-    async ([envId]) => {
-      const refreshToken = ++environmentRefreshToken
-      const epId = endpointData.id
-      // 仅对已保存的端点生效（树中可找到其所属模块）
-      if (!epId || !envId) return
-      const moduleId = findModuleIdByNodeId(treeData(), epId)
-      if (!moduleId) return
-      try {
-        const state = await loadModuleEnvironmentState(moduleId)
-        // 快速切换环境/端点时，丢弃已经过期的异步结果。
-        if (
-          refreshToken !== environmentRefreshToken
-          || endpointData.id !== epId
-          || getCurrentEnvironmentId(props.projectId) !== envId
-        ) return
-        setEndpointData({ baseUrl: state.currentBaseUrl } as Partial<EndpointData>)
-        setEnvironmentBaseUrls(state.options)
-      } catch { /* 获取 baseUrl 失败时忽略 */ }
-    },
-  ))
-
-  // ---- 加载当前端点所属模块的"全局" query 参数（模块自动参数）----
-  // 端点切换或树刷新（保存到项目后）时重新加载；未保存请求（不在树中）无模块，清空。
-  createEffect(on(
-    () => [endpointData.id, treeData()] as const,
-    async ([epId]) => {
-      if (!epId) { setGlobalQueryParams([]); setInheritedOpCounts({ pre: 0, post: 0 }); return }
-      const moduleId = findModuleIdByNodeId(treeData(), epId)
-      // 未保存请求不在树中、无继承来源：全局参数与继承操作计数均清零
-      if (!moduleId) { setGlobalQueryParams([]); setInheritedOpCounts({ pre: 0, post: 0 }); return }
-      try {
-        const mps = await ModuleService.GetModuleParams(moduleId)
-        setGlobalQueryParams((mps || [])
-          .filter(p => p.type === "query" && p.enabled)
-          .map(p => ({ name: p.name, value: p.value })))
-      } catch { setGlobalQueryParams([]) }
-      try {
-        const counts = await EndpointService.GetInheritedOperationCounts(epId)
-        setInheritedOpCounts({ pre: counts?.pre ?? 0, post: counts?.post ?? 0 })
-      } catch { setInheritedOpCounts({ pre: 0, post: 0 }) }
-    },
+    () => [currentEnvironmentIds()[props.projectId], baseUrlVersion(), projectEnvironments()[props.projectId], treeData()] as const,
+    () => { for (const tab of requestTabs()) void refreshSessionContext(tab.id) },
   ))
 
   // ---- 环境切换回调（从 EndpointDetail 的 Badge 下拉触发） ----
@@ -527,8 +500,6 @@ export function ApiManagement(props: ApiManagementProps) {
   // ---- 创建未保存请求 ----
   // parentNodeId：右键/菜单发起时点击的模块或文件夹节点，作为默认保存位置
   const createUnsavedTab = (parentNodeId?: string, override?: Partial<UnsavedRequestData>) => {
-    // 使仍在进行中的已保存端点加载失效，避免其结果覆盖新建请求。
-    savedEndpointLoadToken++
     // 记住默认保存位置：优先点击的节点，否则回退到第一个模块
     if (parentNodeId && findNodeInTree(treeData(), parentNodeId)) {
       setSelectedSaveLocation(parentNodeId)
@@ -546,12 +517,10 @@ export function ApiManagement(props: ApiManagementProps) {
       ...override,
       id: tempId,
     }
-    setUnsavedRequests(prev => ({ ...prev, [tempId]: unsaved }))
-    setRequestTabs(prev => [...prev, { id: tempId, name: unsaved.name, method: unsaved.method, saved: false, dirty: false }])
+    const session = createRequestSession({ ...emptyEndpoint, ...unsaved })
+    putSession(tempId, session)
+    setRequestTabs(prev => [...prev, { id: tempId, key: session.key, name: unsaved.name, method: unsaved.method, saved: false, dirty: false }])
     setActiveTabId(tempId)
-    setEndpointData({ ...unsaved } as EndpointData)
-    setEnvironmentBaseUrls([])
-    setResponseData(null)
   }
 
 
@@ -697,25 +666,27 @@ export function ApiManagement(props: ApiManagementProps) {
     if (options?.requestTab) {
       setRequestTabIntent({ endpointId: node.id, tab: options.requestTab, requestId: ++requestTabIntentId })
     }
-    const existing = requestTabs().findIndex(t => t.id === node.id)
-    if (existing >= 0) {
+    if (!requestTabs().some(tab => tab.id === node.id)) {
+      const session = createRequestSession({ ...emptyEndpoint, id: node.id, name: node.name, method: node.method || "GET", type: node.endpointType || "http" })
+      session.loading = true
+      putSession(node.id, session)
+      setRequestTabs(prev => [...prev, { id: node.id, key: session.key, name: node.name, method: node.method || "GET", saved: true, dirty: false }])
       setActiveTabId(node.id)
       await loadSavedEndpointData(node.id)
-      return
+    } else {
+      await handleTabChange(node.id)
     }
-    setRequestTabs(prev => [...prev, { id: node.id, name: node.name, method: node.method!, saved: true, dirty: false }])
-    setActiveTabId(node.id)
-    await loadSavedEndpointData(node.id)
   }
 
   const loadSavedEndpointData = async (endpointId: string) => {
-    const currentResponse = responseData()
-    if (endpointData.type === "websocket" && endpointData.id && currentResponse) {
-      webSocketResponseCache.set(endpointData.id, currentResponse)
-    }
-    const loadToken = ++savedEndpointLoadToken
+    const session = sessions()[endpointId]
+    if (!session) return
+    const key = session.key
+    const loadId = crypto.randomUUID()
+    updateSession(endpointId, { loadId, loading: true, loadError: false })
     try {
       const detail = await EndpointService.GetEndpoint(endpointId)
+      if (!detail) throw new Error(t("error.op.loadFailed"))
       if (detail) {
         // detail.moduleId 是首次加载时唯一可靠的模块来源：在提交端点数据前一次性
         // 构建当前 Base URL 与完整环境选项，避免依赖 activeTabId 的异步时序。
@@ -730,9 +701,8 @@ export function ApiManagement(props: ApiManagementProps) {
           } catch { /* 获取 baseUrl 失败时不阻塞加载 */ }
         }
         // 用户可能在请求期间又打开了另一个端点，只允许最后一次加载提交状态。
-        if (loadToken !== savedEndpointLoadToken) return
-        setEnvironmentBaseUrls(environmentState.options)
-        setEndpointData({
+        if (sessions()[endpointId]?.key !== key || sessions()[endpointId]?.loadId !== loadId) return
+        const draft = {
           id: detail.id, name: detail.name, type: (detail.type as EndpointType) || "http",
           method: detail.method as HTTPMethod,
           path: detail.path, bodyType: detail.bodyType as BodyType, bodyContent: detail.bodyContent,
@@ -763,7 +733,7 @@ export function ApiManagement(props: ApiManagementProps) {
           inheritedOperations: fromInheritedOperationModels(detail.inheritedOperations),
           operationOverrides: (detail.operationOverrides || []).map(item => ({ operationId: item.operationId, enabled: item.enabled })),
           examples: detail.examples || [], schemas: detail.schemas || [],
-        } as EndpointData)
+        } as EndpointData
         let loadedResponse: ResponseData | null = null
         if (detail.response) {
           // 持久化响应的 headers/cookies/actualRequest/timing 均为 JSON 字符串，需解析后再用
@@ -778,75 +748,50 @@ export function ApiManagement(props: ApiManagementProps) {
             requestRun: detail.response.requestRun || null,
           }
         }
-        setResponseData(restoreCachedWebSocketResponse(
-          endpointId,
-          detail.type === "websocket",
-          loadedResponse,
-          webSocketResponseCache,
-        ))
+        updateSession(endpointId, {
+          draft, baseline: endpointFingerprint(draft), moduleId: detail.moduleId,
+          environmentBaseUrls: environmentState.options, loading: false, loadError: false,
+          response: loadedResponse,
+        })
+        syncTabMetadata(endpointId)
+        await refreshSessionContext(endpointId)
+
       }
     } catch (e) {
-      if (loadToken === savedEndpointLoadToken) toastError(e, "error.op.loadFailed")
+      if (sessions()[endpointId]?.key === key && sessions()[endpointId]?.loadId === loadId) {
+        updateSession(endpointId, { loading: false, loadError: true })
+        toastError(e, "error.op.loadFailed")
+      }
     }
   }
 
-  // ---- 切换标签页 ----
+  // ---- 切换与编辑：每个标签的草稿、基线、响应和组件身份独立 ----
   const handleTabChange = async (tabId: string) => {
-    const currentResponse = responseData()
-    if (endpointData.type === "websocket" && endpointData.id && currentResponse) {
-      webSocketResponseCache.set(endpointData.id, currentResponse)
-    }
-    setActiveTabId(tabId)
     const tab = requestTabs().find(t => t.id === tabId)
     if (!tab) return
-    if (tab.saved) await loadSavedEndpointData(tabId)
-    else {
-      savedEndpointLoadToken++
-      setEnvironmentBaseUrls([])
-      const unsaved = unsavedRequests()[tabId]
-      if (unsaved) setEndpointData({
-        id: unsaved.id, name: unsaved.name, type: unsaved.type ?? "http", method: unsaved.method, path: unsaved.path,
-        bodyType: unsaved.bodyType, bodyContent: unsaved.bodyContent, contentType: unsaved.contentType,
-        timeout: unsaved.timeout, timeoutMode: unsaved.timeoutMode || "inherit",
-        followRedirects: unsaved.followRedirects, sendNoCacheHeaders: unsaved.sendNoCacheHeaders, baseUrl: unsaved.baseUrl,
-        params: unsaved.params ?? [], headers: unsaved.headers ?? [],
-        bodyFields: unsaved.bodyFields ?? [], auth: unsaved.auth ?? emptyAuth(),
-        preRequestScript: unsaved.preRequestScript ?? "", postResponseScript: unsaved.postResponseScript ?? "",
-        docContent: unsaved.docContent ?? "", status: unsaved.status ?? "", tags: unsaved.tags ?? "",
-        description: unsaved.description ?? "", inheritOperations: unsaved.inheritOperations ?? true,
-        disabledGlobalParams: unsaved.disabledGlobalParams ?? [],
-        proxyConfig: unsaved.proxyConfig ?? "",
-        tlsConfig: unsaved.tlsConfig ?? "",
-        urlEncoding: unsaved.urlEncoding ?? "",
-        wsProtocolConversion: unsaved.wsProtocolConversion ?? "",
-        streamViewMode: unsaved.streamViewMode ?? "timeline",
-        streamCompletionFormat: unsaved.streamCompletionFormat ?? "auto",
-        streamJSONPath: unsaved.streamJSONPath ?? "",
-        streamRenderMarkdown: unsaved.streamRenderMarkdown ?? false,
-        inheritedWsProtocolConversion: unsaved.inheritedWsProtocolConversion ?? true,
-        hasInheritedAuth: unsaved.hasInheritedAuth ?? false,
-        operations: unsaved.operations ?? [],
-        inheritedOperations: [], operationOverrides: [],
-        examples: unsaved.examples ?? [], schemas: unsaved.schemas ?? [],
-      } as EndpointData)
+    setActiveTabId(tabId)
+    if (sessions()[tabId]?.loadError) await loadSavedEndpointData(tabId)
+    else await refreshSessionContext(tabId)
+  }
+
+  const syncTabMetadata = (id: string) => {
+    const session = sessions()[id]
+    if (!session) return
+    const { draft, baseline } = session
+    const dirty = endpointFingerprint(draft) !== baseline
+    const tab = requestTabs().find(tab => tab.id === id)
+    if (tab && (tab.name !== draft.name || tab.method !== draft.method || tab.dirty !== dirty)) {
+      setRequestTabs(tabs => tabs.map(tab => tab.id === id ? { ...tab, name: draft.name, method: draft.method, dirty } : tab))
     }
   }
 
-  // ---- 数据变更回调 ----
-  // 使用 createStore 的合并更新，避免创建新对象引用导致组件重挂载
-  const handleDataChange = (data: Partial<EndpointData>) => {
-    const ct = requestTabs().find(t => t.id === activeTabId())
-    if (!ct) return
-    // 合并更新到 store（不创建新对象引用，避免组件重挂载）
-    setEndpointData(data as Partial<EndpointData>)
-    if (!ct.saved) {
-      // 从 store 获取当前完整数据保存到未保存请求记录
-      setUnsavedRequests(p => ({ ...p, [ct.id]: { ...p[ct.id], ...endpointData, id: ct.id } }))
-      if (data.method || data.name) setRequestTabs(pt => pt.map(t => t.id === ct.id ? { ...t, method: (data.method as HTTPMethod) || t.method, name: data.name || t.name } : t))
-    } else if (!ct.dirty) {
-      // 仅在首次变脏时更新，避免每次按键都重建 requestTabs 数组（进而重建 Tab 触发器）
-      setRequestTabs(pt => pt.map(t => t.id === ct.id ? { ...t, dirty: true } : t))
-    }
+  const handleDataChange = (data: Partial<EndpointData>, id = activeTabId() || "") => {
+    const session = sessions()[id]
+    if (!session || session.loading || session.loadError) return
+    batch(() => {
+      setEndpointData(data, id)
+      syncTabMetadata(id)
+    })
   }
 
   // ---- 发送请求 ----
@@ -858,7 +803,7 @@ export function ApiManagement(props: ApiManagementProps) {
   const buildSendRequestData = (ep: EndpointData, requestId = "") => {
     const sendData = new SendRequestData()
     sendData.requestId = requestId
-    const ct = requestTabs().find(t => t.id === activeTabId())
+    const ct = requestTabs().find(t => t.id === ep.id)
     sendData.endpointId = ct?.saved ? ep.id : ""
     // 已保存端点：带上所属模块 ID，后端据此记录请求历史
     sendData.moduleId = ct?.saved ? (findModuleIdByNodeId(treeData(), ep.id) || "") : ""
@@ -884,24 +829,33 @@ export function ApiManagement(props: ApiManagementProps) {
     return sendData
   }
 
-  const handleSend = async () => {
-    const ep = endpointData
-    if (!ep.id) return
-    setSending(true)
+  const handleSend = async (tabId = activeTabId() || "") => {
+    const session = sessions()[tabId]
+    if (!session || session.loading || session.loadError || session.requestId) return
+    const ep = snapshotEndpoint(session.draft)
+    const key = session.key
     // 每次发送生成唯一 ID，后端据此登记进行中的请求，用户可随时取消
     const requestId = crypto.randomUUID()
-    setActiveRequestId(requestId)
+    updateSession(tabId, { requestId })
+    const commitResponse = (response: ResponseData) => {
+      const id = sessionIdForKey(key)
+      if (id && sessions()[id]?.requestId === requestId) setResponseData(response, id)
+      else if (response.streamId) void HTTPService.StopStream(response.streamId).catch(toastError)
+    }
     try {
       const sendData = buildSendRequestData(ep, requestId)
 
       // 流 ID 由后端生成且全局唯一，发送前清掉上一条流的缓冲，避免 store 无限增长
-      const previousStreamId = responseData()?.streamId
-      if (previousStreamId) clearStream(previousStreamId)
+      const previousStreamId = session.response?.streamId
+      if (previousStreamId) {
+        await HTTPService.StopStream(previousStreamId)
+        clearStream(previousStreamId)
+      }
       const resp = await HTTPService.SendRequest(sendData)
       if (resp) {
         if (resp.streaming) {
           // SSE / NDJSON / JSON Sequence 以实时记录流展示（事件通过 http:stream 持续推送）。
-          setResponseData({
+          commitResponse({
             statusCode: resp.statusCode,
             timing: toTimingData(resp.timing),
             size: 0, body: "", headers: resp.headers,
@@ -911,7 +865,7 @@ export function ApiManagement(props: ApiManagementProps) {
             scripts: resp.scripts || undefined,
           })
         } else {
-          setResponseData({
+          commitResponse({
             statusCode: resp.statusCode,
             timing: toTimingData(resp.timing),
             size: resp.size, body: resp.body, rawBody: resp.rawBody, headers: resp.headers,
@@ -930,55 +884,70 @@ export function ApiManagement(props: ApiManagementProps) {
       // 请求失败（如协议错误、连接失败、超时等）：将错误信息展示到响应框，而非仅打印到控制台
       toastError(e, "error.op.sendFailed")
       const message = errorMessage(e, "error.op.sendFailed")
-      setResponseData({
+      commitResponse({
         statusCode: 0,
         timing: toTimingData(null),
         size: 0, body: "", headers: {}, cookies: [], contentType: "",
         actualRequest: null,
         error: message,
       })
-    } finally { setSending(false); setActiveRequestId("") }
-  }
-
-  /** WebSocket 握手与普通请求共用完整编辑态，后端统一解析变量、继承参数、认证与前置操作。 */
-  const handleWSConnect = async (autoConvertProtocol: boolean) => {
-    const ep = endpointData
-    const endpointId = ep.id
-    const resp = await WebSocketService.Connect(endpointId, buildSendRequestData(ep), autoConvertProtocol)
-    if (resp) {
-      // WebSocket 的 101 Upgrade（以及 4xx/5xx 握手拒绝）仍是一条标准 HTTP 响应。
-      // 正文页签由消息流接管，其余响应页签继续复用普通请求的数据模型。
-      const handshakeResponse: ResponseData = {
-        statusCode: resp.statusCode,
-        timing: toTimingData(resp.timing),
-        size: resp.size,
-        body: resp.body || "",
-        rawBody: resp.rawBody,
-        headers: resp.headers,
-        cookies: resp.cookies || [],
-        contentType: resp.contentType,
-        actualRequest: resp.actualRequest,
-        requestRun: resp.requestRun || null,
-        scripts: resp.scripts || undefined,
-        truncated: resp.truncated,
-        truncatedLimit: resp.truncatedLimit,
-        rawBodyOmitted: resp.rawBodyOmitted,
-        skipped: resp.skipped,
-        error: resp.error ? errorMessage(resp.error, "error.op.sendFailed") : undefined,
-      }
-      webSocketResponseCache.set(endpointId, handshakeResponse)
-      // 连接期间用户可能已经切到其它接口，不能用迟到的握手结果覆盖当前响应。
-      if (endpointData.id === endpointId) setResponseData(handshakeResponse)
+    } finally {
+      const id = sessionIdForKey(key)
+      if (id && sessions()[id]?.requestId === requestId) updateSession(id, { requestId: "" })
     }
   }
 
-  const handleWSDisconnect = async () => {
-    await WebSocketService.Close(endpointData.id)
+  /** WebSocket 握手与普通请求共用完整编辑态，后端统一解析变量、继承参数、认证与前置操作。 */
+  const handleWSConnect = async (autoConvertProtocol: boolean, tabId = activeTabId() || "") => {
+    const session = sessions()[tabId]
+    if (!session || session.loading || session.loadError || session.requestId) return
+    const ep = snapshotEndpoint(session.draft)
+    const key = session.key
+    const requestId = crypto.randomUUID()
+    updateSession(tabId, { requestId })
+    try {
+      const resp = await WebSocketService.Connect(key, buildSendRequestData(ep), autoConvertProtocol)
+      if (resp) {
+      // WebSocket 的 101 Upgrade（以及 4xx/5xx 握手拒绝）仍是一条标准 HTTP 响应。
+      // 正文页签由消息流接管，其余响应页签继续复用普通请求的数据模型。
+        const handshakeResponse: ResponseData = {
+          statusCode: resp.statusCode,
+          timing: toTimingData(resp.timing),
+          size: resp.size,
+          body: resp.body || "",
+          rawBody: resp.rawBody,
+          headers: resp.headers,
+          cookies: resp.cookies || [],
+          contentType: resp.contentType,
+          actualRequest: resp.actualRequest,
+          requestRun: resp.requestRun || null,
+          scripts: resp.scripts || undefined,
+          truncated: resp.truncated,
+          truncatedLimit: resp.truncatedLimit,
+          rawBodyOmitted: resp.rawBodyOmitted,
+          skipped: resp.skipped,
+          error: resp.error ? errorMessage(resp.error, "error.op.sendFailed") : undefined,
+        }
+        const id = sessionIdForKey(key)
+        if (id && sessions()[id]?.requestId === requestId) setResponseData(handshakeResponse, id)
+        else await WebSocketService.Close(key)
+      }
+    } finally {
+      const id = sessionIdForKey(key)
+      if (id && sessions()[id]?.requestId === requestId) updateSession(id, { requestId: "" })
+    }
+  }
+
+  const handleWSDisconnect = async (id = activeTabId() || "") => {
+    const key = sessions()[id]?.key
+    if (key) await WebSocketService.Close(key)
   }
 
   /** 把当前请求复制为 cURL 命令 */
-  const handleCopyAsCurl = async () => {
-    const ep = endpointData
+  const handleCopyAsCurl = async (id = activeTabId() || "") => {
+    const session = sessions()[id]
+    if (!session || session.loading || session.loadError) return
+    const ep = snapshotEndpoint(session.draft)
     try {
       const command = await CurlService.ToCurl(buildSendRequestData(ep))
       await copyText(command)
@@ -989,8 +958,8 @@ export function ApiManagement(props: ApiManagementProps) {
   }
 
   /** 取消进行中的请求 */
-  const handleCancelSend = async () => {
-    const id = activeRequestId()
+  const handleCancelSend = async (tabId = activeTabId() || "") => {
+    const id = sessions()[tabId]?.requestId
     if (!id) return
     try {
       await HTTPService.CancelRequest(id)
@@ -999,179 +968,169 @@ export function ApiManagement(props: ApiManagementProps) {
     }
   }
 
-  // ---- 保存逻辑 ----
-  const handleSave = () => {
-    const ct = requestTabs().find(t => t.id === activeTabId())
-    if (!ct) return
-    if (!ct.saved) {
-      setSaveName(endpointData.name !== t("endpoint.newRequest") ? endpointData.name : "")
-      // 优先使用上次记住的位置，无效则回退到第一个模块
-      const location = getEffectiveSaveLocation()
-      setSelectedSaveLocation(location)
-      // 确保选中节点的所有祖先都已展开，让用户能看到选中的位置
-      ensureAncestorsExpanded(location)
-      setSaveDialogOpen(true)
-    } else {
-      handleSaveSavedEndpoint()
+  // ---- 保存逻辑：锁定目标标签与提交快照，失败或有后续修改时绝不关闭 ----
+  const handleSave = (id = activeTabId() || "") => {
+    const tab = requestTabs().find(t => t.id === id)
+    const session = sessions()[id]
+    if (!tab || !session || session.loading || session.loadError || session.saving) return
+    if (tab.saved) {
+      void handleSaveSavedEndpoint(id)
+      return
     }
+    setSaveTargetId(id)
+    setSaveName(session.draft.name !== t("endpoint.newRequest") ? session.draft.name : "")
+    const location = getEffectiveSaveLocation()
+    setSelectedSaveLocation(location)
+    ensureAncestorsExpanded(location)
+    setSaveDialogOpen(true)
   }
 
-  const handleSaveSavedEndpoint = async () => {
-    const ep = endpointData
-    if (!ep.id) return
+  const handleSaveSavedEndpoint = async (id: string): Promise<boolean> => {
+    const session = sessions()[id]
+    if (!session || session.loading || session.loadError || session.saving) return false
+    const key = session.key
+    const snapshot = snapshotEndpoint(session.draft)
+    updateSession(id, { saving: true })
     try {
-      await EndpointService.SaveEndpointData({
-        id: ep.id, name: ep.name, method: ep.method, path: ep.path,
-        bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
-        timeout: ep.timeout, timeoutMode: ep.timeoutMode, followRedirects: ep.followRedirects,
-        sendNoCacheHeaders: ep.sendNoCacheHeaders,
-        preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
-        type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
-        description: ep.description, inheritOperations: ep.inheritOperations,
-        disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
-        proxyConfig: ep.proxyConfig,
-        tlsConfig: ep.tlsConfig,
-        urlEncoding: ep.urlEncoding,
-        wsProtocolConversion: ep.wsProtocolConversion,
-        streamViewMode: ep.streamViewMode,
-        streamCompletionFormat: ep.streamCompletionFormat,
-        streamJSONPath: ep.streamJSONPath,
-        streamRenderMarkdown: ep.streamRenderMarkdown,
-        params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
-        headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
-        operations: toOperationModels(ep.operations),
-        operationOverrides: toOperationOverrideModels(ep.operationOverrides),
-        examples: (ep.examples as ResponseExample[]) || [], schemas: (ep.schemas as ResponseSchema[]) || [],
+      await EndpointService.SaveEndpointData(endpointSaveData(snapshot))
+      if (sessions()[id]?.key !== key) return false
+      batch(() => {
+        updateSession(id, { baseline: endpointFingerprint(snapshot) })
+        syncTabMetadata(id)
       })
-      setRequestTabs(pt => pt.map(t => t.id === ep.id ? { ...t, dirty: false } : t))
       await loadTree()
-    } catch (e) { toastError(e, "error.op.saveFailed") }
+      return !requestTabs().find(tab => tab.id === id)?.dirty
+    } catch (e) {
+      toastError(e, "error.op.saveFailed")
+      return false
+    } finally {
+      if (sessions()[id]?.key === key) updateSession(id, { saving: false })
+    }
   }
 
   const handleSaveToProject = async () => {
-    const ep = endpointData; const ct = requestTabs().find(t => t.id === activeTabId())
-    if (!ct || ct.saved) return
+    const id = saveTargetId()
+    const tab = requestTabs().find(tab => tab.id === id)
+    const session = id ? sessions()[id] : undefined
     const name = saveName().trim()
-    if (!name) return
+    if (!id || !tab || tab.saved || !session || session.saving || !name) return
+    const { moduleId, folderId } = resolveSaveLocation(selectedSaveLocation())
+    if (!moduleId) { toastWarning(t("module.notSelected")); return }
+    const key = session.key
+    const snapshot = { ...snapshotEndpoint(session.draft), name }
     setSaving(true)
+    updateSession(id, { saving: true })
     try {
-      const { moduleId, folderId } = resolveSaveLocation(selectedSaveLocation())
-      if (!moduleId) { toastWarning(t("module.notSelected")); return }
-      const created = await EndpointService.CreateFullEndpoint(moduleId, folderId ?? null, {
-        id: "", name, method: ep.method, path: ep.path,
-        bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
-        timeout: ep.timeout, timeoutMode: ep.timeoutMode, followRedirects: ep.followRedirects,
-        sendNoCacheHeaders: ep.sendNoCacheHeaders,
-        preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
-        type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
-        description: ep.description, inheritOperations: ep.inheritOperations,
-        disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
-        proxyConfig: ep.proxyConfig,
-        tlsConfig: ep.tlsConfig,
-        urlEncoding: ep.urlEncoding,
-        wsProtocolConversion: ep.wsProtocolConversion,
-        streamViewMode: ep.streamViewMode,
-        streamCompletionFormat: ep.streamCompletionFormat,
-        streamJSONPath: ep.streamJSONPath,
-        streamRenderMarkdown: ep.streamRenderMarkdown,
-        params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
-        headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
-        operations: toOperationModels(ep.operations), operationOverrides: [], examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
-      })
-      // 新建端点后，把前置/后置操作补存（CreateFullEndpoint 不含操作）
-      if (created && ep.operations.length > 0) {
-        await EndpointService.SaveEndpointData({
-          id: created.id, name, method: ep.method, path: ep.path,
-          bodyType: ep.bodyType, bodyContent: ep.bodyContent, contentType: ep.contentType,
-          timeout: ep.timeout, timeoutMode: ep.timeoutMode, followRedirects: ep.followRedirects,
-          sendNoCacheHeaders: ep.sendNoCacheHeaders,
-          preRequestScript: ep.preRequestScript, postResponseScript: ep.postResponseScript,
-          type: ep.type, docContent: ep.docContent, status: ep.status, tags: ep.tags,
-          description: ep.description, inheritOperations: ep.inheritOperations,
-          disabledGlobalParams: JSON.stringify(ep.disabledGlobalParams || []),
-          proxyConfig: ep.proxyConfig,
-          tlsConfig: ep.tlsConfig,
-          urlEncoding: ep.urlEncoding,
-          wsProtocolConversion: ep.wsProtocolConversion,
-          streamViewMode: ep.streamViewMode,
-          streamCompletionFormat: ep.streamCompletionFormat,
-          streamJSONPath: ep.streamJSONPath,
-          streamRenderMarkdown: ep.streamRenderMarkdown,
-          params: toParamModels(ep.params), bodyFields: toBodyFieldModels(ep.bodyFields),
-          headers: toHeaderModels(ep.headers), auth: toAuthModel(ep.auth),
-          operations: toOperationModels(ep.operations), operationOverrides: [], examples: [] as ResponseExample[], schemas: [] as ResponseSchema[],
+      // CreateFullEndpoint 在一个事务中保存操作、示例及 Schema，不能拆成第二次保存。
+      const created = await EndpointService.CreateFullEndpoint(moduleId, folderId ?? null, { ...endpointSaveData(snapshot), id: "" })
+      if (!created) throw new Error(t("error.op.saveFailed"))
+      const current = sessions()[id]
+      if (!current || current.key !== key) return
+      batch(() => {
+        putSession(created.id, {
+          ...current, moduleId, saving: false,
+          draft: { ...current.draft, id: created.id, name },
+          baseline: endpointFingerprint({ ...snapshot, id: created.id }),
         })
+        setRequestTabs(tabs => tabs.map(t => t.id === id ? { ...t, id: created.id, name, saved: true } : t))
+        if (activeTabId() === id) setActiveTabId(created.id)
+        putSession(id, undefined)
+        setWebSocketMessageDrafts(drafts => {
+          if (!(id in drafts)) return drafts
+          const next = { ...drafts, [created.id]: drafts[id] }
+          delete next[id]
+          return next
+        })
+        syncTabMetadata(created.id)
+      })
+      setSaveDialogOpen(false)
+      setSaveTargetId(null)
+      if (pendingCloseTabId() === id) {
+        setPendingCloseTabId(null)
+        if (!requestTabs().find(tab => tab.id === created.id)?.dirty) closeTab(created.id)
       }
-      if (created) {
-        setRequestTabs(pt => pt.map(t => t.id === ct.id ? { id: created.id, name, method: ep.method as HTTPMethod, saved: true, dirty: false } : t))
-        setEndpointData({ id: created.id, name } as EndpointData)
-        setUnsavedRequests(p => { const n = { ...p }; delete n[ct.id]; return n })
-        setActiveTabId(created.id)
-        setSaveDialogOpen(false)
-        await loadTree()
-        // 重新读取一次，拿到新归属位置对应的五级继承结果（尤其是 WS 协议自动转换）。
-        await loadSavedEndpointData(created.id)
+      await loadTree()
+      await refreshSessionContext(created.id)
+      // 新归属位置的继承数据更新，但不重新加载草稿和响应。
+      if (sessions()[created.id]?.key === key) {
+        const detail = await EndpointService.GetEndpoint(created.id)
+        if (detail && sessions()[created.id]?.key === key) setEndpointData({
+          inheritedOperations: fromInheritedOperationModels(detail.inheritedOperations),
+          inheritedWsProtocolConversion: detail.inheritedWsProtocolConversion ?? true,
+          hasInheritedAuth: detail.hasInheritedAuth ?? false,
+        }, created.id)
       }
-    } catch (e) { toastError(e, "error.op.saveFailed") } finally { setSaving(false) }
-  }
-
-  // ---- 关闭标签页 ----
-  const handleCloseTab = (tabId: string) => {
-    const tab = requestTabs().find(t => t.id === tabId)
-    if (!tab) return
-    if (!tab.saved || tab.dirty) { setPendingCloseTabId(tabId); setCloseConfirmOpen(true) } else { closeTab(tabId) }
-  }
-
-  const handleConfirmDiscard = () => {
-    const tid = pendingCloseTabId()
-    if (tid) closeTab(tid)
-    setCloseConfirmOpen(false); setPendingCloseTabId(null)
-  }
-
-  const handleSaveAndClose = async () => {
-    const tid = pendingCloseTabId(); const tab = requestTabs().find(t => t.id === tid)
-    if (!tab || !tid) return
-    if (!tab.saved) {
-      setCloseConfirmOpen(false)
-      const ep = endpointData
-      if (ep.id) {
-        setSaveName(ep.name !== t("endpoint.newRequest") ? ep.name : "")
-        // 优先使用上次记住的位置，无效则回退到第一个模块
-        const location = getEffectiveSaveLocation()
-        setSelectedSaveLocation(location)
-        // 确保选中节点的所有祖先都已展开
-        ensureAncestorsExpanded(location)
-        setSaveDialogOpen(true)
-      }
-    } else {
-      await handleSaveSavedEndpoint(); closeTab(tid)
-      setCloseConfirmOpen(false); setPendingCloseTabId(null)
+    } catch (e) { toastError(e, "error.op.saveFailed") } finally {
+      if (sessions()[id]?.key === key) updateSession(id, { saving: false })
+      setSaving(false)
     }
   }
 
-  const closeTab = (tabId: string) => {
-    setRequestTabs(prev => prev.filter(t => t.id !== tabId))
-    setUnsavedRequests(prev => { const n = { ...prev }; delete n[tabId]; return n })
-    if (activeTabId() === tabId) {
-      const remaining = requestTabs().filter(t => t.id !== tabId)
-      if (remaining.length > 0) {
-        const nt = remaining[remaining.length - 1]
-        setActiveTabId(nt.id); handleTabChange(nt.id)
-      } else {
-        savedEndpointLoadToken++
-        setActiveTabId(null)
-        setEndpointData({ ...emptyEndpoint })
-        setEnvironmentBaseUrls([])
-        setResponseData(null)
+  // ---- 关闭标签页 ----
+  const handleCloseTab = (id: string) => {
+    const tab = requestTabs().find(tab => tab.id === id)
+    if (!tab || sessions()[id]?.saving) return
+    if (!tab.saved || tab.dirty) {
+      setPendingCloseTabId(id)
+      setCloseConfirmOpen(true)
+    } else closeTab(id)
+  }
+
+  const handleConfirmDiscard = () => {
+    const id = pendingCloseTabId()
+    if (id) closeTab(id)
+    setCloseConfirmOpen(false)
+    setPendingCloseTabId(null)
+  }
+
+  const handleSaveAndClose = async () => {
+    const id = pendingCloseTabId()
+    const tab = requestTabs().find(tab => tab.id === id)
+    if (!tab || !id) return
+    if (!tab.saved) {
+      setCloseConfirmOpen(false)
+      handleSave(id)
+    } else if (await handleSaveSavedEndpoint(id)) {
+      closeTab(id)
+      setCloseConfirmOpen(false)
+      setPendingCloseTabId(null)
+    }
+  }
+
+  const closeTab = (id: string) => {
+    const tabs = requestTabs()
+    const index = tabs.findIndex(tab => tab.id === id)
+    const session = sessions()[id]
+    if (index < 0 || session?.saving) return
+    const next = tabs[index - 1] ?? tabs[index + 1]
+    batch(() => {
+      setRequestTabs(tabs.filter(tab => tab.id !== id))
+      if (activeTabId() === id) setActiveTabId(next?.id ?? null)
+      putSession(id, undefined)
+    })
+    if (session) {
+      contextTokens.delete(session.key)
+      clearEndpointSessionState(session.key)
+      if (!tabs[index].saved) setWebSocketMessageDrafts(drafts => {
+        const next = { ...drafts }
+        delete next[id]
+        return next
+      })
+      if (session.requestId) void HTTPService.CancelRequest(session.requestId).catch(toastError)
+      if (session.response?.streamId) {
+        void HTTPService.StopStream(session.response.streamId).catch(toastError)
+        clearStream(session.response.streamId)
       }
+      if (session.draft.type === "websocket") void WebSocketService.Close(session.key).catch(toastError)
+      clearStream(session.key)
     }
   }
 
   // ---- 删除端点 ----
-  const handleDelete = () => {
-    const ct = requestTabs().find(t => t.id === activeTabId())
+  const handleDelete = (id = activeTabId() || "") => {
+    const ct = requestTabs().find(t => t.id === id)
     if (!ct) return
-    if (!ct.saved) { if (activeTabId()) closeTab(activeTabId()!); return }
+    if (!ct.saved) { handleCloseTab(id); return }
     setDeletingEndpointId(ct.id); setDeleteConfirmOpen(true)
   }
 
@@ -1200,7 +1159,13 @@ export function ApiManagement(props: ApiManagementProps) {
       else await EndpointService.RenameEndpoint(node.id, name)
       // 同步已打开标签页与当前编辑区的名称
       setRequestTabs(pt => pt.map(t => t.id === node.id ? { ...t, name } : t))
-      if (endpointData.id === node.id) setEndpointData({ name } as Partial<EndpointData>)
+      const session = sessions()[node.id]
+      if (session) {
+        const baseline = JSON.parse(session.baseline) as Record<string, unknown>
+        updateSession(node.id, { baseline: JSON.stringify({ ...baseline, name }) })
+        setEndpointData({ name }, node.id)
+        syncTabMetadata(node.id)
+      }
       setRenameOpen(false); setRenameNode(null)
       await loadTree()
     } catch (e) { toastError(e, "error.op.renameFailed") } finally { setRenaming(false) }
@@ -1294,9 +1259,7 @@ export function ApiManagement(props: ApiManagementProps) {
       const doc = await EndpointService.CreateDocument(moduleId, folderId ?? null, t("doc.untitled"))
       await loadTree()
       if (doc) {
-        setRequestTabs(prev => [...prev, { id: doc.id, name: doc.name, method: "GET" as HTTPMethod, saved: true, dirty: false }])
-        setActiveTabId(doc.id)
-        await loadSavedEndpointData(doc.id)
+        await handleSelectNode({ id: doc.id, name: doc.name, type: "endpoint", endpointType: "doc", method: "GET" })
       }
     } catch (e) { toastError(e, "error.op.createFailed") }
   }
@@ -1312,9 +1275,7 @@ export function ApiManagement(props: ApiManagementProps) {
       const ep = await EndpointService.CreateTypedEndpoint(moduleId, folderId ?? null, name, "GET", "", endpointType)
       await loadTree()
       if (ep) {
-        setRequestTabs(prev => [...prev, { id: ep.id, name: ep.name, method: "GET" as HTTPMethod, saved: true, dirty: false }])
-        setActiveTabId(ep.id)
-        await loadSavedEndpointData(ep.id)
+        await handleSelectNode({ id: ep.id, name: ep.name, type: "endpoint", endpointType: "websocket", method: "GET" })
       }
     } catch (e) { toastError(e, "error.op.createFailed") }
   }
@@ -1345,15 +1306,42 @@ export function ApiManagement(props: ApiManagementProps) {
   // ---- 全局快捷键（跨平台，自动适配 Cmd/Ctrl） ----
   useHotkey([
     // 发送请求
-    { key: "CmdOrCtrl+Enter", allowInInput: true, handler: () => { if (endpointData.id && !sending()) handleSend() } },
+    { key: "CmdOrCtrl+Enter", allowInInput: true, handler: () => { if (endpointData().id && !sending()) handleSend() } },
     // 保存当前接口
     { key: "CmdOrCtrl+S", allowInInput: true, handler: () => { if (activeTabId()) handleSave() } },
     // 新建请求
     { key: "CmdOrCtrl+N", allowInInput: true, handler: () => createUnsavedTab() },
   ])
 
-  // ---- 计算属性 ----
-  const isActiveTabUnsaved = () => { const t = requestTabs().find(t => t.id === activeTabId()); return t ? !t.saved : false }
+  // 只创建一次，切换 active key 时不重建所有已打开的详情组件。
+  const requestPanels = <For each={requestTabs().map(tab => tab.key)}>{key => {
+    const tab = () => requestTabs().find(tab => tab.key === key)!
+    const session = () => sessions()[tab()?.id]
+    return <div class="h-full" hidden={activeTabId() !== tab()?.id}>
+      <Show when={session() && !session()!.loading && !session()!.loadError}
+        fallback={<div class="p-6 text-muted-foreground">
+          <Show when={session()?.loadError} fallback={t("common.loading")}>
+            <Button onClick={() => loadSavedEndpointData(tab().id)}>{t("error.boundary.retry")}</Button>
+          </Show>
+        </div>}
+      >
+        <EndpointDetail
+          endpoint={session()!.draft} response={session()!.response} sending={!!session()!.requestId}
+          sessionKey={key} connectionId={key}
+          isUnsaved={!tab().saved} onSend={() => handleSend(tab().id)} onCancelSend={() => handleCancelSend(tab().id)}
+          onWSConnect={auto => handleWSConnect(auto, tab().id)} onWSDisconnect={() => handleWSDisconnect(tab().id)}
+          onCopyAsCurl={() => handleCopyAsCurl(tab().id)} onSave={() => handleSave(tab().id)}
+          onDelete={() => handleDelete(tab().id)} onChange={data => handleDataChange(data, tab().id)}
+          currentEnvironmentId={getCurrentEnvironmentId(props.projectId)}
+          environmentBaseUrls={session()!.environmentBaseUrls}
+          onEnvironmentChange={handleEnvironmentChange} projectId={props.projectId}
+          globalQueryParams={session()!.globalQueryParams} inheritedOpCounts={session()!.inheritedOpCounts}
+          requestTabIntent={activeTabId() === tab().id ? requestTabIntent() : undefined}
+          onRequestTabIntentHandled={requestId => setRequestTabIntent(intent => intent?.requestId === requestId ? undefined : intent)}
+        />
+      </Show>
+    </div>
+  }}</For>
 
   return (
     <>
@@ -1404,30 +1392,15 @@ export function ApiManagement(props: ApiManagementProps) {
               }))}
               value={activeTabId() || ""} onChange={handleTabChange} onClose={handleCloseTab}
             >
-              {() => endpointData.id ? <EndpointDetail
-                endpoint={endpointData} response={responseData()} sending={sending()}
-                isUnsaved={isActiveTabUnsaved()} onSend={handleSend} onCancelSend={handleCancelSend}
-                onWSConnect={handleWSConnect} onWSDisconnect={handleWSDisconnect}
-                onCopyAsCurl={handleCopyAsCurl} onSave={handleSave}
-                onDelete={handleDelete} onChange={handleDataChange}
-                currentEnvironmentId={getCurrentEnvironmentId(props.projectId)}
-                environmentBaseUrls={environmentBaseUrls()}
-                onEnvironmentChange={handleEnvironmentChange}
-                projectId={props.projectId}
-                globalQueryParams={globalQueryParams()}
-                inheritedOpCounts={inheritedOpCounts()}
-                requestTabIntent={requestTabIntent()}
-                onRequestTabIntentHandled={(requestId) => {
-                  setRequestTabIntent(intent => intent?.requestId === requestId ? undefined : intent)
-                }}
-              /> : null}
+              {() => requestPanels}
+
             </Tabs>
           </Show>
         </div>}
       />
 
       {/* 保存到项目对话框 */}
-      <Dialog open={saveDialogOpen()} onClose={() => setSaveDialogOpen(false)} title={t("endpoint.saveToProjectTitle")} closeOnEsc closeOnOverlayClick>
+      <Dialog open={saveDialogOpen()} onClose={() => { if (!saving()) { setSaveDialogOpen(false); setSaveTargetId(null); setPendingCloseTabId(null) } }} title={t("endpoint.saveToProjectTitle")} closeOnEsc closeOnOverlayClick>
         <div class="px-6 py-4 flex flex-col h-[70vh] gap-4">
           <div class="shrink-0"><label class="block text-sm font-medium mb-1.5">{t("endpoint.name")}</label>
             <Input value={saveName()} onInput={e => setSaveName(e.currentTarget.value)} placeholder="GET /users" onKeyDown={e => e.key === "Enter" && handleSaveToProject()} />
@@ -1444,7 +1417,7 @@ export function ApiManagement(props: ApiManagementProps) {
             <p class="text-xs text-muted-foreground mt-1 shrink-0">{t("endpoint.saveLocationHint")}</p>
           </div>
           <div class="flex justify-end gap-2 pt-2 shrink-0">
-            <Button variant="outline" onClick={() => setSaveDialogOpen(false)}>{t("common.cancel")}</Button>
+            <Button variant="outline" disabled={saving()} onClick={() => { setSaveDialogOpen(false); setSaveTargetId(null); setPendingCloseTabId(null) }}>{t("common.cancel")}</Button>
             <Button onClick={handleSaveToProject} disabled={!saveName().trim() || saving()}>{saving() ? t("common.saving") : t("endpoint.save")}</Button>
           </div>
         </div>
@@ -1465,7 +1438,7 @@ export function ApiManagement(props: ApiManagementProps) {
       {/* 删除端点确认对话框 */}
       <Dialog open={deleteConfirmOpen()} onClose={() => { setDeleteConfirmOpen(false); setDeletingEndpointId(null) }} title={t("endpoint.delete")} closeOnEsc closeOnOverlayClick>
         <div class="p-6 space-y-4">
-          <p class="text-sm text-muted-foreground">{t("endpoint.confirmDelete", { name: endpointData.name || "" })}</p>
+          <p class="text-sm text-muted-foreground">{t("endpoint.confirmDelete", { name: endpointData().name || "" })}</p>
           <div class="flex justify-end gap-2 pt-2">
             <Button variant="outline" onClick={() => setDeleteConfirmOpen(false)}>{t("common.cancel")}</Button>
             <Button onClick={handleConfirmDelete} disabled={deleting()}>{deleting() ? t("common.deleting") : t("common.confirm")}</Button>

@@ -114,6 +114,9 @@ import type {
 } from "@/components/endpoint/editor-types"
 
 export interface EndpointDetailProps {
+  /** 稳定标签身份，新建请求保存后保留组件状态与连接。 */
+  sessionKey?: string
+  connectionId?: string
   /** 端点数据 */
   endpoint: EndpointData
   /** 响应数据 */
@@ -157,6 +160,10 @@ export interface EndpointDetailProps {
 
 // 按端点 ID 持久化标签页状态，避免组件重新挂载时丢失
 const tabStateStore = new Map<string, { requestTab: string; responseTab: string }>()
+
+export function clearEndpointSessionState(key: string) {
+  tabStateStore.delete(key)
+}
 
 /**
  * EnvironmentBadge 环境切换徽章
@@ -272,6 +279,8 @@ function EnvironmentBadge(props: {
  */
 export function EndpointDetail(props: EndpointDetailProps) {
   const ep = () => props.endpoint
+  const stateKey = () => props.sessionKey ?? ep().id
+  const connectionId = () => props.connectionId ?? ep().id
   const isWs = () => ep().type === "websocket"
 
   // 初始化标签页状态（从持久化存储恢复，或使用默认值）
@@ -280,9 +289,9 @@ export function EndpointDetail(props: EndpointDetailProps) {
 
   // 初始化标签页状态（从持久化存储恢复，或使用默认值）
   createEffect(on(
-    () => ep().id,
-    (id) => {
-      const saved = tabStateStore.get(id)
+    () => stateKey(),
+    () => {
+      const saved = tabStateStore.get(stateKey())
       if (saved) {
         // 兼容旧缓存（如已废弃的 "script" tab）：非法 key 回退到 params
         const canRestoreMessageTab = isWs() && saved.requestTab === "message"
@@ -361,7 +370,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
   createEffect(on(
     () => [activeRequestTab(), activeResponseTab()],
     ([requestTab, responseTab]) => {
-      tabStateStore.set(ep().id, { requestTab, responseTab })
+      tabStateStore.set(stateKey(), { requestTab, responseTab })
     },
   ))
 
@@ -488,9 +497,9 @@ export function EndpointDetail(props: EndpointDetailProps) {
     ep().wsProtocolConversion,
     ep().inheritedWsProtocolConversion,
   )
-  const wsStatus = () => streamStatus(ep().id)
+  const wsStatus = () => streamStatus(connectionId())
   const wsConnect = async () => {
-    markConnecting(ep().id)
+    markConnecting(connectionId())
     try {
       await props.onWSConnect?.(autoConvertWSProtocol())
     } catch (e) { toastError(e, "error.op.connectFailed") }
@@ -631,7 +640,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
               {(key) => {
                 switch (key) {
                   case "message": return <WebSocketMessageEditor
-                    connId={ep().id}
+                    connId={connectionId()}
                     value={webSocketMessageDrafts()[ep().id] ?? ""}
                     onChange={(value) => setWebSocketMessageDrafts(drafts => ({ ...drafts, [ep().id]: value }))}
                   />
@@ -774,7 +783,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                         <LayoutToggle />
                       </div>
                       <div class="flex-1 min-h-0">
-                        <WebSocketResponse connId={ep().id} layout={responseLayout()} />
+                        <WebSocketResponse connId={connectionId()} layout={responseLayout()} />
                       </div>
                     </div>
                   </Show>
@@ -847,7 +856,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
                           onDownload={downloadResponseBody}
                         />
                       }>
-                        <WebSocketResponse connId={ep().id} layout={responseLayout()} />
+                        <WebSocketResponse connId={connectionId()} layout={responseLayout()} />
                       </Show>
                     }>
                       <StreamEventLog
