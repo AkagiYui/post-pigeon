@@ -441,7 +441,7 @@ export function EndpointDetail(props: EndpointDetailProps) {
         <div class="flex items-center gap-2 px-3 py-2 border-b border-border shrink-0">
           {/* 内嵌方法选择器的 URL 输入组（Apifox 风格）：灰底圆角外框，内部方法为彩色小药丸，
               路径输入透明加粗，环境徽章作为内嵌段落。 */}
-          <div class="flex-1 flex items-center gap-1 h-8 px-1 border border-border rounded-md bg-surface-alt transition-colors hover:border-control-border focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20">
+          <div class="flex-1 min-w-0 flex items-center gap-1 h-8 px-1 border border-border rounded-md bg-surface-alt transition-colors hover:border-control-border focus-within:border-accent focus-within:ring-2 focus-within:ring-accent/20">
             {/* HTTP 方法选择器（彩色药丸 + 下拉小箭头） */}
             <Combobox
               options={methodOptions}

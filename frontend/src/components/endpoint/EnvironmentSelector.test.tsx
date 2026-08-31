@@ -35,7 +35,7 @@ describe("environment selector", () => {
     fireEvent.click(trigger)
     const menu = await screen.findByRole("menu")
     expect(within(menu).getByRole("menuitemradio")).toHaveAttribute("aria-checked", "true")
-    expect(within(menu).getByText("endpoint.baseUrl.hint")).toBeVisible()
+    expect(trigger).toHaveAttribute("title", expect.stringContaining("endpoint.baseUrl.hint"))
     const editItem = within(menu).getByRole("menuitem", { name: "environment.editNamed Development" })
     fireEvent.pointerDown(editItem, { pointerType: "mouse", button: 0 })
     await waitFor(() => expect(editItem).toHaveAttribute("data-highlighted"))
