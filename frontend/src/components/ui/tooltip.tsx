@@ -19,13 +19,15 @@ export interface TooltipProps {
   placement?: "top" | "bottom" | "left" | "right"
   /** 触发元素包裹层自定义类名（如需撑满容器宽度可传 "block w-full"） */
   class?: string
+  /** 提示浮层自定义类名（如长文本换行与宽度限制） */
+  contentClass?: string
 }
 
 /**
  * Tooltip 提示组件
  */
 export function Tooltip(props: TooltipProps) {
-  const [local] = splitProps(props, ["content", "children", "delay", "placement", "class"])
+  const [local] = splitProps(props, ["content", "children", "delay", "placement", "class", "contentClass"])
 
   return (
     <ArkTooltip.Root
@@ -45,6 +47,7 @@ export function Tooltip(props: TooltipProps) {
           <ArkTooltip.Content
             class={cn(
               "z-50 px-2 py-1 text-xs rounded-md bg-popover text-popover-foreground shadow-md border border-border whitespace-nowrap pointer-events-none",
+              local.contentClass,
             )}
           >
             {local.content}

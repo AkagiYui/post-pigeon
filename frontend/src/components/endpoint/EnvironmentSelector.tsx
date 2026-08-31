@@ -3,6 +3,7 @@ import { Icon } from "@iconify-icon/solid"
 import { createEffect, createSignal, For, onCleanup, Show } from "solid-js"
 import { Portal } from "solid-js/web"
 
+import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
 import { cn } from "@/lib/utils"
 import { convertHTTPToWSProtocol } from "@/lib/ws-protocol"
@@ -43,9 +44,11 @@ export function EnvironmentSelector(props: EnvironmentSelectorProps) {
   return (
     <div ref={container} class="shrink-0 text-xs" data-compact={compact()}>
       <Show when={options().length > 0} fallback={
-        <span class="inline-flex items-center gap-1 h-6 px-2 text-xs rounded text-muted-foreground cursor-default whitespace-nowrap" title={t("environment.none")} aria-label={t("environment.none")}>
-          <Show when={compact()} fallback={t("environment.none")}><Icon icon="lucide:link-2" class="h-3 w-3 shrink-0" /></Show>
-        </span>
+        <Tooltip content={t("environment.none")} placement="bottom">
+          <span class="inline-flex items-center gap-1 h-6 px-2 text-xs rounded text-muted-foreground cursor-default whitespace-nowrap" aria-label={t("environment.none")}>
+            <Show when={compact()} fallback={t("environment.none")}><Icon icon="lucide:link-2" class="h-3 w-3 shrink-0" /></Show>
+          </span>
+        </Tooltip>
       }>
         <Menu.Root
           positioning={{ placement: "bottom-start", gutter: 4, strategy: "fixed" }}
@@ -54,17 +57,22 @@ export function EnvironmentSelector(props: EnvironmentSelectorProps) {
             else props.onEnvironmentChange?.(value)
           }}
         >
-          <Menu.Trigger
-            aria-label={t("environment.select")}
-            title={`${selected() ? display(props.baseUrl) || unset() : t("environment.select")}\n${hint()}`}
-            class={cn(
-              "inline-flex items-center gap-1 h-6 px-2 text-xs rounded cursor-pointer select-none transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
-              props.baseUrl ? "text-accent bg-accent-muted hover:bg-accent-muted/70" : "text-muted-foreground hover:bg-hover",
-            )}
+          <Tooltip
+            content={`${selected() ? display(props.baseUrl) || unset() : t("environment.select")}\n${hint()}`}
+            placement="bottom"
+            contentClass="max-w-[min(24rem,calc(100vw-16px))] whitespace-pre-line break-words"
           >
-            <Show when={compact() || !selected()}><Icon icon="lucide:link-2" class="h-3 w-3 shrink-0" /></Show>
-            <Show when={!compact() && selected()}><span>{display(props.baseUrl) || unset()}</span></Show>
-          </Menu.Trigger>
+            <Menu.Trigger
+              aria-label={t("environment.select")}
+              class={cn(
+                "inline-flex items-center gap-1 h-6 px-2 text-xs rounded cursor-pointer select-none transition-colors whitespace-nowrap focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-accent",
+                props.baseUrl ? "text-accent bg-accent-muted hover:bg-accent-muted/70" : "text-muted-foreground hover:bg-hover",
+              )}
+            >
+              <Show when={compact() || !selected()}><Icon icon="lucide:link-2" class="h-3 w-3 shrink-0" /></Show>
+              <Show when={!compact() && selected()}><span>{display(props.baseUrl) || unset()}</span></Show>
+            </Menu.Trigger>
+          </Tooltip>
           <Portal>
             <Menu.Positioner class="z-[101]">
               <Menu.Content
