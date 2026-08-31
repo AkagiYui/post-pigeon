@@ -20,6 +20,8 @@ import (
 const (
 	updateCheckTimeout    = 30 * time.Second
 	updateDownloadTimeout = 30 * time.Minute
+	updateCheckDelay      = 30 * time.Second
+	updateCheckInterval   = 6 * time.Hour
 )
 
 // UpdaterService 应用更新服务。
@@ -201,15 +203,19 @@ func (s *UpdaterService) SaveUpdateSettings(settings models.UpdateSettings) erro
 	return nil
 }
 
-// ApplySettings 把设置同步到更新器。SaveUpdateSettings 会自动调用它，
-// 应用启动时也要调一次，把持久化的「跳过的版本」与通道选择回填进去——
-// Wails 的 updater 只在内存里记这两项。
+// ApplySettings 把设置同步到更新器并启停后台检查。启动与保存共用这一入口，
+// 跳过的版本、通道选择和自动检查开关都无需重启即可生效。
 func (s *UpdaterService) ApplySettings(settings models.UpdateSettings) {
 	if s.mgr == nil {
 		return
 	}
 	s.mgr.SetIncludePrerelease(settings.IncludePrerelease)
 	s.mgr.SkipVersion(settings.SkippedVersion)
+	if settings.AutoCheck {
+		s.mgr.StartPeriodicCheck(updateCheckDelay, updateCheckInterval)
+	} else {
+		s.mgr.StopPeriodicCheck()
+	}
 }
 
 // GetLocalChangelog 返回随应用一起分发的变更日志（「关于」里的历史记录）。

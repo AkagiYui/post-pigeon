@@ -5,6 +5,7 @@ import { SettingsModal } from "@/components/settings/SettingsModal"
 import { setSettingsOpen, settingsOpen } from "@/stores/app"
 
 import { TitleBar } from "./TitleBar"
+import { UpdateNotice } from "./UpdateNotice"
 
 export interface AppLayoutProps {
   children?: JSX.Element
@@ -19,6 +20,7 @@ export function AppLayout(props: AppLayoutProps) {
     <div class="flex flex-col h-screen bg-background text-foreground">
       {/* 顶栏 */}
       <TitleBar />
+      <UpdateNotice />
 
       {/* 主体内容区域 */}
       <main class="flex-1 overflow-hidden">

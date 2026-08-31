@@ -34,6 +34,9 @@ import (
 // ErrDisabled 表示更新器没有启用（开发构建、或 Attach 尚未调用）。
 var ErrDisabled = errors.New("updates: 更新器未启用")
 
+// EventChecked 在管理器保存检查结果后广播，避免前端读到上一轮的 pending。
+const EventChecked = "app:update-checked"
+
 // Release 是一个可用版本，等价于 updater.Release。取个别名，让调用方不必直接
 // 依赖 Wails 的 updater 包。
 type Release = updater.Release
@@ -58,6 +61,8 @@ type Options struct {
 	APIBaseURL string
 	// HTTPClient 拉取远端 CHANGELOG.md 用的客户端，为空则用带超时的默认值。
 	HTTPClient *http.Client
+	// OnCheckComplete 在检查结果保存后调用，包括没有新版本的情况。
+	OnCheckComplete func()
 }
 
 // Manager 管理更新的检查、下载与应用。
@@ -70,10 +75,10 @@ type Manager struct {
 	up      *updater.Updater
 	pending *updater.Release
 
-	stopOnce sync.Once
-	stop     chan struct{}
-	// done 在后台检查启动时创建，未启动时为 nil。
-	done chan struct{}
+	operationMu sync.Mutex
+	periodicMu  sync.Mutex
+	cancel      context.CancelFunc
+	done        chan struct{}
 }
 
 // New 构造管理器。此时还没有接上 Wails 的 updater，检查类操作都会返回
@@ -120,7 +125,6 @@ func New(opts Options) (*Manager, error) {
 		opts:     opts,
 		provider: &dynamicProvider{stable: stable, pre: pre},
 		client:   client,
-		stop:     make(chan struct{}),
 	}, nil
 }
 
@@ -173,21 +177,41 @@ func (m *Manager) State() string {
 	if up == nil {
 		return string(updater.StateUnconfigured)
 	}
-	return string(up.State())
+	state := up.State()
+	if state == updater.StateAvailable && m.Pending() == nil {
+		return string(updater.StateUpToDate)
+	}
+	return string(state)
 }
 
 // Pending 返回最近一次检查发现的可用版本，没有则为 nil。
 func (m *Manager) Pending() *updater.Release {
 	m.mu.RLock()
-	defer m.mu.RUnlock()
-	return m.pending
+	rel, up := m.pending, m.up
+	m.mu.RUnlock()
+	if rel != nil && up != nil && rel.Version == up.SkippedVersion() {
+		return nil
+	}
+	return rel
 }
 
 // Check 检查是否有新版本。返回 (nil, nil) 表示已是最新。
 func (m *Manager) Check(ctx context.Context) (*updater.Release, error) {
+	if !m.operationMu.TryLock() {
+		return nil, errors.New("updates: 更新操作正在进行")
+	}
+	defer m.operationMu.Unlock()
+	return m.check(ctx)
+}
+
+func (m *Manager) check(ctx context.Context) (*updater.Release, error) {
 	up := m.updater()
 	if up == nil {
 		return nil, ErrDisabled
+	}
+	// 已暂存的更新不能再检查，否则 Wails 会把 ready 改回 available。
+	if up.State() == updater.StateReady {
+		return m.Pending(), nil
 	}
 	rel, err := up.Check(ctx)
 	if err != nil {
@@ -196,12 +220,19 @@ func (m *Manager) Check(ctx context.Context) (*updater.Release, error) {
 	m.mu.Lock()
 	m.pending = rel
 	m.mu.Unlock()
+	if m.opts.OnCheckComplete != nil {
+		m.opts.OnCheckComplete()
+	}
 	return rel, nil
 }
 
 // DownloadAndInstall 下载并校验待安装的版本，成功后暂存等待重启。
 // 必须先调用 Check。
 func (m *Manager) DownloadAndInstall(ctx context.Context) error {
+	if !m.operationMu.TryLock() {
+		return errors.New("updates: 更新操作正在进行")
+	}
+	defer m.operationMu.Unlock()
 	up := m.updater()
 	if up == nil {
 		return ErrDisabled
@@ -228,14 +259,15 @@ func (m *Manager) StartPeriodicCheck(delay, interval time.Duration) {
 		return
 	}
 
-	m.mu.Lock()
+	m.periodicMu.Lock()
+	defer m.periodicMu.Unlock()
 	if m.done != nil { // 已经启动过
-		m.mu.Unlock()
 		return
 	}
+	ctx, cancel := context.WithCancel(context.Background())
 	done := make(chan struct{})
+	m.cancel = cancel
 	m.done = done
-	m.mu.Unlock()
 
 	go func() {
 		defer close(done)
@@ -244,45 +276,56 @@ func (m *Manager) StartPeriodicCheck(delay, interval time.Duration) {
 		timer := time.NewTimer(delay)
 		defer timer.Stop()
 		select {
-		case <-m.stop:
+		case <-ctx.Done():
 			return
 		case <-timer.C:
 		}
 
 		for {
-			m.checkQuietly()
+			m.checkQuietly(ctx)
+			timer.Reset(interval)
 			select {
-			case <-m.stop:
+			case <-ctx.Done():
 				return
-			case <-time.After(interval):
+			case <-timer.C:
 			}
 		}
 	}()
 }
 
 // StopPeriodicCheck 停止后台检查并等待其退出。没有启动过时直接返回，
-// 重复调用是安全的。
+// 重复调用是安全的；停止后允许再次启动。
 func (m *Manager) StopPeriodicCheck() {
-	m.mu.RLock()
-	done := m.done
-	m.mu.RUnlock()
-	if done == nil {
+	m.periodicMu.Lock()
+	defer m.periodicMu.Unlock()
+	if m.done == nil {
 		return
 	}
-	m.stopOnce.Do(func() { close(m.stop) })
-	<-done
+	m.cancel()
+	<-m.done
+	m.cancel = nil
+	m.done = nil
 }
 
 // checkQuietly 执行一次后台检查：失败只记日志，不打扰用户。
 // 发现新版本时 updater 会自行广播 wails:updater:update-available 事件。
-func (m *Manager) checkQuietly() {
-	ctx, cancel := context.WithTimeout(context.Background(), 30*time.Second)
+func (m *Manager) checkQuietly(parent context.Context) {
+	if parent.Err() != nil || !m.operationMu.TryLock() {
+		return
+	}
+	defer m.operationMu.Unlock()
+	if m.State() == string(updater.StateReady) {
+		return
+	}
+	ctx, cancel := context.WithTimeout(parent, 30*time.Second)
 	defer cancel()
 
-	rel, err := m.Check(ctx)
+	rel, err := m.check(ctx)
 	switch {
+	case parent.Err() != nil:
+		return
 	case err != nil:
-		slog.Debug("后台检查更新失败", "error", err)
+		slog.Warn("后台检查更新失败", "error", err)
 	case rel != nil:
 		slog.Info("发现新版本", "version", rel.Version)
 	}

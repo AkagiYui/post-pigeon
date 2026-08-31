@@ -1,10 +1,17 @@
 package services
 
 import (
+	"context"
+	"net/http"
+	"net/http/httptest"
+	"sync/atomic"
 	"testing"
+	"time"
 
 	"PostPigeon/internal/models"
 	"PostPigeon/internal/updates"
+
+	"github.com/wailsapp/wails/v3/pkg/updater"
 )
 
 const testChangelog = `# 变更日志
@@ -109,6 +116,66 @@ func TestUpdateSettingsRoundTrip(t *testing.T) {
 	}
 	if info := svc.GetUpdateInfo(); info.Settings != want {
 		t.Errorf("GetUpdateInfo 里的设置 = %+v，期望 %+v", info.Settings, want)
+	}
+}
+
+type updateTestHost struct{}
+
+func (updateTestHost) Emit(string, ...any) bool                              { return true }
+func (updateTestHost) OnEvent(string, func(any)) func()                      { return func() {} }
+func (updateTestHost) OpenWindow(updater.WindowOptions) updater.WindowHandle { return nil }
+func (updateTestHost) Quit()                                                 {}
+
+func TestSavingAutoCheckSettingsControlsRunningSchedule(t *testing.T) {
+	var calls atomic.Int32
+	checked := make(chan struct{}, 32)
+	srv := httptest.NewServer(http.HandlerFunc(func(w http.ResponseWriter, _ *http.Request) {
+		calls.Add(1)
+		checked <- struct{}{}
+		_, _ = w.Write([]byte(`{"tag_name":"v1.0.0"}`))
+	}))
+	defer srv.Close()
+	mgr, err := updates.New(updates.Options{
+		Repository: "test/app", AppName: "App", CurrentVersion: "1.0.0", APIBaseURL: srv.URL,
+	})
+	if err != nil {
+		t.Fatal(err)
+	}
+	if err := mgr.Attach(updater.New(updateTestHost{})); err != nil {
+		t.Fatal(err)
+	}
+	defer mgr.StopPeriodicCheck()
+	svc := NewUpdaterService(newTestDB(t), mgr, testChangelog)
+
+	// 保存开启后应采用服务的 30 秒延迟；重复 Start 不得另起一条即时检查循环。
+	if err := svc.SaveUpdateSettings(models.UpdateSettings{AutoCheck: true}); err != nil {
+		t.Fatal(err)
+	}
+	mgr.StartPeriodicCheck(0, 10*time.Millisecond)
+	select {
+	case <-checked:
+		t.Fatal("saving autoCheck=true did not start the configured schedule")
+	case <-time.After(40 * time.Millisecond):
+	}
+
+	// 用短周期驱动同一个真实管理器，确认保存关闭确实终止它。
+	mgr.StopPeriodicCheck()
+	mgr.StartPeriodicCheck(0, 10*time.Millisecond)
+	select {
+	case <-checked:
+	case <-time.After(time.Second):
+		t.Fatal("automatic check did not start")
+	}
+	if err := svc.SaveUpdateSettings(models.UpdateSettings{AutoCheck: false}); err != nil {
+		t.Fatal(err)
+	}
+	stoppedAt := calls.Load()
+	time.Sleep(40 * time.Millisecond)
+	if calls.Load() != stoppedAt {
+		t.Fatal("saving autoCheck=false did not stop the running schedule")
+	}
+	if _, err := mgr.Check(context.Background()); err != nil {
+		t.Fatalf("manual checking should remain available: %v", err)
 	}
 }
 

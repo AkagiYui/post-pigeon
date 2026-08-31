@@ -27,6 +27,10 @@ const [errorMessage, setErrorMessage] = createRoot(() => createSignal(""))
 const [pending, setPending] = createRoot(() => createSignal<UpdateChangelog | null>(null))
 const [history, setHistory] = createRoot(() => createSignal<Entry[] | null>(null))
 
+// 事件或较新的请求到达后，旧快照不能覆盖当前状态。
+let infoRevision = 0
+let changelogRevision = 0
+
 /** 更新流程所处阶段，取值与 Go 侧 updater.State 一致 */
 export type UpdateState =
   | "unconfigured" | "idle" | "checking" | "up-to-date" | "available"
@@ -46,19 +50,22 @@ export {
 }
 
 /** 拉取最新的更新状态 */
-export async function refreshUpdateInfo(): Promise<UpdateInfo | null> {
+export async function refreshUpdateInfo(): Promise<UpdateInfo> {
+  const revision = ++infoRevision
   const next = await UpdaterService.GetUpdateInfo()
-  setInfo(next)
-  setState(next.state as UpdateState)
+  if (revision === infoRevision) {
+    if (info()?.available?.version !== next.available?.version || !next.available) setPending(null)
+    setInfo(next)
+    setState(next.state as UpdateState)
+  }
   return next
 }
 
 /** 主动检查更新；发现新版本时顺带把变更日志也拉回来 */
 export async function checkForUpdate(): Promise<UpdateInfo> {
   setErrorMessage("")
-  const next = await UpdaterService.CheckForUpdate()
-  setInfo(next)
-  setState(next.state as UpdateState)
+  await UpdaterService.CheckForUpdate()
+  const next = await refreshUpdateInfo()
   if (next.available) void loadPendingChangelog()
   return next
 }
@@ -91,12 +98,16 @@ export async function saveUpdateSettings(settings: UpdateSettings): Promise<void
 
 /** 拉取「当前版本 → 待更新版本」之间的全部变更日志 */
 export async function loadPendingChangelog(): Promise<void> {
+  const revision = ++changelogRevision
+  const version = info()?.available?.version
+  if (!version) return
   try {
-    setPending(await UpdaterService.GetPendingChangelog())
+    const next = await UpdaterService.GetPendingChangelog()
+    if (revision === changelogRevision && info()?.available?.version === version) setPending(next)
   } catch (err) {
     // 变更日志只是锦上添花，拉不到不该挡住更新本身
     console.error("获取变更日志失败", err)
-    setPending(null)
+    if (revision === changelogRevision && info()?.available?.version === version) setPending(null)
   }
 }
 
@@ -110,33 +121,41 @@ export async function loadUpdateHistory(): Promise<void> {
 // Toaster 尚未渲染，失败只能进 console。
 if (typeof window !== "undefined") {
   try {
+    const eventState = (next: UpdateState) => {
+      infoRevision++
+      setState(next)
+    }
     Events.On(Updater.Events.CheckStarted, () => {
       setErrorMessage("")
-      setState("checking")
+      eventState("checking")
     })
-    Events.On(Updater.Events.NoUpdate, () => setState("up-to-date"))
+    Events.On(Updater.Events.NoUpdate, () => eventState("up-to-date"))
     Events.On(Updater.Events.UpdateAvailable, () => {
-      setState("available")
-      // 后台定时检查发现的新版本也要能直接在界面上看到内容
-      void refreshUpdateInfo().then(() => loadPendingChangelog())
+      eventState("available")
+    })
+    Events.On("app:update-checked", () => {
+      // Wails 的 available/no-update 事件早于 Manager 保存结果；等应用事件再读快照。
+      void refreshUpdateInfo().then((next) => {
+        if (next.available && info()?.available?.version === next.available.version) return loadPendingChangelog()
+      }).catch(err => console.error("同步更新状态失败", err))
     })
     Events.On(Updater.Events.DownloadStarted, () => {
       setProgress({ written: 0, total: 0, rate: 0 })
-      setState("downloading")
+      eventState("downloading")
     })
     Events.On(Updater.Events.DownloadProgress, (e: { data?: UpdateProgress }) => {
       if (e?.data) setProgress({ written: e.data.written, total: e.data.total, rate: e.data.rate })
     })
-    Events.On(Updater.Events.Verifying, () => setState("verifying"))
-    Events.On(Updater.Events.Installing, () => setState("installing"))
+    Events.On(Updater.Events.Verifying, () => eventState("verifying"))
+    Events.On(Updater.Events.Installing, () => eventState("installing"))
     Events.On(Updater.Events.UpdateReady, () => {
       setProgress(null)
-      setState("ready")
+      eventState("ready")
     })
     Events.On(Updater.Events.Error, (e: { data?: { stage?: string; message?: string } }) => {
       setErrorMessage(e?.data?.message ?? "")
       setProgress(null)
-      setState("error")
+      eventState("error")
     })
   } catch (err) {
     console.error("订阅更新事件失败", err)

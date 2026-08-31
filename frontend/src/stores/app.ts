@@ -66,6 +66,9 @@ const [webSocketMessageDrafts, setWebSocketMessageDrafts] = createSignal<Record<
 /** 设置模态框是否显示（不持久化） */
 const [settingsOpen, setSettingsOpen] = createSignal(false)
 
+/** 当前设置标签，允许全局更新提示直接打开更新页（不持久化） */
+export const [settingsTab, setSettingsTab] = createSignal("appearance")
+
 /** baseUrl 版本号，设置面板保存后递增，供其他组件监听变化（不持久化） */
 const [baseUrlVersion, setBaseUrlVersion] = createSignal(0)
 

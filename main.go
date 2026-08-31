@@ -33,13 +33,6 @@ var assets embed.FS
 //go:embed CHANGELOG.md
 var changelogMarkdown string
 
-// 后台检查更新的节奏：启动 30 秒后查第一次（避开启动时的其它初始化），
-// 之后每 6 小时一次。只检查、不自动下载。
-const (
-	updateCheckDelay    = 30 * time.Second
-	updateCheckInterval = 6 * time.Hour
-)
-
 // webviewArgsEnv 追加 WebView2 启动参数的环境变量，多个参数用空格分隔。
 // 例：POSTPIGEON_WEBVIEW_ARGS="--disable-gpu"
 const webviewArgsEnv = "POSTPIGEON_WEBVIEW_ARGS"
@@ -221,10 +214,6 @@ func main() {
 		} else {
 			updateSettings := updaterService.GetUpdateSettings()
 			updaterService.ApplySettings(updateSettings)
-			if updateSettings.AutoCheck {
-				updateManager.StartPeriodicCheck(updateCheckDelay, updateCheckInterval)
-				defer updateManager.StopPeriodicCheck()
-			}
 		}
 	}
 
@@ -366,6 +355,9 @@ func main() {
 	// 只放「优雅退出才做」的事：被强杀时钩子不执行，运行标记留下正是我们要的信号。
 	// 实例锁不用放进来——它是文件锁，进程一没内核就释放了（见 instancelock）。
 	app.OnShutdown(func() {
+		if updateManager != nil {
+			updateManager.StopPeriodicCheck()
+		}
 		if err := crashreport.Clear(cfg.DataDir); err != nil {
 			slog.Warn("清除运行标记失败", "error", err)
 		}
@@ -485,6 +477,11 @@ func newUpdateManager() *updates.Manager {
 		CurrentVersion: config.Version,
 		// 发布流程会随产物上传 SHA256SUMS，下载后按它校验摘要
 		ChecksumAsset: "SHA256SUMS",
+		OnCheckComplete: func() {
+			if app := application.Get(); app != nil {
+				app.Event.Emit(updates.EventChecked)
+			}
+		},
 	})
 	if err != nil {
 		slog.Error("初始化更新器失败", "error", err)

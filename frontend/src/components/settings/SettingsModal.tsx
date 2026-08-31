@@ -1,10 +1,10 @@
 // 设置模态框组件
 import { Icon } from "@iconify-icon/solid"
-import { createSignal } from "solid-js"
 
 import { Dialog } from "@/components/ui/dialog"
 import { SideTabs } from "@/components/ui/tabs"
 import { t } from "@/hooks/useI18n"
+import { setSettingsTab, settingsTab } from "@/stores/app"
 
 import { AboutSettings } from "./AboutSettings"
 import { AppearanceSettings } from "./AppearanceSettings"
@@ -39,8 +39,6 @@ const settingsTabs = [
  * SettingsModal 设置模态框
  */
 export function SettingsModal(props: SettingsModalProps) {
-  const [activeTab, setActiveTab] = createSignal("appearance")
-
   // 带国际化标签的 tab 列表
   const tabs = () => settingsTabs.map(tab => ({
     key: tab.key,
@@ -60,8 +58,8 @@ export function SettingsModal(props: SettingsModalProps) {
     >
       <SideTabs
         tabs={tabs()}
-        value={activeTab()}
-        onChange={setActiveTab}
+        value={settingsTab()}
+        onChange={setSettingsTab}
       >
         {(key) => {
           switch (key) {
