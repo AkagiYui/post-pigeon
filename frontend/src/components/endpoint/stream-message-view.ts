@@ -191,6 +191,22 @@ export function latestMessageScrollTop(
 }
 
 /**
+ * 判断消息列表当前是否仍停在「最新」一端。
+ *
+ * 消息行用 content-visibility 估高，跳到末尾后真实高度才陆续解析，滚动位置会有几像素的
+ * 出入；留出容差，避免把这种浏览器侧的自动校正当成用户主动离开。
+ */
+export function isAtLatestMessageScroll(
+  order: StreamMessageOrder,
+  scrollTop: number,
+  scrollHeight: number,
+  clientHeight: number,
+  tolerance = 8,
+): boolean {
+  return Math.abs(scrollTop - latestMessageScrollTop(order, scrollHeight, clientHeight)) <= tolerance
+}
+
+/**
  * 取得消息详情中可展示的文本。
  *
  * WebSocket 文本帧已经由服务端按 UTF-8 传入；二进制帧则保留 base64，以便在这里按用户

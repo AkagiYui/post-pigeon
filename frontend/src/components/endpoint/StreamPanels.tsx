@@ -36,6 +36,7 @@ import { toastError } from "@/stores/toast"
 import {
   filterAndSortStreamMessages,
   inferMessageFormat,
+  isAtLatestMessageScroll,
   latestMessageScrollTop,
   mergeStreamCompletion,
   messageContentForDisplay,
@@ -70,6 +71,8 @@ export function MessageLog(props: {
   onMessageSelect?: (message: StreamMessage) => void
   containerRef?: (element: HTMLDivElement) => void
   onScroll?: () => void
+  /** 指针、触摸或键盘触发的滚动意图；用于区分用户滚动与自动跟随产生的滚动。 */
+  onUserScroll?: () => void
 }) {
   const allMessages = createMemo(() => props.sourceMessages ?? streamMessages(props.connId))
   const messages = createMemo(() => filterAndSortStreamMessages(
@@ -85,6 +88,11 @@ export function MessageLog(props: {
     <div
       ref={(element) => props.containerRef?.(element)}
       onScroll={() => props.onScroll?.()}
+      // 滚轮、触摸、键盘与滚动条拖拽（mousedown 落在滚动条上也会派发到容器）都算用户主动滚动。
+      onWheel={() => props.onUserScroll?.()}
+      onTouchMove={() => props.onUserScroll?.()}
+      onMouseDown={() => props.onUserScroll?.()}
+      onKeyDown={() => props.onUserScroll?.()}
       class="flex-1 min-h-0 overflow-auto rounded-md border border-border bg-input p-2 flex flex-col gap-1"
     >
       <For
@@ -378,8 +386,8 @@ export function WebSocketResponse(props: { connId: string; layout?: "right" | "b
   const messageCount = createMemo(() => streamMessages(props.connId).length)
   let messageLogElement: HTMLDivElement | undefined
   let scrollFrame: number | undefined
-  let releaseScrollFrame: number | undefined
-  let autoScrolling = false
+  // 只有指针、触摸或键盘引发的滚动才算主动离开；自动滚动和浏览器的布局校正都不算。
+  let userScrolling = false
 
   // 详情选择由 stream store 按连接保存，切换接口或响应 Tab 后重新挂载时能恢复。
   createEffect(() => {
@@ -399,20 +407,13 @@ export function WebSocketResponse(props: { connId: string; layout?: "right" | "b
       const element = messageLogElement
       if (!element || !followLatest() || messageCount() !== count) return
 
-      autoScrolling = true
+      userScrolling = false
       element.scrollTop = latestMessageScrollTop(currentOrder, element.scrollHeight, element.clientHeight)
-      if (releaseScrollFrame !== undefined) cancelAnimationFrame(releaseScrollFrame)
-      // scroll 事件可能在赋值后的下一帧才派发；保护到下一帧，避免把自动跟随误判为主动滚动。
-      releaseScrollFrame = requestAnimationFrame(() => {
-        autoScrolling = false
-        releaseScrollFrame = undefined
-      })
     })
   })
 
   onCleanup(() => {
     if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
-    if (releaseScrollFrame !== undefined) cancelAnimationFrame(releaseScrollFrame)
   })
 
   return (
@@ -507,8 +508,13 @@ export function WebSocketResponse(props: { connId: string; layout?: "right" | "b
             selectStreamMessage(props.connId, message)
           }}
           containerRef={(element) => { messageLogElement = element }}
+          onUserScroll={() => { userScrolling = true }}
           onScroll={() => {
-            if (followLatest() && !autoScrolling) setFollowLatest(false)
+            const element = messageLogElement
+            if (!element || !userScrolling || !followLatest()) return
+            if (!isAtLatestMessageScroll(order(), element.scrollTop, element.scrollHeight, element.clientHeight)) {
+              setFollowLatest(false)
+            }
           }}
         />
         <Show when={selectedMessage()} keyed>
@@ -565,8 +571,7 @@ export function StreamEventLog(props: {
   })
   let messageLogElement: HTMLDivElement | undefined
   let scrollFrame: number | undefined
-  let releaseScrollFrame: number | undefined
-  let autoScrolling = false
+  let userScrolling = false
 
   createEffect(() => setSelectedMessage(selectedStreamMessage(props.streamId)))
   createEffect(() => {
@@ -579,15 +584,12 @@ export function StreamEventLog(props: {
       scrollFrame = undefined
       const element = messageLogElement
       if (!element || !followLatest() || messageCount() !== count) return
-      autoScrolling = true
+      userScrolling = false
       element.scrollTop = latestMessageScrollTop(currentOrder, element.scrollHeight, element.clientHeight)
-      if (releaseScrollFrame !== undefined) cancelAnimationFrame(releaseScrollFrame)
-      releaseScrollFrame = requestAnimationFrame(() => { autoScrolling = false; releaseScrollFrame = undefined })
     })
   })
   onCleanup(() => {
     if (scrollFrame !== undefined) cancelAnimationFrame(scrollFrame)
-    if (releaseScrollFrame !== undefined) cancelAnimationFrame(releaseScrollFrame)
   })
   const exportTranscript = () => {
     const content = streamMessages(props.streamId)
@@ -721,7 +723,14 @@ export function StreamEventLog(props: {
             selectedMessage={selectedMessage()}
             onMessageSelect={(message) => { setSelectedMessage(message); selectStreamMessage(props.streamId, message) }}
             containerRef={(element) => { messageLogElement = element }}
-            onScroll={() => { if (followLatest() && !autoScrolling) setFollowLatest(false) }}
+            onUserScroll={() => { userScrolling = true }}
+            onScroll={() => {
+              const element = messageLogElement
+              if (!element || !userScrolling || !followLatest()) return
+              if (!isAtLatestMessageScroll(order(), element.scrollTop, element.scrollHeight, element.clientHeight)) {
+                setFollowLatest(false)
+              }
+            }}
           />
           <Show when={selectedMessage()} keyed>
             {(message) => (

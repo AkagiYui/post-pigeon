@@ -7,6 +7,7 @@ import {
   extractStreamJSONPath,
   filterAndSortStreamMessages,
   inferMessageFormat,
+  isAtLatestMessageScroll,
   latestMessageScrollTop,
   mergeStreamCompletion,
   messageContentForDisplay,
@@ -51,6 +52,14 @@ describe("WebSocket message view", () => {
     expect(latestMessageScrollTop("asc", 1200, 300)).toBe(900)
     expect(latestMessageScrollTop("desc", 1200, 300)).toBe(0)
     expect(latestMessageScrollTop("asc", 200, 300)).toBe(0)
+  })
+
+  it("容忍几像素误差判断是否仍停在最新一端", () => {
+    expect(isAtLatestMessageScroll("asc", 900, 1200, 300)).toBe(true)
+    expect(isAtLatestMessageScroll("asc", 895, 1200, 300)).toBe(true)
+    expect(isAtLatestMessageScroll("asc", 400, 1200, 300)).toBe(false)
+    expect(isAtLatestMessageScroll("desc", 0, 1200, 300)).toBe(true)
+    expect(isAtLatestMessageScroll("desc", 120, 1200, 300)).toBe(false)
   })
 
   it("二进制消息按选定编码解码，文本消息保留原文", () => {
