@@ -33,21 +33,37 @@ class NoopObserver {
 globalThis.ResizeObserver ??= NoopObserver as unknown as typeof ResizeObserver
 globalThis.IntersectionObserver ??= NoopObserver as unknown as typeof IntersectionObserver
 
-// @wailsio/runtime 在被导入时就起了一个轮询 setInterval（drag.js 在等 Wails 环境就绪，
-// 最多轮询 100 次）。而 vitest 每个测试文件跑完就销毁 jsdom 环境，这个 interval 若在
-// 之后触发，就会抛 "window is not defined" —— 表现为一次随机出现、与断言无关的
-// unhandled error，把整轮测试判成失败。
+// 有些依赖在导入后会留下自己的定时器，而 vitest 每个测试文件跑完就销毁 jsdom 环境，
+// 这些定时器若在之后触发，就会抛 "window is not defined" / "document is not defined"
+// —— 表现为一次随机出现、与断言无关的 unhandled error，把整轮测试判成失败：
+// - @wailsio/runtime 被导入时就起了一个轮询 setInterval（drag.js 在等 Wails 环境就绪，
+//   最多轮询 100 次）；
+// - iconify-icon 拿到图标数据后用 setTimeout 延后回调，回调里才往 document 写 SVG。
 //
-// 这里把测试期间创建的 interval 记下来，测试文件收尾时统一清掉。
+// 这里把测试期间创建的定时器记下来，测试文件收尾时统一清掉。
 const pendingIntervals = new Set<number>()
+const pendingTimeouts = new Set<number>()
 const nativeSetInterval = window.setInterval.bind(window)
+const nativeSetTimeout = window.setTimeout.bind(window)
+const nativeClearTimeout = window.clearTimeout.bind(window)
 window.setInterval = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
   const id = nativeSetInterval(handler, timeout, ...args)
   pendingIntervals.add(id)
   return id
 }) as typeof window.setInterval
+window.setTimeout = ((handler: TimerHandler, timeout?: number, ...args: unknown[]) => {
+  const id = nativeSetTimeout(handler, timeout, ...args)
+  pendingTimeouts.add(id)
+  return id
+}) as typeof window.setTimeout
+window.clearTimeout = ((id?: number) => {
+  if (id !== undefined) pendingTimeouts.delete(id)
+  nativeClearTimeout(id)
+}) as typeof window.clearTimeout
 
 afterAll(() => {
   pendingIntervals.forEach(id => window.clearInterval(id))
   pendingIntervals.clear()
+  pendingTimeouts.forEach(id => nativeClearTimeout(id))
+  pendingTimeouts.clear()
 })
