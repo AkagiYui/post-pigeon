@@ -457,6 +457,7 @@ func TestHTTP_QueryParams(t *testing.T) {
 		Method: "GET", BaseURL: srv.URL, Path: "/echo",
 		Params: []models.EndpointParam{
 			{Type: "query", Name: "a", Value: "1", Enabled: true},
+			{Type: "query", Name: "tag", Value: `["red","blue"]`, DataType: "array", Enabled: true},
 			{Type: "query", Name: "b", Value: "2", Enabled: false}, // 禁用，不应发送
 		},
 	})
@@ -470,6 +471,9 @@ func TestHTTP_QueryParams(t *testing.T) {
 	}
 	if q["b"] != nil {
 		t.Errorf("禁用的查询参数 b 不应发送: %v", q)
+	}
+	if tags, ok := q["tag"].([]any); !ok || !reflect.DeepEqual(tags, []any{"red", "blue"}) {
+		t.Errorf("数组查询参数应展开为两个同名键: %v", q)
 	}
 }
 

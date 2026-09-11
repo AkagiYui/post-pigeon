@@ -213,6 +213,7 @@ export function ResponsePanel(props: ResponsePanelProps) {
                     value={displayBody()}
                     language={props.renderMode === "raw" ? "text" : bodyLanguage()}
                     readOnly
+                    selectionContextMenu
                     class="h-full border-0 rounded-none bg-transparent"
                   />
                 </Show>

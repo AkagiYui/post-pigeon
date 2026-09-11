@@ -193,11 +193,7 @@ func (s *WebSocketService) Connect(connID string, data SendRequestData, autoConv
 		return nil, apperr.Wrap(err, apperr.CodeInvalidURL, apperr.P("url", urlStr))
 	}
 	query := parsedURL.Query()
-	for _, param := range data.Params {
-		if param.Enabled && param.Type == "query" {
-			query.Add(param.Name, resolveVars(param.Value, vars))
-		}
-	}
+	addEndpointQueryParams(query, data.Params, vars)
 	for _, item := range reqCtx.Query {
 		query.Add(item.Key, resolveVars(item.Value, vars))
 	}

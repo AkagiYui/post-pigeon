@@ -34,6 +34,7 @@ func buildCollectionExportFixture(t *testing.T) (*ImportExportService, *models.M
 		Params: []models.EndpointParam{
 			{Type: "path", Name: "id", Value: "42", Enabled: true, Required: true, DataType: "string"},
 			{Type: "query", Name: "dry", Value: "true", Enabled: true, DataType: "boolean"},
+			{Type: "query", Name: "tag", Value: `["red","blue"]`, Enabled: true, DataType: "array"},
 		},
 		Headers:            []models.EndpointHeader{{Name: "X-Trace", Value: "one", Enabled: true}},
 		Auth:               &models.EndpointAuth{Type: string(models.AuthTypeBearer), Data: models.ToJSON(models.BearerAuthData{Token: "{{token}}"})},
@@ -106,6 +107,9 @@ func TestExportPostmanCollectionRoundTrip(t *testing.T) {
 	if request.Request.Auth == nil || request.Request.Auth.Type != "bearer" || len(request.Event) != 2 {
 		t.Fatalf("auth or scripts missing: %+v", request)
 	}
+	if len(request.Request.URL.Query) != 3 || request.Request.URL.Query[1].Key != "tag" || request.Request.URL.Query[1].Value != "red" || request.Request.URL.Query[2].Value != "blue" {
+		t.Fatalf("array query was not exported as repeated Postman keys: %+v", request.Request.URL.Query)
+	}
 }
 
 func TestExportHARRoundTripAndMarkdown(t *testing.T) {
@@ -123,7 +127,7 @@ func TestExportHARRoundTripAndMarkdown(t *testing.T) {
 		t.Fatalf("HAR round trip lost folder/request: err=%v collection=%+v", err, collection)
 	}
 	request := collection.Item[0].Item[0].Request
-	if request == nil || !strings.Contains(request.URL.Raw, "https://api.example.com/v1/orders/{id}") || len(request.URL.Query) != 1 {
+	if request == nil || !strings.Contains(request.URL.Raw, "https://api.example.com/v1/orders/{id}") || len(request.URL.Query) != 3 {
 		t.Fatalf("HAR round trip lost URL/query: %+v", request)
 	}
 

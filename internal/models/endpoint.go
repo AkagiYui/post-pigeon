@@ -160,7 +160,8 @@ type EndpointParam struct {
 	Value       string `json:"value"`
 	Description string `json:"description"`
 	Enabled     bool   `json:"enabled"`
-	// DataType 值类型：string, integer, number, boolean, array, object, file
+	// DataType 值类型：string, integer, number, boolean, array, object, file。
+	// query array 的 Value 是 JSON 数组，发送时按 form + explode=true 展开为重复键。
 	DataType string `gorm:"default:string" json:"dataType"`
 	// Required 是否必填
 	Required bool `json:"required"`

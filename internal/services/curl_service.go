@@ -71,11 +71,7 @@ func (s *CurlService) ToCurl(data SendRequestData) (string, error) {
 		return "", apperr.Wrap(err, apperr.CodeInvalidURL, apperr.P("url", fullURL))
 	}
 	query := parsed.Query()
-	for _, param := range data.Params {
-		if param.Enabled && param.Type == "query" {
-			query.Add(param.Name, resolveVars(param.Value, vars))
-		}
-	}
+	addEndpointQueryParams(query, data.Params, vars)
 
 	// 导出的命令要和实际发送的请求一致，URL 自动编码档位也得按同一条链解析
 	epEncoding := data.URLEncoding

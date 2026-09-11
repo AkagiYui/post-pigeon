@@ -5,6 +5,7 @@ import { createSignal, For, Match, onMount, Show, Switch } from "solid-js"
 import type { RequestHistory } from "@/../bindings/PostPigeon/internal/models"
 import { RequestHistoryService } from "@/../bindings/PostPigeon/internal/services"
 import { Badge } from "@/components/ui/badge"
+import { CodeEditor, type CodeLanguage } from "@/components/ui/code-editor"
 import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"
 import { Tabs } from "@/components/ui/tabs"
@@ -87,6 +88,13 @@ export function HistoryDetail(props: HistoryDetailProps) {
     } catch {
       return str
     }
+  }
+
+  const responseBodyLanguage = (): CodeLanguage => {
+    if (renderMode() === "raw") return "text"
+    if (format() === "xml") return "xml"
+    if (format() === "html") return "html"
+    return "json"
   }
 
   // 解析 JSON 字符串为对象
@@ -215,26 +223,35 @@ export function HistoryDetail(props: HistoryDetailProps) {
                                     </Show>
                                   </div>
                                   {/* 响应体内容 */}
-                                  <div class="flex-1 overflow-auto p-3">
+                                  <div class="flex-1 min-h-0 overflow-hidden">
                                     <Show
                                       when={renderMode() === "preview"}
                                       fallback={
-                                        <pre class="text-sm font-mono whitespace-pre-wrap break-all text-foreground">
-                                          <Show when={detail()!.responseBody} fallback={t("response.empty")}>
-                                            {renderMode() === "pretty" ? formatBody(detail()!.responseBody, format()) : detail()!.responseBody}
-                                          </Show>
-                                        </pre>
+                                        <Show
+                                          when={detail()!.responseBody}
+                                          fallback={<div class="p-3 text-sm text-muted-foreground">{t("response.empty")}</div>}
+                                        >
+                                          <CodeEditor
+                                            value={renderMode() === "pretty" ? formatBody(detail()!.responseBody, format()) : detail()!.responseBody}
+                                            language={responseBodyLanguage()}
+                                            readOnly
+                                            selectionContextMenu
+                                            class="h-full border-0 rounded-none bg-transparent"
+                                          />
+                                        </Show>
                                       }
                                     >
                                       {/* 预览模式：使用 iframe 渲染 HTML */}
-                                      <Show when={detail()!.responseBody} fallback={<div class="text-muted-foreground">{t("response.empty")}</div>}>
-                                        <iframe
-                                          class="w-full h-full min-h-48 border rounded bg-white"
-                                          srcdoc={detail()!.responseBody}
-                                          sandbox="allow-same-origin"
-                                          title="Preview"
-                                        />
-                                      </Show>
+                                      <div class="h-full overflow-auto p-3">
+                                        <Show when={detail()!.responseBody} fallback={<div class="text-muted-foreground">{t("response.empty")}</div>}>
+                                          <iframe
+                                            class="w-full h-full min-h-48 border rounded bg-white"
+                                            srcdoc={detail()!.responseBody}
+                                            sandbox="allow-same-origin"
+                                            title="Preview"
+                                          />
+                                        </Show>
+                                      </div>
                                     </Show>
                                   </div>
                                 </div>

@@ -189,6 +189,13 @@ func paramExample(p openAPIParam) string {
 	return ""
 }
 
+func openAPIParamDataType(p openAPIParam) string {
+	if p.Schema != nil && strings.TrimSpace(p.Schema.Type) != "" {
+		return p.Schema.Type
+	}
+	return defaultStr(p.Type, "string")
+}
+
 // toStringValue 将任意 JSON 值转为字符串
 func toStringValue(v any) string {
 	switch val := v.(type) {
@@ -361,19 +368,32 @@ func buildParsedEndpoint(path string, method string, op openAPIOperation) parsed
 		p := op.Parameters[i]
 		switch p.In {
 		case "query":
+			value := paramExample(p)
 			ep.Params = append(ep.Params, models.EndpointParam{
 				Type:        "query",
 				Name:        p.Name,
-				Value:       paramExample(p),
+				Value:       value,
 				Description: p.Description,
 				Enabled:     true,
+				DataType:    openAPIParamDataType(p),
+				Required:    p.Required,
+				Example:     value,
+			})
+		case "path", "cookie":
+			value := paramExample(p)
+			ep.Params = append(ep.Params, models.EndpointParam{
+				Type: p.In, Name: p.Name, Value: value, Description: p.Description,
+				Enabled: true, DataType: openAPIParamDataType(p), Required: p.Required, Example: value,
 			})
 		case "header":
+			value := paramExample(p)
 			ep.Headers = append(ep.Headers, models.EndpointHeader{
 				Name:        p.Name,
-				Value:       paramExample(p),
+				Value:       value,
 				Description: p.Description,
 				Enabled:     true,
+				Required:    p.Required,
+				Example:     value,
 			})
 		case "formData": // Swagger 2.0 表单字段
 			fieldType := "text"

@@ -25,7 +25,8 @@ const swagger2Doc = `{
       "get": {
         "summary": "用户列表",
         "parameters": [
-          {"name": "page", "in": "query", "type": "integer", "x-example": 1}
+          {"name": "page", "in": "query", "type": "integer", "x-example": 1},
+          {"name": "tag", "in": "query", "type": "array", "x-example": ["red", "blue"], "items": {"type": "string"}}
         ]
       }
     }
@@ -112,6 +113,18 @@ func TestParseSwagger2(t *testing.T) {
 	}
 	if len(qr.BodyFields) != 2 {
 		t.Errorf("表单字段数 = %d，期望 2", len(qr.BodyFields))
+	}
+	var list *parsedEndpoint
+	for i := range eps {
+		if eps[i].Path == "/api/user/list" {
+			list = &eps[i]
+		}
+	}
+	if list == nil || len(list.Params) != 2 {
+		t.Fatalf("未解析用户列表 Query 参数: %+v", list)
+	}
+	if list.Params[1].DataType != "array" || list.Params[1].Value != `["red","blue"]` || list.Params[1].Example != `["red","blue"]` {
+		t.Errorf("OpenAPI 数组 Query 元数据解析错误: %+v", list.Params[1])
 	}
 }
 

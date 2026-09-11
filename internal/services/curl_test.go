@@ -167,6 +167,7 @@ func TestToCurlRoundTrip(t *testing.T) {
 		},
 		Params: []models.EndpointParam{
 			{Type: "query", Name: "dry", Value: "1", Enabled: true},
+			{Type: "query", Name: "tag", Value: `["red","blue"]`, DataType: "array", Enabled: true},
 			{Type: "cookie", Name: "sid", Value: "s1", Enabled: true},
 		},
 		BodyType:        string(models.BodyTypeJSON),
@@ -180,7 +181,7 @@ func TestToCurlRoundTrip(t *testing.T) {
 
 	for _, want := range []string{
 		"curl -X POST",
-		"https://api.example.com/orders?dry=1",
+		"https://api.example.com/orders?dry=1&tag=red&tag=blue",
 		"-H 'X-Trace: abc'",
 		"-b 'sid=s1'",
 		`--data-raw '{"n":1}'`,
@@ -203,6 +204,9 @@ func TestToCurlRoundTrip(t *testing.T) {
 	}
 	if back.Method != "POST" || back.URL != "https://api.example.com/orders" {
 		t.Errorf("回解析结果=%s %s", back.Method, back.URL)
+	}
+	if len(back.Params) < 2 || back.Params[1].Name != "tag" || back.Params[1].DataType != "array" || back.Params[1].Value != `["red","blue"]` {
+		t.Errorf("重复 Query 键应回解析为数组参数: %+v", back.Params)
 	}
 	if back.BodyContent != `{"n":1}` {
 		t.Errorf("回解析请求体=%q", back.BodyContent)

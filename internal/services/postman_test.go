@@ -112,6 +112,23 @@ func TestPreviewPostmanRejectsOtherFormats(t *testing.T) {
 	}
 }
 
+func TestPostmanQueryParamsMergesRepeatedKeys(t *testing.T) {
+	params := postmanQueryParams([]postmanKV{
+		{Key: "tag", Value: "red", Description: "filter"},
+		{Key: "tag", Value: "blue", Description: "filter"},
+		{Key: "tag", Value: "off", Description: "filter", Disabled: true},
+	})
+	if len(params) != 2 {
+		t.Fatalf("params = %+v", params)
+	}
+	if params[0].DataType != "array" || params[0].Value != `["red","blue"]` {
+		t.Fatalf("enabled repeated keys were not merged: %+v", params[0])
+	}
+	if params[1].Enabled || params[1].Value != "off" {
+		t.Fatalf("different disabled state should stay separate: %+v", params[1])
+	}
+}
+
 func TestImportPostman(t *testing.T) {
 	db := newTestDB(t)
 	project := mustCreateProject(t, db, "postman")

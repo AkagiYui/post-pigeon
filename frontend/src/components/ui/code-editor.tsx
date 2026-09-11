@@ -9,9 +9,13 @@ import { Compartment, type Extension } from "@codemirror/state"
 import { oneDark } from "@codemirror/theme-one-dark"
 import { EditorView, keymap, placeholder as cmPlaceholder } from "@codemirror/view"
 import { basicSetup } from "codemirror"
-import { createEffect, onCleanup, onMount } from "solid-js"
+import { createEffect, createSignal, onCleanup, onMount, Show } from "solid-js"
 
+import { ContextMenu, type MenuItem } from "@/components/ui/context-menu"
+import { t } from "@/hooks/useI18n"
+import { copyText } from "@/lib/clipboard"
 import { cn } from "@/lib/utils"
+import { toastError } from "@/stores/toast"
 
 export type CodeLanguage = "javascript" | "json" | "jsonc" | "xml" | "html" | "markdown" | "text"
 
@@ -21,6 +25,8 @@ export interface CodeEditorProps {
   language?: CodeLanguage
   placeholder?: string
   readOnly?: boolean
+  /** 为只读内容提供复制、全选右键菜单；应用入口默认禁用了浏览器原生菜单。 */
+  selectionContextMenu?: boolean
   class?: string
 }
 
@@ -46,8 +52,43 @@ function isDark(): boolean {
 export function CodeEditor(props: CodeEditorProps) {
   let el: HTMLDivElement | undefined
   let view: EditorView | undefined
+  const [hasSelection, setHasSelection] = createSignal(false)
   // 语言隔间：允许在不重建编辑器的情况下热切换高亮方案（如响应体按 JSON/XML/HTML 切换）
   const langCompartment = new Compartment()
+
+  const selectedText = () => view?.state.selection.ranges
+    .filter(range => !range.empty)
+    .map(range => view!.state.sliceDoc(range.from, range.to))
+    .join("\n") ?? ""
+
+  const copySelection = () => {
+    const text = selectedText()
+    if (!text) return
+    void copyText(text).catch(error => toastError(error, "error.op.copyFailed"))
+  }
+
+  const selectAll = () => {
+    if (!view) return
+    view.dispatch({ selection: { anchor: 0, head: view.state.doc.length } })
+    view.focus()
+  }
+
+  const primaryKey = /mac/i.test(navigator.platform) ? "⌘" : "Ctrl"
+  const contextMenuItems = (): MenuItem[] => [
+    {
+      key: "copy",
+      label: t("common.copy"),
+      accelerator: `${primaryKey}+C`,
+      disabled: !hasSelection(),
+      onClick: copySelection,
+    },
+    {
+      key: "select-all",
+      label: t("common.selectAll"),
+      accelerator: `${primaryKey}+A`,
+      onClick: selectAll,
+    },
+  ]
 
   onMount(() => {
     if (!el) return
@@ -64,6 +105,9 @@ export function CodeEditor(props: CodeEditorProps) {
       }),
       EditorView.updateListener.of((u) => {
         if (u.docChanged) props.onChange?.(u.state.doc.toString())
+        if (u.docChanged || u.selectionSet) {
+          setHasSelection(u.state.selection.ranges.some(range => !range.empty))
+        }
       }),
     ]
     if (props.placeholder) extensions.push(cmPlaceholder(props.placeholder))
@@ -89,5 +133,15 @@ export function CodeEditor(props: CodeEditorProps) {
 
   onCleanup(() => view?.destroy())
 
-  return <div ref={el} class={cn("h-full w-full overflow-hidden rounded-md border border-border bg-input", props.class)} />
+  const editor = <div ref={el} class={cn("h-full w-full overflow-hidden rounded-md border border-border bg-input", props.class)} />
+  return (
+    <Show
+      when={props.selectionContextMenu}
+      fallback={editor}
+    >
+      <ContextMenu items={contextMenuItems()} class="h-full w-full overflow-hidden">
+        {editor}
+      </ContextMenu>
+    </Show>
+  )
 }

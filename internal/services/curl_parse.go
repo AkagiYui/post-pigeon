@@ -171,11 +171,7 @@ func (s *CurlService) ParseCurl(command string) (*CurlRequest, error) {
 	}
 
 	// 查询参数拆到 Params，URL 只保留 scheme://host/path
-	for key, values := range parsed.Query() {
-		for _, value := range values {
-			req.Params = append(req.Params, models.EndpointParam{Type: "query", Name: key, Value: value, Enabled: true})
-		}
-	}
+	req.Params = append(req.Params, endpointParamsFromQuery(parsed.Query())...)
 	parsed.RawQuery = ""
 	req.URL = parsed.String()
 
@@ -213,11 +209,7 @@ func (s *CurlService) ParseCurl(command string) (*CurlRequest, error) {
 		req.BodyType, req.BodyFields, req.BodyContent = classifyBody(body, req.ContentType)
 	case body != "" && forceGet:
 		// -G 把 --data 拼到查询串上而不是作为请求体
-		for key, values := range parseQueryLoose(body) {
-			for _, value := range values {
-				req.Params = append(req.Params, models.EndpointParam{Type: "query", Name: key, Value: value, Enabled: true})
-			}
-		}
+		req.Params = append(req.Params, endpointParamsFromQuery(parseQueryLoose(body))...)
 	}
 
 	if req.Method == "" {

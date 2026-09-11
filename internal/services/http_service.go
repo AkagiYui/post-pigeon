@@ -414,11 +414,7 @@ func (s *HTTPService) SendRequest(data SendRequestData) (*HTTPResponseData, erro
 
 	// 添加查询参数
 	query := parsedURL.Query()
-	for _, param := range data.Params {
-		if param.Enabled && param.Type == "query" {
-			query.Add(param.Name, resolveVars(param.Value, vars))
-		}
-	}
+	addEndpointQueryParams(query, data.Params, vars)
 	// 前置脚本通过 pm.request.url.query.add(...) 追加的查询参数
 	for _, q := range reqCtx.Query {
 		query.Add(q.Key, resolveVars(q.Value, vars))

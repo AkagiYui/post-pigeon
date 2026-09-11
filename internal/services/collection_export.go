@@ -122,14 +122,17 @@ func (s *ImportExportService) postmanExportItem(endpoint models.Endpoint) map[st
 		if param.Name == "" {
 			continue
 		}
-		item := map[string]any{
-			"key": param.Name, "value": param.Value, "description": param.Description, "disabled": !param.Enabled,
-		}
 		switch param.Type {
 		case "query":
-			query = append(query, item)
+			for _, value := range queryParamValues(param, nil) {
+				query = append(query, map[string]any{
+					"key": param.Name, "value": value, "description": param.Description, "disabled": !param.Enabled,
+				})
+			}
 		case "path":
-			pathVariables = append(pathVariables, item)
+			pathVariables = append(pathVariables, map[string]any{
+				"key": param.Name, "value": param.Value, "description": param.Description, "disabled": !param.Enabled,
+			})
 		}
 	}
 	headers := make([]any, 0, len(detail.Headers))
@@ -459,11 +462,7 @@ func joinExportURL(baseURL, path string, params []models.EndpointParam) string {
 		return raw
 	}
 	query := parsed.Query()
-	for _, param := range params {
-		if param.Enabled && param.Type == "query" && param.Name != "" {
-			query.Add(param.Name, param.Value)
-		}
-	}
+	addEndpointQueryParams(query, params, nil)
 	parsed.RawQuery = query.Encode()
 	return strings.NewReplacer("%7B", "{", "%7D", "}", "%7b", "{", "%7d", "}").Replace(parsed.String())
 }
@@ -482,7 +481,9 @@ func harExportQuery(params []models.EndpointParam) []any {
 	result := make([]any, 0)
 	for _, param := range params {
 		if param.Enabled && param.Type == "query" && param.Name != "" {
-			result = append(result, map[string]any{"name": param.Name, "value": param.Value})
+			for _, value := range queryParamValues(param, nil) {
+				result = append(result, map[string]any{"name": param.Name, "value": value})
+			}
 		}
 	}
 	return result

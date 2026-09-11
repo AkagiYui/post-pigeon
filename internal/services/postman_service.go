@@ -100,6 +100,48 @@ type postmanKV struct {
 	ContentType string `json:"contentType"`
 }
 
+// postmanQueryParams 把相同元数据的重复 Query key 收成数组参数。若同名项的启用状态
+// 或描述不同则保留为独立行，避免合并时丢掉 Postman 原有语义。
+func postmanQueryParams(query []postmanKV) []models.EndpointParam {
+	type groupKey struct {
+		name, description string
+		disabled          bool
+	}
+	type group struct {
+		key    groupKey
+		values []string
+	}
+	groups := make([]group, 0, len(query))
+	indexes := make(map[groupKey]int)
+	for _, param := range query {
+		if strings.TrimSpace(param.Key) == "" {
+			continue
+		}
+		key := groupKey{name: param.Key, description: param.Description, disabled: param.Disabled}
+		if index, ok := indexes[key]; ok {
+			groups[index].values = append(groups[index].values, param.Value)
+			continue
+		}
+		indexes[key] = len(groups)
+		groups = append(groups, group{key: key, values: []string{param.Value}})
+	}
+
+	result := make([]models.EndpointParam, 0, len(groups))
+	for _, item := range groups {
+		param := models.EndpointParam{
+			Type: "query", Name: item.key.name, Description: item.key.description,
+			Enabled: !item.key.disabled, DataType: "string", Value: item.values[0],
+		}
+		if len(item.values) > 1 {
+			encoded, _ := json.Marshal(item.values)
+			param.DataType = "array"
+			param.Value = string(encoded)
+		}
+		result = append(result, param)
+	}
+	return result
+}
+
 // postmanURL 既可能是字符串，也可能是结构体，需自定义解码。
 type postmanURL struct {
 	Raw      string
@@ -323,15 +365,10 @@ func (s *PostmanService) createEndpointFromPostman(
 		return apperr.Wrap(err, apperr.CodeImportFailed)
 	}
 
-	// 查询参数
-	for _, param := range query {
-		if strings.TrimSpace(param.Key) == "" {
-			continue
-		}
-		record := &models.EndpointParam{
-			EndpointID: endpoint.ID, Type: "query",
-			Name: param.Key, Value: param.Value, Enabled: !param.Disabled,
-		}
+	// 查询参数：Postman 中的重复 key 收成一条 array，进入详情页后可直接逐值编辑。
+	for _, param := range postmanQueryParams(query) {
+		param.EndpointID = endpoint.ID
+		record := &param
 		if err := tx.Create(record).Error; err != nil {
 			return apperr.Wrap(err, apperr.CodeImportFailed)
 		}

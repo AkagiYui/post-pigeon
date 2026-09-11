@@ -13,11 +13,18 @@ import type { ParamRow } from "@/components/endpoint/EndpointDetail"
 import { KeyValueTable } from "@/components/endpoint/KeyValueTable"
 import { Checkbox } from "@/components/ui/checkbox"
 import { Input } from "@/components/ui/input"
+import { Select } from "@/components/ui/select"
 import { Table } from "@/components/ui/table"
 import { Tooltip } from "@/components/ui/tooltip"
 import { t } from "@/hooks/useI18n"
 import type { ParamLocation } from "@/lib/types"
 import { cn, extractPathParams } from "@/lib/utils"
+
+import { queryParamValueForTypeChange } from "./query-param-array"
+import { QueryArrayInput } from "./QueryArrayInput"
+
+/** Query 参数可直接编辑的值类型；array 会按 form + explode=true 发为重复键。 */
+const queryParamTypes = ["string", "integer", "number", "boolean", "array", "object"] as const
 
 export interface ParamsEditorProps {
   value: ParamRow[]
@@ -96,6 +103,42 @@ export function ParamsEditor(props: ParamsEditorProps) {
         rows={rowsOf("query")}
         makeRow={() => makeRow("query")}
         onChange={rows => emit("query", rows)}
+        renderValue={(row, context) => (
+          <Show
+            when={row.dataType === "array"}
+            fallback={
+              <Input
+                size="sm"
+                type={row.dataType === "integer" || row.dataType === "number" ? "number" : "text"}
+                step={row.dataType === "number" ? "any" : undefined}
+                value={row.value}
+                class="border-transparent bg-transparent font-mono hover:border-control-border focus-visible:bg-input"
+                onInput={event => context.update({ value: event.currentTarget.value })}
+                onKeyDown={(event) => {
+                  if (event.key !== "Enter") return
+                  event.preventDefault()
+                  context.focusNext(event.currentTarget)
+                }}
+              />
+            }
+          >
+            <QueryArrayInput value={row.value} onChange={value => context.update({ value })} />
+          </Show>
+        )}
+        extraColumns={(context) => [{
+          header: t("common.type"), width: "112px", render: (row) => (
+            <Select
+              aria-label={t("common.type")}
+              options={queryParamTypes.map(value => ({ value, label: t(`endpoint.body.fieldType.${value}`) }))}
+              value={queryParamTypes.includes(row.dataType as typeof queryParamTypes[number]) ? row.dataType : "string"}
+              onChange={(dataType) => context.update(row, {
+                dataType,
+                value: queryParamValueForTypeChange(row.value, row.dataType, dataType),
+              })}
+              size="sm"
+            />
+          ),
+        }]}
         showRequired
         showExample
       />
